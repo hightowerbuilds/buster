@@ -7,7 +7,6 @@ import CommandPalette from "./ui/CommandPalette";
 import PanelLayout from "./ui/PanelLayout";
 import LayoutPicker from "./ui/LayoutPicker";
 import WelcomeCanvas from "./ui/WelcomeCanvas";
-import Manual from "./ui/Manual";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
@@ -200,12 +199,10 @@ const App: Component = () => {
               activeTabId={store.activeTabId}
               renderPanel={renderPanel}
               welcome={
-                store.tourActive
-                  ? <Manual onClose={() => setStore("tourActive", false)} />
-                  : <WelcomeCanvas
-                      recentFolders={store.settings.recent_folders}
-                      onOpenFolder={(path) => actions.openWorkspace(path)}
-                    />
+                <WelcomeCanvas
+                  recentFolders={store.settings.recent_folders}
+                  onOpenFolder={(path) => actions.openWorkspace(path)}
+                />
               }
             />
           </div>
@@ -232,9 +229,8 @@ const App: Component = () => {
         <button class="dock-btn" onClick={actions.createGitTab} aria-label="Open Git panel">Git</button>
         <button class="dock-btn" onClick={actions.createExtensionsTab} aria-label="Open Extensions panel">Extensions</button>
         <button class="dock-btn" onClick={actions.createSettingsTab} aria-label="Open Settings">Settings</button>
-        <button class="dock-btn" onClick={actions.createLegendTab} aria-label="Open Hotkey Legend">Legend</button>
         <button class="dock-btn" onClick={actions.createAiTab} aria-label="Open AI Agent">Models</button>
-        <button class="dock-btn" onClick={() => setStore("tourActive", true)} aria-label="Open Manual">Manual</button>
+        <button class="dock-btn" onClick={actions.createManualTab} aria-label="Open Manual">Manual</button>
         <div class="dock-spacer" />
         <LayoutPicker
           current={store.layoutMode}
@@ -248,7 +244,7 @@ const App: Component = () => {
         onFileSelect={actions.handleFileSelect}
         onGoToLine={handleGoToLine}
         onNewTerminal={actions.createTerminalTab}
-        onOpenManual={() => setStore("tourActive", true)}
+        onOpenManual={() => actions.createManualTab()}
         onNewAiChat={actions.createAiTab}
         onGitGraph={actions.createGitTab}
         initialQuery={store.paletteInitialQuery}

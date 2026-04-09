@@ -10,7 +10,7 @@ import AiChat from "./AiChat";
 import SettingsPanel from "./SettingsPanel";
 import GitPage from "./GitPage";
 import ExtensionsPage from "./ExtensionsPage";
-import LegendTab from "./LegendTab";
+import ManualTab from "./ManualTab";
 import ProblemsPanel from "./ProblemsPanel";
 import SearchResultsPanel from "./SearchResultsPanel";
 import Sidebar from "./Sidebar";
@@ -154,8 +154,8 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
       );
     }
 
-    if (tab.type === "legend") {
-      return <LegendTab />;
+    if (tab.type === "manual") {
+      return <ManualTab />;
     }
 
     if (tab.type === "explorer") {
