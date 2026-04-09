@@ -726,47 +726,29 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   setupMenuHandlers({ activeEngine, changeDirectory, closeDirectory })
     .then(handles => menuListeners.push(...handles));
 
-  // Session restore
+  // Session restore — restore layout preferences only, not workspace or files.
+  // Users must explicitly open a folder to start each session.
   (async () => {
     try {
       const session = await loadSessionFromDisk();
       if (!session) return;
-      if (session.workspace_root) {
-        setStore("workspaceRoot", session.workspace_root);
-        refreshGitBranch(session.workspace_root);
-      }
+      // Do NOT restore workspace_root — users must open a folder explicitly
       setStore("layoutMode", (session.layout_mode as LayoutMode) || "tabs");
       setStore("sidebarVisible", session.sidebar_visible ?? true);
       const sw = session.sidebar_width;
       setStore("sidebarWidth", sw && sw >= 140 && sw <= 600 ? sw : 355);
 
+      // Only restore non-workspace tabs (terminals, AI, settings, manual, etc.)
+      // File and image tabs are skipped since no workspace is open on startup.
       for (const stab of session.tabs) {
-        if (stab.type === "file" && stab.path) {
-          try {
-            let content: string;
-            if (stab.dirty && stab.backup_key) {
-              const backup = await loadBackup(stab.backup_key);
-              if (backup != null) { content = backup; await deleteBackup(stab.backup_key); }
-              else { content = (await loadFileContent(stab.path)).content; }
-            } else {
-              content = (await loadFileContent(stab.path)).content;
-            }
-            setStore("fileTexts", stab.id, content);
-            setStore("scrollPositions", stab.id, stab.scroll_top);
-            setStore("tabs", produce(tabs => {
-              tabs.push({ id: stab.id, name: stab.name, path: stab.path, dirty: stab.dirty, type: "file" });
-            }));
-            watchFile(stab.path).catch(() => {});
-          } catch { /* File no longer exists, skip */ }
+        if (stab.type === "file" || stab.type === "image") {
+          // Skip — requires a workspace to be open
+          continue;
         } else if (stab.type === "terminal") {
           setStore("terminalCounter", c => c + 1);
           const tabId = `term_tab_${store.terminalCounter}`;
           setStore("tabs", produce(tabs => {
             tabs.push({ id: tabId, name: stab.name || "Terminal", path: "", dirty: false, type: "terminal" });
-          }));
-        } else if (stab.type === "image" && stab.path) {
-          setStore("tabs", produce(tabs => {
-            tabs.push({ id: stab.id, name: stab.name, path: stab.path, dirty: false, type: "image" });
           }));
         } else if (["ai", "settings", "git", "extensions", "manual", "github", "explorer"].includes(stab.type)) {
           setStore("tabs", produce(tabs => {
