@@ -2,44 +2,41 @@ import { Component, onMount, onCleanup } from "solid-js";
 
 const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}[]()<>/*+-=_|\\;:'\",.<>?!@#$%^&~`";
 
-// Baseball team palettes
+// All MLB team palettes (except Houston Astros)
 const TEAMS = [
-  { // Seattle Mariners
-    name: "Mariners",
-    colors: ["#005C5C", "#00857A", "#00A896", "#4A9AD9", "#6BB3F0", "#C4CED4", "#E8EDF2", "#FFFFFF"],
-  },
-  { // San Diego Padres
-    name: "Padres",
-    colors: ["#2F241D", "#FFC425", "#A37B45", "#D4AA6A", "#E8D5A3", "#FFFFFF", "#473729", "#8B6914"],
-  },
-  { // LA Dodgers
-    name: "Dodgers",
-    colors: ["#005A9C", "#EF3E42", "#A5ACAF", "#FFFFFF", "#003DA5", "#1E73BE", "#73B1E2", "#C4CED4"],
-  },
-  { // Chicago White Sox
-    name: "White Sox",
-    colors: ["#27251F", "#C4CED4", "#FFFFFF", "#808080", "#A0A0A0", "#E0E0E0", "#4A4A4A", "#D0D0D0"],
-  },
-  { // NY Mets
-    name: "Mets",
-    colors: ["#002D72", "#FF5910", "#FFFFFF", "#4A8FE7", "#FF8C55", "#C4CED4", "#003B8E", "#E8EDF2"],
-  },
-  { // Cincinnati Reds
-    name: "Reds",
-    colors: ["#C6011F", "#000000", "#FFFFFF", "#E8384A", "#8B0000", "#C4CED4", "#FF4444", "#E0E0E0"],
-  },
-  { // Pittsburgh Pirates
-    name: "Pirates",
-    colors: ["#27251F", "#FDB827", "#FFFFFF", "#C4A32A", "#E8D44D", "#808080", "#473B1D", "#C4CED4"],
-  },
-  { // Oakland Athletics
-    name: "Athletics",
-    colors: ["#003831", "#EFB21E", "#FFFFFF", "#00594C", "#C4A32A", "#4A7A6F", "#F5D76E", "#C4CED4"],
-  },
+  { name: "Mariners",     colors: ["#005C5C", "#00857A", "#00A896", "#4A9AD9", "#6BB3F0", "#C4CED4", "#E8EDF2", "#FFFFFF"] },
+  { name: "Padres",       colors: ["#2F241D", "#FFC425", "#A37B45", "#D4AA6A", "#E8D5A3", "#FFFFFF", "#473729", "#8B6914"] },
+  { name: "Dodgers",      colors: ["#005A9C", "#EF3E42", "#A5ACAF", "#FFFFFF", "#003DA5", "#1E73BE", "#73B1E2", "#C4CED4"] },
+  { name: "White Sox",    colors: ["#27251F", "#C4CED4", "#FFFFFF", "#808080", "#A0A0A0", "#E0E0E0", "#4A4A4A", "#D0D0D0"] },
+  { name: "Mets",         colors: ["#002D72", "#FF5910", "#FFFFFF", "#4A8FE7", "#FF8C55", "#C4CED4", "#003B8E", "#E8EDF2"] },
+  { name: "Reds",         colors: ["#C6011F", "#000000", "#FFFFFF", "#E8384A", "#8B0000", "#C4CED4", "#FF4444", "#E0E0E0"] },
+  { name: "Pirates",      colors: ["#27251F", "#FDB827", "#FFFFFF", "#C4A32A", "#E8D44D", "#808080", "#473B1D", "#C4CED4"] },
+  { name: "Athletics",    colors: ["#003831", "#EFB21E", "#FFFFFF", "#00594C", "#C4A32A", "#4A7A6F", "#F5D76E", "#C4CED4"] },
+  { name: "Yankees",      colors: ["#003087", "#E4002C", "#FFFFFF", "#1C2841", "#6889B4", "#C4CED4", "#0C2340", "#8EAFD2"] },
+  { name: "Red Sox",      colors: ["#BD3039", "#0C2340", "#FFFFFF", "#E05A5A", "#1C3D6E", "#C4CED4", "#8B1A1A", "#4A6D9E"] },
+  { name: "Cubs",         colors: ["#0E3386", "#CC3433", "#FFFFFF", "#3A66B5", "#E06060", "#C4CED4", "#162F65", "#7A9FD6"] },
+  { name: "Cardinals",    colors: ["#C41E3A", "#0C2340", "#FFFFFF", "#E04A5E", "#1C3D6E", "#FEDB00", "#8B1028", "#C4CED4"] },
+  { name: "Giants",       colors: ["#FD5A1E", "#27251F", "#FFFFFF", "#FF7F45", "#4A4A4A", "#C4CED4", "#E8D5A3", "#B8420F"] },
+  { name: "Braves",       colors: ["#CE1141", "#13274F", "#FFFFFF", "#E04468", "#2A4A7F", "#C4CED4", "#A50E34", "#5A7AB4"] },
+  { name: "Phillies",     colors: ["#E81828", "#002D72", "#FFFFFF", "#FF4555", "#3A5FA0", "#C4CED4", "#B80D1D", "#6A8AC8"] },
+  { name: "Blue Jays",    colors: ["#134A8E", "#1D2D5C", "#E8291C", "#FFFFFF", "#4A7FCC", "#C4CED4", "#0D3468", "#8BADE6"] },
+  { name: "Rays",         colors: ["#092C5C", "#8FBCE6", "#F5D130", "#FFFFFF", "#1A4A8A", "#C4CED4", "#5A9AD6", "#0A1E3E"] },
+  { name: "Twins",        colors: ["#002B5C", "#D31145", "#FFFFFF", "#1A5A9E", "#E84A6A", "#C4CED4", "#B60E36", "#6A90C8"] },
+  { name: "Tigers",       colors: ["#0C2340", "#FA4616", "#FFFFFF", "#1C3D6E", "#FF6A3A", "#C4CED4", "#0A1A2E", "#B83410"] },
+  { name: "Royals",       colors: ["#004687", "#BD9B60", "#FFFFFF", "#2A72C0", "#D4B880", "#C4CED4", "#003366", "#7DA8E0"] },
+  { name: "Orioles",      colors: ["#DF4601", "#27251F", "#FFFFFF", "#FF6828", "#4A4A4A", "#C4CED4", "#B83800", "#FF9055"] },
+  { name: "Rangers",      colors: ["#003278", "#C0111F", "#FFFFFF", "#2A5EB0", "#E84050", "#C4CED4", "#001E4E", "#7A9FD6"] },
+  { name: "Angels",       colors: ["#BA0021", "#003263", "#FFFFFF", "#E04048", "#1A5A9E", "#C4CED4", "#8B0018", "#6A8AC8"] },
+  { name: "Guardians",    colors: ["#00385D", "#E31937", "#FFFFFF", "#1A6A9E", "#FF4A58", "#C4CED4", "#002440", "#5A9AD6"] },
+  { name: "Brewers",      colors: ["#FFC52F", "#12284B", "#FFFFFF", "#E8B020", "#2A4A7F", "#C4CED4", "#B8940F", "#6A8AC8"] },
+  { name: "Rockies",      colors: ["#33006F", "#C4CED4", "#000000", "#FFFFFF", "#5A2D9E", "#808080", "#240050", "#8B6AC8"] },
+  { name: "Diamondbacks", colors: ["#A71930", "#E3D4AD", "#000000", "#FFFFFF", "#D04A5E", "#8B6914", "#7A0E20", "#C4CED4"] },
+  { name: "Marlins",      colors: ["#00A3E0", "#EF3340", "#41748D", "#FFFFFF", "#000000", "#C4CED4", "#0080B0", "#FF5A68"] },
+  { name: "Nationals",    colors: ["#AB0003", "#14225A", "#FFFFFF", "#D84048", "#2A4A8E", "#C4CED4", "#800002", "#6A80C8"] },
 ];
 
-const CYCLE_DURATION = 480; // frames per team (~8 seconds at 60fps)
-const TRANSITION_FRAMES = 60; // fade between palettes
+const CYCLE_DURATION = 150; // frames per team (~2.5 seconds at 60fps)
+const TRANSITION_FRAMES = 45; // smooth fade between palettes
 
 // Module-level cache for sampled pixel positions — survives component remounts
 // so we don't re-allocate a 2000x500 canvas + getImageData every time.
