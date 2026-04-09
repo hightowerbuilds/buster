@@ -1,0 +1,14 @@
+{
+  "name": "buster-collab-server",
+  "version": "0.1.0",
+  "description": "Real-time collaboration server for the Buster IDE — CRDT-based document sync over WebSocket",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
