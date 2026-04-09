@@ -1,0 +1,16 @@
+{
+  "name": "buster-ext",
+  "version": "0.1.0",
+  "description": "CLI tool for building Buster IDE extensions",
+  "type": "module",
+  "bin": {
+    "buster-ext": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
