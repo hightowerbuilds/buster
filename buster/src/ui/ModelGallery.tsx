@@ -11,6 +11,8 @@ interface ModelGalleryProps {
   onFlipBack: () => void;
   hasKey: () => boolean;
   saveKeyMutation: { mutate: (key: string) => void };
+  settings?: import("../lib/ipc").AppSettings;
+  onSettingsChange?: (settings: import("../lib/ipc").AppSettings) => void;
 }
 
 const ModelGallery: Component<ModelGalleryProps> = (props) => {
@@ -89,6 +91,48 @@ const ModelGallery: Component<ModelGalleryProps> = (props) => {
         hasKey={props.hasKey}
         saveKeyMutation={props.saveKeyMutation}
       />
+
+      {/* Agent Limits */}
+      <Show when={props.settings && props.onSettingsChange}>
+        <div class="ai-gallery-section-label">Agent Limits</div>
+        <div class="ai-agent-limits">
+          <For each={[
+            { key: "agent_max_tool_calls" as const, label: "Tool Calls", desc: "Max tool calls per session", min: 5, max: 200, step: 5 },
+            { key: "agent_max_writes" as const, label: "File Writes", desc: "Max file writes per session", min: 1, max: 50, step: 1 },
+            { key: "agent_max_commands" as const, label: "Commands", desc: "Max shell commands per session", min: 1, max: 20, step: 1 },
+            { key: "agent_timeout_secs" as const, label: "Timeout", desc: "Session timeout in seconds", min: 60, max: 1800, step: 30 },
+          ]}>
+            {(item) => {
+              const val = () => (props.settings![item.key] as number) ?? item.min;
+              return (
+                <div class="ai-agent-limit-row">
+                  <div class="ai-agent-limit-info">
+                    <span class="ai-agent-limit-label">{item.label}</span>
+                    <span class="ai-agent-limit-desc">{item.desc}</span>
+                  </div>
+                  <div class="ai-agent-limit-controls">
+                    <button
+                      class="ai-agent-limit-btn"
+                      onClick={() => {
+                        const v = val() - item.step;
+                        if (v >= item.min) props.onSettingsChange!({ ...props.settings!, [item.key]: v });
+                      }}
+                    >-</button>
+                    <span class="ai-agent-limit-value">{val()}</span>
+                    <button
+                      class="ai-agent-limit-btn"
+                      onClick={() => {
+                        const v = val() + item.step;
+                        if (v <= item.max) props.onSettingsChange!({ ...props.settings!, [item.key]: v });
+                      }}
+                    >+</button>
+                  </div>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 };

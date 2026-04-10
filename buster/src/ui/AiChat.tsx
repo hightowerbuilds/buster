@@ -9,6 +9,8 @@ import ModelGallery from "./ModelGallery";
 interface AiChatProps {
   active: boolean;
   workspaceRoot?: string;
+  settings?: import("../lib/ipc").AppSettings;
+  onSettingsChange?: (settings: import("../lib/ipc").AppSettings) => void;
 }
 
 interface ChatMessage {
@@ -245,6 +247,8 @@ const AiChat: Component<AiChatProps> = (props) => {
           onFlipBack={() => setFlipped(false)}
           hasKey={hasKey}
           saveKeyMutation={saveKeyMutation}
+          settings={props.settings}
+          onSettingsChange={props.onSettingsChange}
         />
       </div>
 

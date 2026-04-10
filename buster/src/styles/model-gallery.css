@@ -157,3 +157,59 @@
   font-size: 16px;
   color: var(--text-dim);
 }
+
+/* Agent Limits */
+.ai-agent-limits {
+  padding: 0 16px 16px;
+}
+.ai-agent-limit-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bg-surface0);
+}
+.ai-agent-limit-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ai-agent-limit-label {
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  color: var(--text);
+}
+.ai-agent-limit-desc {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: var(--text-overlay2);
+}
+.ai-agent-limit-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-agent-limit-btn {
+  font-family: "Courier New", monospace;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface0);
+  border: 1px solid var(--bg-surface1);
+  border-radius: 3px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ai-agent-limit-btn:hover {
+  background: var(--bg-surface1);
+}
+.ai-agent-limit-value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  color: var(--accent);
+  min-width: 36px;
+  text-align: center;
+}

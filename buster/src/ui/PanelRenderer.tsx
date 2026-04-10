@@ -102,6 +102,8 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
         <AiChat
           active={isActive()}
           workspaceRoot={deps.workspaceRoot() ?? undefined}
+          settings={deps.settings()}
+          onSettingsChange={deps.updateSettings}
         />
       );
     }

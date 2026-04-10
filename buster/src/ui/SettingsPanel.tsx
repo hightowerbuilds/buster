@@ -32,11 +32,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: "line_numbers", type: "toggle", key: "line_numbers", label: "Line Numbers", description: "Show line numbers in the gutter" },
   { id: "autocomplete", type: "toggle", key: "autocomplete", label: "Autocomplete", description: "Suggest words as you type (Ctrl+Space to trigger)" },
   { id: "ui_zoom", type: "number", key: "ui_zoom", label: "UI Zoom", description: "Scale the entire interface (Cmd+/Cmd-)", min: 50, max: 200, step: 10 },
-  // Agent limits
-  { id: "agent_max_tool_calls", type: "number", key: "agent_max_tool_calls", label: "Agent Tool Calls", description: "Max tool calls per agent session", min: 5, max: 200, step: 5 },
-  { id: "agent_max_writes", type: "number", key: "agent_max_writes", label: "Agent File Writes", description: "Max file writes per agent session", min: 1, max: 50, step: 1 },
-  { id: "agent_max_commands", type: "number", key: "agent_max_commands", label: "Agent Commands", description: "Max shell commands per agent session", min: 1, max: 20, step: 1 },
-  { id: "agent_timeout_secs", type: "number", key: "agent_timeout_secs", label: "Agent Timeout", description: "Session timeout in seconds", min: 60, max: 1800, step: 30 },
 ];
 
 // --- Canvas checkbox component ---
