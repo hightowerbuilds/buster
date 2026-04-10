@@ -1,79 +1,27 @@
 import { Component, onMount, onCleanup } from "solid-js";
+import { basename } from "buster-path";
 
 const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}[]()<>/*+-=_|\\;:'\",.<>?!@#$%^&~`";
 
-// All MLB team palettes (except Houston Astros)
-const TEAMS = [
-  { name: "Mariners",     colors: ["#005C5C", "#00857A", "#00A896", "#4A9AD9", "#6BB3F0", "#C4CED4", "#E8EDF2", "#FFFFFF"] },
-  { name: "Padres",       colors: ["#2F241D", "#FFC425", "#A37B45", "#D4AA6A", "#E8D5A3", "#FFFFFF", "#473729", "#8B6914"] },
-  { name: "Dodgers",      colors: ["#005A9C", "#EF3E42", "#A5ACAF", "#FFFFFF", "#003DA5", "#1E73BE", "#73B1E2", "#C4CED4"] },
-  { name: "White Sox",    colors: ["#27251F", "#C4CED4", "#FFFFFF", "#808080", "#A0A0A0", "#E0E0E0", "#4A4A4A", "#D0D0D0"] },
-  { name: "Mets",         colors: ["#002D72", "#FF5910", "#FFFFFF", "#4A8FE7", "#FF8C55", "#C4CED4", "#003B8E", "#E8EDF2"] },
-  { name: "Reds",         colors: ["#C6011F", "#000000", "#FFFFFF", "#E8384A", "#8B0000", "#C4CED4", "#FF4444", "#E0E0E0"] },
-  { name: "Pirates",      colors: ["#27251F", "#FDB827", "#FFFFFF", "#C4A32A", "#E8D44D", "#808080", "#473B1D", "#C4CED4"] },
-  { name: "Athletics",    colors: ["#003831", "#EFB21E", "#FFFFFF", "#00594C", "#C4A32A", "#4A7A6F", "#F5D76E", "#C4CED4"] },
-  { name: "Yankees",      colors: ["#003087", "#E4002C", "#FFFFFF", "#1C2841", "#6889B4", "#C4CED4", "#0C2340", "#8EAFD2"] },
-  { name: "Red Sox",      colors: ["#BD3039", "#0C2340", "#FFFFFF", "#E05A5A", "#1C3D6E", "#C4CED4", "#8B1A1A", "#4A6D9E"] },
-  { name: "Cubs",         colors: ["#0E3386", "#CC3433", "#FFFFFF", "#3A66B5", "#E06060", "#C4CED4", "#162F65", "#7A9FD6"] },
-  { name: "Cardinals",    colors: ["#C41E3A", "#0C2340", "#FFFFFF", "#E04A5E", "#1C3D6E", "#FEDB00", "#8B1028", "#C4CED4"] },
-  { name: "Giants",       colors: ["#FD5A1E", "#27251F", "#FFFFFF", "#FF7F45", "#4A4A4A", "#C4CED4", "#E8D5A3", "#B8420F"] },
-  { name: "Braves",       colors: ["#CE1141", "#13274F", "#FFFFFF", "#E04468", "#2A4A7F", "#C4CED4", "#A50E34", "#5A7AB4"] },
-  { name: "Phillies",     colors: ["#E81828", "#002D72", "#FFFFFF", "#FF4555", "#3A5FA0", "#C4CED4", "#B80D1D", "#6A8AC8"] },
-  { name: "Blue Jays",    colors: ["#134A8E", "#1D2D5C", "#E8291C", "#FFFFFF", "#4A7FCC", "#C4CED4", "#0D3468", "#8BADE6"] },
-  { name: "Rays",         colors: ["#092C5C", "#8FBCE6", "#F5D130", "#FFFFFF", "#1A4A8A", "#C4CED4", "#5A9AD6", "#0A1E3E"] },
-  { name: "Twins",        colors: ["#002B5C", "#D31145", "#FFFFFF", "#1A5A9E", "#E84A6A", "#C4CED4", "#B60E36", "#6A90C8"] },
-  { name: "Tigers",       colors: ["#0C2340", "#FA4616", "#FFFFFF", "#1C3D6E", "#FF6A3A", "#C4CED4", "#0A1A2E", "#B83410"] },
-  { name: "Royals",       colors: ["#004687", "#BD9B60", "#FFFFFF", "#2A72C0", "#D4B880", "#C4CED4", "#003366", "#7DA8E0"] },
-  { name: "Orioles",      colors: ["#DF4601", "#27251F", "#FFFFFF", "#FF6828", "#4A4A4A", "#C4CED4", "#B83800", "#FF9055"] },
-  { name: "Rangers",      colors: ["#003278", "#C0111F", "#FFFFFF", "#2A5EB0", "#E84050", "#C4CED4", "#001E4E", "#7A9FD6"] },
-  { name: "Angels",       colors: ["#BA0021", "#003263", "#FFFFFF", "#E04048", "#1A5A9E", "#C4CED4", "#8B0018", "#6A8AC8"] },
-  { name: "Guardians",    colors: ["#00385D", "#E31937", "#FFFFFF", "#1A6A9E", "#FF4A58", "#C4CED4", "#002440", "#5A9AD6"] },
-  { name: "Brewers",      colors: ["#FFC52F", "#12284B", "#FFFFFF", "#E8B020", "#2A4A7F", "#C4CED4", "#B8940F", "#6A8AC8"] },
-  { name: "Rockies",      colors: ["#33006F", "#C4CED4", "#000000", "#FFFFFF", "#5A2D9E", "#808080", "#240050", "#8B6AC8"] },
-  { name: "Diamondbacks", colors: ["#A71930", "#E3D4AD", "#000000", "#FFFFFF", "#D04A5E", "#8B6914", "#7A0E20", "#C4CED4"] },
-  { name: "Marlins",      colors: ["#00A3E0", "#EF3340", "#41748D", "#FFFFFF", "#000000", "#C4CED4", "#0080B0", "#FF5A68"] },
-  { name: "Nationals",    colors: ["#AB0003", "#14225A", "#FFFFFF", "#D84048", "#2A4A8E", "#C4CED4", "#800002", "#6A80C8"] },
-];
-
-const CYCLE_DURATION = 15; // frames per team (~0.25 seconds at 60fps)
-const TRANSITION_FRAMES = 6; // ~0.1 second crossfade at 60fps
-
 // Module-level cache for sampled pixel positions — survives component remounts
-// so we don't re-allocate a 2000x500 canvas + getImageData every time.
 let cachedPixelPoints: { x: number; y: number }[] | null = null;
-let cachedPixelKey = ""; // "text:fontSize:offsetX:offsetY:step"
+let cachedPixelKey = "";
 
-// Pre-computed rain alpha strings (avoids per-frame string allocation)
+// Pre-computed rain alpha strings
 const RAIN_COLORS: string[] = [];
 for (let i = 0; i <= 100; i++) {
-  const a = (i / 100).toFixed(2);
-  RAIN_COLORS.push(`rgba(88, 91, 112, ${a})`);
-}
-
-// Pre-computed hex-to-rgba cache for team palette colors
-const rgbaCache = new Map<string, string>();
-function cachedHexToRgba(hex: string, alpha: number): string {
-  // Quantize alpha to nearest 0.02 for cache efficiency
-  const qa = Math.round(Math.min(1, alpha) * 50) / 50;
-  const key = hex + qa;
-  let cached = rgbaCache.get(key);
-  if (cached) return cached;
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  cached = `rgba(${r}, ${g}, ${b}, ${qa})`;
-  rgbaCache.set(key, cached);
-  return cached;
+  RAIN_COLORS.push(`rgba(88, 91, 112, ${(i / 100).toFixed(2)})`);
 }
 
 interface Particle {
-  tx: number; ty: number;
-  x: number; y: number;
-  vx: number; vy: number;
+  tx: number; ty: number; // target (home) position
+  x: number; y: number;   // current position
+  vx: number; vy: number; // velocity
   ch: string;
-  colorIdx: number; // index into current palette
   alpha: number; targetAlpha: number;
   settled: boolean;
+  falling: boolean;        // knocked loose by drag
+  gravity: number;         // per-particle gravity multiplier
 }
 
 interface RainDrop {
@@ -93,55 +41,31 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
   let rainDrops: RainDrop[] = [];
   let time = 0;
   let subtitleProgress = 0;
-  let tourBtnProgress = 0;
-  let tourBtnHitArea: { x: number; y: number; w: number; h: number } | null = null;
+  let folderFadeProgress = 0;
   let phase: "scatter" | "assemble" | "settled" = "scatter";
   let mouseX = 0;
   let mouseY = 0;
+  let dragging = false;
+  let dragX = 0;
+  let dragY = 0;
+  let prevDragX = 0;
+  let prevDragY = 0;
   let folderHitAreas: { x: number; y: number; w: number; h: number; path: string }[] = [];
   let phaseTimer = 0;
+  let reassembleTimer = 0; // counts frames since last drag to trigger reassembly
 
   const SUBTITLE = "canvas-rendered ide";
-  const TOUR_LABEL = "Take the tour";
-
-  function getCurrentPalette(): string[] {
-    const teamIdx = Math.floor(time / CYCLE_DURATION) % TEAMS.length;
-    const nextIdx = (teamIdx + 1) % TEAMS.length;
-
-    // Last TRANSITION_FRAMES of each cycle: blend into next palette
-    const cycleFrame = time % CYCLE_DURATION;
-    if (cycleFrame > CYCLE_DURATION - TRANSITION_FRAMES) {
-      const blend = (cycleFrame - (CYCLE_DURATION - TRANSITION_FRAMES)) / TRANSITION_FRAMES;
-      return TEAMS[teamIdx].colors.map((c, i) => {
-        const next = TEAMS[nextIdx].colors[i % TEAMS[nextIdx].colors.length];
-        return lerpColor(c, next, blend);
-      });
-    }
-    return TEAMS[teamIdx].colors;
-  }
-
-  function lerpColor(a: string, b: string, t: number): string {
-    const ar = parseInt(a.slice(1, 3), 16), ag = parseInt(a.slice(3, 5), 16), ab = parseInt(a.slice(5, 7), 16);
-    const br = parseInt(b.slice(1, 3), 16), bg = parseInt(b.slice(3, 5), 16), bb = parseInt(b.slice(5, 7), 16);
-    const r = Math.round(ar + (br - ar) * t);
-    const g = Math.round(ag + (bg - ag) * t);
-    const bl = Math.round(ab + (bb - ab) * t);
-    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${bl.toString(16).padStart(2, "0")}`;
-  }
+  const DRAG_RADIUS = 60;  // how close the drag must be to knock particles loose
+  const GRAVITY = 0.15;
 
   function sampleTextPixels(
-    text: string,
-    fontSize: number,
-    offsetX: number,
-    offsetY: number,
-    step: number
+    text: string, fontSize: number, offsetX: number, offsetY: number, step: number
   ): { x: number; y: number }[] {
     const key = `${text}:${fontSize}:${Math.round(offsetX)}:${Math.round(offsetY)}:${step}`;
     if (cachedPixelPoints && cachedPixelKey === key) return cachedPixelPoints;
 
     const c = document.createElement("canvas");
-    c.width = 2000;
-    c.height = 500;
+    c.width = 2000; c.height = 500;
     const ctx = c.getContext("2d")!;
     ctx.fillStyle = "#ffffff";
     ctx.font = `${fontSize}px "UnifrakturMaguntia", "JetBrains Mono", monospace`;
@@ -158,7 +82,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     for (let y = 0; y < height; y += step) {
       for (let x = 0; x < width; x += step) {
         const idx = (y * width + x) * 4;
-        if (imageData.data[idx + 3] > 128) {
+        if (imageData.data[idx + 3]! > 128) {
           points.push({ x: x + offsetX, y: y + offsetY });
         }
       }
@@ -169,20 +93,13 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     return points;
   }
 
-  function hexToRgba(hex: string, a: number): string {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${a})`;
-  }
-
   function init() {
     if (!canvasRef) return;
     const w = canvasRef.clientWidth;
     const h = canvasRef.clientHeight;
     if (w === 0 || h === 0) return;
 
-    // Measure title — scale to fit 85% of canvas width, starting at 160px
+    // Measure title — scale to fit 85% of canvas width
     const measure = document.createElement("canvas");
     measure.width = 1; measure.height = 1;
     const mCtx = measure.getContext("2d")!;
@@ -200,7 +117,6 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     const offsetY = (h - titleSize) * 0.35;
 
     const points = sampleTextPixels("Buster", titleSize, offsetX, offsetY, 5);
-    const palette = TEAMS[0].colors;
 
     particles = points.map((p) => ({
       tx: p.x, ty: p.y,
@@ -208,11 +124,12 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       y: Math.random() * h,
       vx: (Math.random() - 0.5) * 4,
       vy: (Math.random() - 0.5) * 4,
-      ch: GLYPHS[Math.floor(Math.random() * GLYPHS.length)],
-      colorIdx: Math.floor(Math.random() * palette.length),
+      ch: GLYPHS[Math.floor(Math.random() * GLYPHS.length)]!,
       alpha: 0.1 + Math.random() * 0.3,
       targetAlpha: 0.7 + Math.random() * 0.3,
       settled: false,
+      falling: false,
+      gravity: 0.8 + Math.random() * 0.4,
     }));
 
     rainDrops = [];
@@ -220,7 +137,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       rainDrops.push({
         x: Math.random() * w, y: Math.random() * h,
         speed: 0.5 + Math.random() * 1.5,
-        ch: GLYPHS[Math.floor(Math.random() * GLYPHS.length)],
+        ch: GLYPHS[Math.floor(Math.random() * GLYPHS.length)]!,
         alpha: 0.03 + Math.random() * 0.06,
       });
     }
@@ -228,8 +145,8 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     phase = "scatter";
     phaseTimer = 0;
     subtitleProgress = 0;
-    tourBtnProgress = 0;
-    tourBtnHitArea = null;
+    folderFadeProgress = 0;
+    reassembleTimer = 0;
   }
 
   function render() {
@@ -239,7 +156,6 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     const h = canvasRef.clientHeight;
     if (w === 0 || h === 0) { animId = requestAnimationFrame(render); return; }
 
-    // Only resize backing store when dimensions change
     const targetW = Math.round(w * dpr);
     const targetH = Math.round(h * dpr);
     if (canvasRef.width !== targetW || canvasRef.height !== targetH) {
@@ -252,8 +168,6 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     time++;
     phaseTimer++;
 
-    const palette = getCurrentPalette();
-
     // Background
     ctx.fillStyle = "#1e1e2e";
     ctx.fillRect(0, 0, w, h);
@@ -264,53 +178,100 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     }
 
     // Background rain
-    const rainFont = '12px "JetBrains Mono", monospace';
-    ctx.font = rainFont;
+    ctx.font = '12px "JetBrains Mono", monospace';
     ctx.textBaseline = "top";
     for (const drop of rainDrops) {
       drop.y += drop.speed;
       if (drop.y > h) {
         drop.y = -10;
         drop.x = Math.random() * w;
-        drop.ch = GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+        drop.ch = GLYPHS[Math.floor(Math.random() * GLYPHS.length)]!;
       }
-      ctx.fillStyle = RAIN_COLORS[Math.round(drop.alpha * 100)];
+      ctx.fillStyle = RAIN_COLORS[Math.round(drop.alpha * 100)]!;
       ctx.fillText(drop.ch, drop.x, drop.y);
+    }
+
+    // Drag interaction — knock particles loose
+    if (dragging && phase === "settled") {
+      const dvx = dragX - prevDragX;
+      const dvy = dragY - prevDragY;
+      const dragSpeed = Math.sqrt(dvx * dvx + dvy * dvy);
+
+      for (const p of particles) {
+        if (p.falling) continue;
+        const dx = p.x - dragX;
+        const dy = p.y - dragY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < DRAG_RADIUS) {
+          p.falling = true;
+          p.settled = false;
+          // Fling in the direction of the drag + outward from center
+          const outX = dist > 0 ? dx / dist : (Math.random() - 0.5);
+          const outY = dist > 0 ? dy / dist : (Math.random() - 0.5);
+          const force = (1 - dist / DRAG_RADIUS) * 3;
+          p.vx = dvx * 0.5 + outX * force + (Math.random() - 0.5) * 2;
+          p.vy = dvy * 0.5 + outY * force + (Math.random() - 0.5) * 2 - dragSpeed * 0.3;
+        }
+      }
+      reassembleTimer = 0;
+    }
+
+    // Auto-reassemble after drag stops (2 seconds of no dragging)
+    if (!dragging && particles.some(p => p.falling)) {
+      reassembleTimer++;
+      if (reassembleTimer > 120) {
+        for (const p of particles) {
+          if (p.falling) {
+            p.falling = false;
+          }
+        }
+      }
     }
 
     // Particles
     const particleFont = '8px "JetBrains Mono", monospace';
-
     let settledCount = 0;
+
     for (const p of particles) {
-      if (phase === "scatter") {
+      if (p.falling) {
+        // Apply gravity — letters fall
+        p.vy += GRAVITY * p.gravity;
+        p.x += p.vx;
+        p.y += p.vy;
+        // Fade out as they fall off screen
+        p.alpha *= 0.995;
+        if (p.y > h + 50) {
+          p.alpha = 0;
+        }
+      } else if (phase === "scatter") {
         p.x += p.vx * 2; p.y += p.vy * 2;
         if (p.x < 0 || p.x > w) p.vx *= -1;
         if (p.y < 0 || p.y > h) p.vy *= -1;
         p.alpha += (0.15 - p.alpha) * 0.12;
-      } else if (phase === "assemble") {
+      } else if (phase === "assemble" || (!p.settled && !p.falling)) {
         const dx = p.tx - p.x;
         const dy = p.ty - p.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist > 1) {
           p.x += dx * 0.18; p.y += dy * 0.18;
+          p.vx = 0; p.vy = 0;
         } else {
           p.x = p.tx; p.y = p.ty; p.settled = true; settledCount++;
         }
         p.alpha += (p.targetAlpha - p.alpha) * 0.12;
       } else {
+        // Settled — gentle breathing
         p.x = p.tx + Math.sin(time * 0.015 + p.tx * 0.01) * 0.5;
         p.y = p.ty + Math.cos(time * 0.012 + p.ty * 0.01) * 0.5;
         settledCount++;
-        if (Math.random() < 0.002) p.ch = GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
-        // Slowly shift color indices for variety
-        if (Math.random() < 0.003) p.colorIdx = Math.floor(Math.random() * palette.length);
+        if (Math.random() < 0.002) p.ch = GLYPHS[Math.floor(Math.random() * GLYPHS.length)]!;
       }
 
-      const color = palette[p.colorIdx % palette.length];
-      ctx.font = particleFont;
-      ctx.fillStyle = cachedHexToRgba(color, p.alpha);
-      ctx.fillText(p.ch, p.x - 4, p.y - 5);
+      if (p.alpha > 0.01) {
+        ctx.font = particleFont;
+        ctx.fillStyle = `rgba(205, 214, 244, ${Math.min(1, p.alpha).toFixed(2)})`;
+        ctx.fillText(p.ch, p.x - 4, p.y - 5);
+      }
     }
 
     if (phase === "assemble" && settledCount > particles.length * 0.9) {
@@ -318,7 +279,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       phaseTimer = 0;
     }
 
-    // Subtitle + hint
+    // Subtitle + recent folders
     if (phase === "settled") {
       subtitleProgress = Math.min(subtitleProgress + 1.2, SUBTITLE.length);
       const subText = SUBTITLE.slice(0, Math.floor(subtitleProgress));
@@ -332,31 +293,28 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       ctx.fillStyle = `rgba(166, 173, 200, ${Math.min(1, subtitleProgress * 0.1)})`;
       ctx.fillText(subText, w / 2, subY);
 
-      // Cursor — use accent from current palette
+      // Cursor
       if (subtitleProgress < SUBTITLE.length || Math.floor(time / 30) % 2 === 0) {
         const cursorX = w / 2 + ctx.measureText(subText).width / 2 + 2;
-        const cursorColor = palette[0];
-        ctx.fillStyle = hexToRgba(cursorColor, subtitleProgress < SUBTITLE.length ? 1 : 0.6);
+        ctx.fillStyle = `rgba(205, 214, 244, ${subtitleProgress < SUBTITLE.length ? 1 : 0.6})`;
         ctx.fillRect(cursorX, subY, 2, 16);
       }
 
       // Recent folders
       if (subtitleProgress >= SUBTITLE.length) {
-        tourBtnProgress = Math.min(tourBtnProgress + 0.06, 1);
-        tourBtnHitArea = null;
+        folderFadeProgress = Math.min(folderFadeProgress + 0.06, 1);
 
         const folders = props.recentFolders ?? [];
-        if (folders.length > 0 && tourBtnProgress > 0.5) {
-          const folderAlpha = Math.min(1, (tourBtnProgress - 0.5) * 2);
+        if (folders.length > 0 && folderFadeProgress > 0.5) {
+          const folderAlpha = Math.min(1, (folderFadeProgress - 0.5) * 2);
           const fy = subY + 35;
           folderHitAreas = [];
 
           ctx.font = '16px "JetBrains Mono", monospace';
 
-          // Build display names and measure total width
           const gap = 20;
           const items = folders.map((f) => {
-            const name = f.split("/").pop() || f;
+            const name = basename(f);
             return { display: `/${name}`, path: f, width: ctx.measureText(`/${name}`).width };
           });
           const totalW = items.reduce((sum, item) => sum + item.width, 0) + gap * (items.length - 1);
@@ -385,6 +343,9 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     ctx.fillStyle = "rgba(205, 214, 244, 0.008)";
     ctx.fillRect(0, scanY, w, 2);
 
+    prevDragX = dragX;
+    prevDragY = dragY;
+
     animId = requestAnimationFrame(render);
   }
 
@@ -393,11 +354,49 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     const rect = canvasRef.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
-    // Update cursor based on hover
+    if (dragging) {
+      dragX = mouseX;
+      dragY = mouseY;
+    }
     const overFolder = folderHitAreas.some(
       (a) => mouseX >= a.x && mouseX <= a.x + a.w && mouseY >= a.y && mouseY <= a.y + a.h
     );
-    canvasRef.style.cursor = overFolder ? "pointer" : "default";
+    // Show grab cursor over the text area, pointer over folders
+    if (overFolder) {
+      canvasRef.style.cursor = "pointer";
+    } else if (dragging) {
+      canvasRef.style.cursor = "grabbing";
+    } else if (phase === "settled") {
+      // Check if mouse is near any settled particle
+      const nearText = particles.some(p => p.settled && !p.falling &&
+        Math.abs(p.x - mouseX) < 30 && Math.abs(p.y - mouseY) < 30);
+      canvasRef.style.cursor = nearText ? "grab" : "default";
+    } else {
+      canvasRef.style.cursor = "default";
+    }
+  }
+
+  function handleMouseDown(e: MouseEvent) {
+    if (!canvasRef) return;
+    const rect = canvasRef.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+
+    // Don't start drag if clicking a folder
+    const overFolder = folderHitAreas.some(
+      (a) => cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h
+    );
+    if (overFolder) return;
+
+    dragging = true;
+    dragX = cx; dragY = cy;
+    prevDragX = cx; prevDragY = cy;
+    if (canvasRef) canvasRef.style.cursor = "grabbing";
+  }
+
+  function handleMouseUp() {
+    dragging = false;
+    if (canvasRef) canvasRef.style.cursor = "default";
   }
 
   function handleClick(e: MouseEvent) {
@@ -417,9 +416,11 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     if (!canvasRef) return;
 
     canvasRef.addEventListener("mousemove", handleMouseMove);
+    canvasRef.addEventListener("mousedown", handleMouseDown);
+    canvasRef.addEventListener("mouseup", handleMouseUp);
+    canvasRef.addEventListener("mouseleave", handleMouseUp);
     canvasRef.addEventListener("click", handleClick);
 
-    // Short delay to let the canvas measure before initializing particles
     requestAnimationFrame(() => {
       init();
       render();
@@ -429,10 +430,8 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       particles = [];
       cancelAnimationFrame(animId);
       init();
-      // On resize, skip scatter and go straight to fast assembly
       phase = "assemble";
       phaseTimer = 0;
-      // Start particles closer to their targets for quicker assembly
       for (const p of particles) {
         p.x = p.tx + (Math.random() - 0.5) * 80;
         p.y = p.ty + (Math.random() - 0.5) * 80;
@@ -446,6 +445,9 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       cancelAnimationFrame(animId);
       obs.disconnect();
       canvasRef?.removeEventListener("mousemove", handleMouseMove);
+      canvasRef?.removeEventListener("mousedown", handleMouseDown);
+      canvasRef?.removeEventListener("mouseup", handleMouseUp);
+      canvasRef?.removeEventListener("mouseleave", handleMouseUp);
       canvasRef?.removeEventListener("click", handleClick);
     });
   });
