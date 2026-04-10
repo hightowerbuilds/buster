@@ -35,7 +35,7 @@ const TEAMS = [
   { name: "Nationals",    colors: ["#AB0003", "#14225A", "#FFFFFF", "#D84048", "#2A4A8E", "#C4CED4", "#800002", "#6A80C8"] },
 ];
 
-const CYCLE_DURATION = 60; // frames per team (~1 second at 60fps)
+const CYCLE_DURATION = 15; // frames per team (~0.25 seconds at 60fps)
 const TRANSITION_FRAMES = 0; // no crossfade — hard cut between palettes
 
 // Module-level cache for sampled pixel positions — survives component remounts
