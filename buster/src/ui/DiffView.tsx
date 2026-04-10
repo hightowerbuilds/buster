@@ -1,5 +1,6 @@
 import { Component, createSignal, onMount, For, Show } from "solid-js";
 import { gitDiffFile, gitDiffStaged } from "../lib/ipc";
+import { basename } from "buster-path";
 
 interface DiffViewProps {
   workspaceRoot: string;
@@ -120,7 +121,7 @@ const DiffView: Component<DiffViewProps> = (props) => {
     setLoading(false);
   });
 
-  const fileName = () => props.filePath.split("/").pop() || props.filePath;
+  const fileName = () => basename(props.filePath) || props.filePath;
   const splitRows = () => toSplitRows(diffLines());
 
   return (

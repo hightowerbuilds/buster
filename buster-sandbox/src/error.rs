@@ -20,4 +20,7 @@ pub enum SandboxError {
 
     #[error("sandbox configuration error: {0}")]
     Config(String),
+
+    #[error("OS-level sandbox error: {0}")]
+    OsSandbox(String),
 }

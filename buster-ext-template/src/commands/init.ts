@@ -6,16 +6,41 @@
  * - src/lib.rs with a hello-world extension
  * - extension.toml manifest
  * - .gitignore
+ *
+ * Supports --template formatter|linter|language for specialized scaffolds.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { validateId } from "../manifest.ts";
+import { generateFormatter } from "../templates/formatter.ts";
+import { generateLinter } from "../templates/linter.ts";
+import { generateLanguage } from "../templates/language.ts";
+
+export type TemplateName = "formatter" | "linter" | "language";
+
+const TEMPLATES: Record<TemplateName, (dir: string, name: string) => Promise<void>> = {
+  formatter: generateFormatter,
+  linter: generateLinter,
+  language: generateLanguage,
+};
 
 export async function init(args: string[]): Promise<void> {
-  const name = args[0];
+  let name: string | undefined;
+  let template: string | undefined;
+
+  // Parse args
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--template" || arg === "-t") {
+      template = args[++i];
+    } else if (!arg.startsWith("-")) {
+      name = arg;
+    }
+  }
+
   if (!name) {
-    throw new Error("Usage: buster-ext init <extension-name>");
+    throw new Error("Usage: buster-ext init <extension-name> [--template formatter|linter|language]");
   }
 
   const idErrors = validateId(name);
@@ -24,8 +49,32 @@ export async function init(args: string[]): Promise<void> {
   }
 
   const dir = join(process.cwd(), name);
-  const srcDir = join(dir, "src");
 
+  // If a template is specified, delegate to the template generator
+  if (template) {
+    const validTemplates = Object.keys(TEMPLATES);
+    if (!validTemplates.includes(template)) {
+      throw new Error(
+        `Unknown template: ${template}. Valid templates: ${validTemplates.join(", ")}`,
+      );
+    }
+    const generator = TEMPLATES[template as TemplateName]!;
+    await generator(dir, name);
+
+    console.log(`Created ${template} extension project: ${name}/`);
+    console.log(`  extension.toml — manifest`);
+    console.log(`  Cargo.toml     — Rust project config`);
+    console.log(`  src/lib.rs     — ${template} entry points`);
+    console.log(``);
+    console.log(`Next steps:`);
+    console.log(`  cd ${name}`);
+    console.log(`  cargo build --target wasm32-unknown-unknown --release`);
+    console.log(`  buster-ext validate`);
+    return;
+  }
+
+  // Default scaffold (no template)
+  const srcDir = join(dir, "src");
   await mkdir(srcDir, { recursive: true });
 
   // extension.toml

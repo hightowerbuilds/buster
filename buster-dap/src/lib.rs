@@ -10,14 +10,18 @@
 
 mod adapter;
 mod breakpoint;
+mod cleanup;
 mod config;
 mod events;
 mod protocol;
 mod types;
+mod watchpoint;
 
 pub use adapter::{AdapterConfig, AdapterRegistry};
 pub use breakpoint::{Breakpoint, BreakpointStore};
+pub use cleanup::{ProcessTracker, TrackedProcess};
 pub use config::{LaunchConfig, LaunchConfigParser};
 pub use events::{DebugEvent, EventChannel};
 pub use protocol::{DapMessage, DapRequest, DapResponse, DapEvent};
 pub use types::{DapError, StackFrame, Variable, Thread};
+pub use watchpoint::{Watchpoint, WatchpointStore, WatchpointType};

@@ -19,6 +19,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 import type { GitStashEntry } from "../lib/ipc";
+import { basename } from "buster-path";
 
 const GitPanel: Component<GitPanelProps> = (props) => {
   const [status, setStatus] = createSignal<GitStatusResult | null>(null);
@@ -224,7 +225,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
   const conflictedFiles = () => status()?.files.filter(f => f.conflicted) ?? [];
   const stagedFiles = () => status()?.files.filter(f => f.staged && !f.conflicted) ?? [];
   const unstagedFiles = () => status()?.files.filter(f => !f.staged && !f.conflicted) ?? [];
-  const fileName = (path: string) => path.split("/").pop() || path;
+  const fileName = (path: string) => basename(path) || path;
 
   return (
     <div class="git-tab">

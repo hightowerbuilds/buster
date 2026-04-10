@@ -10,6 +10,7 @@ use client::{LspClient, LspDiagnostic};
 pub mod lsp_pro {
     pub use buster_lsp_manager::{
         ServerRegistry, LanguageServerConfig, DocumentState, TextEdit,
+        Position, Range,
         path_to_lsp_uri, lsp_uri_to_path,
     };
 }
@@ -57,6 +58,9 @@ pub struct LspManager {
     /// Channel to receive diagnostics from all clients
     diag_rx: Mutex<Option<mpsc::Receiver<(String, Vec<LspDiagnostic>)>>>,
     diag_tx: mpsc::Sender<(String, Vec<LspDiagnostic>)>,
+    /// Per-document state for incremental text sync.
+    /// Keyed by file URI (e.g. "file:///path/to/file.ts").
+    documents: Mutex<HashMap<String, lsp_pro::DocumentState>>,
 }
 
 #[allow(dead_code)]
@@ -67,6 +71,7 @@ impl LspManager {
             clients: RwLock::new(HashMap::new()),
             diag_rx: Mutex::new(Some(rx)),
             diag_tx: tx,
+            documents: Mutex::new(HashMap::new()),
         }
     }
 
@@ -112,6 +117,74 @@ impl LspManager {
             return Err(format!("LSP {} has crashed", language_id));
         }
         f(client)
+    }
+
+    // --- Document state management for incremental sync ---
+
+    /// Register a newly opened document. Creates a DocumentState to track
+    /// content and pending edits for incremental sync.
+    pub fn open_document(&self, uri: &str, language_id: &str, content: &str) -> Result<(), String> {
+        let mut docs = self.documents.lock().map_err(|e| e.to_string())?;
+        let doc_state = lsp_pro::DocumentState::new(
+            uri.to_string(),
+            language_id.to_string(),
+            content.to_string(),
+        );
+        docs.insert(uri.to_string(), doc_state);
+        Ok(())
+    }
+
+    /// Apply incremental edits to a tracked document, then return the
+    /// pending TextEdits that should be sent to the language server.
+    /// Also returns the new version number from the DocumentState.
+    pub fn apply_incremental_edits(
+        &self,
+        uri: &str,
+        edits: &[crate::commands::lsp::EditDelta],
+    ) -> Result<(i32, Vec<lsp_pro::TextEdit>), String> {
+        let mut docs = self.documents.lock().map_err(|e| e.to_string())?;
+        let doc = docs.get_mut(uri).ok_or_else(|| {
+            format!("No document state for {}. Was didOpen sent?", uri)
+        })?;
+
+        for edit in edits {
+            let range = lsp_pro::Range::new(
+                lsp_pro::Position::new(edit.start_line, edit.start_col),
+                lsp_pro::Position::new(edit.end_line, edit.end_col),
+            );
+            doc.apply_edit(range, &edit.new_text);
+        }
+
+        let version = doc.version;
+        let pending = doc.take_pending_edits();
+        Ok((version, pending))
+    }
+
+    /// Replace the tracked document content (used on full-sync fallback).
+    /// Clears any pending edits and bumps the version.
+    pub fn reset_document_content(&self, uri: &str, new_content: &str) -> Result<(), String> {
+        let mut docs = self.documents.lock().map_err(|e| e.to_string())?;
+        if let Some(_old) = docs.remove(uri) {
+            // Re-create with the same URI and language_id but new content.
+            // We preserve the language_id from the old state.
+            let language_id = _old.language_id.clone();
+            let doc_state = lsp_pro::DocumentState::new(
+                uri.to_string(),
+                language_id,
+                new_content.to_string(),
+            );
+            docs.insert(uri.to_string(), doc_state);
+        }
+        // If there was no tracked document, that's fine — full sync works
+        // without local state.
+        Ok(())
+    }
+
+    /// Remove a tracked document (called on didClose).
+    pub fn close_document(&self, uri: &str) -> Result<(), String> {
+        let mut docs = self.documents.lock().map_err(|e| e.to_string())?;
+        docs.remove(uri);
+        Ok(())
     }
 
     /// Stop a language server.

@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 
@@ -14,7 +14,7 @@ pub struct DapClient {
     stdin: Mutex<Box<dyn Write + Send>>,
     _child: Child,
     seq: AtomicI64,
-    pending: Mutex<HashMap<i64, oneshot::Sender<Value>>>,
+    pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
 }
 
 impl DapClient {
@@ -31,19 +31,18 @@ impl DapClient {
         let stdin = child.stdin.take().ok_or("No stdin")?;
         let stdout = child.stdout.take().ok_or("No stdout")?;
 
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+
         let client = DapClient {
             stdin: Mutex::new(Box::new(stdin)),
             _child: child,
             seq: AtomicI64::new(1),
-            pending: Mutex::new(HashMap::new()),
+            pending: Arc::clone(&pending),
         };
 
         // Spawn reader thread
-        let pending = &client.pending as *const Mutex<HashMap<i64, oneshot::Sender<Value>>>;
-        let pending_ptr = pending as usize;
-
         std::thread::spawn(move || {
-            let pending = unsafe { &*(pending_ptr as *const Mutex<HashMap<i64, oneshot::Sender<Value>>>) };
+            let pending = pending;
             let mut reader = BufReader::new(stdout);
             loop {
                 // Read content-length header

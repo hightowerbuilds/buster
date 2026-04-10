@@ -1,6 +1,7 @@
 import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
 import { listDirectory, createFile, createDirectory, moveEntry } from "../lib/ipc";
 import { TreeItem, SidebarContextMenu, type TreeNode, isDragging, getDragNode, refreshDir, setRefreshDir } from "./SidebarTree";
+import { basename } from "buster-path";
 
 interface SidebarProps {
   onFileSelect: (path: string) => void;
@@ -115,7 +116,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
       <div class="sidebar-header">
         <span class="sidebar-title">
           {rootPath()
-            ? rootPath()!.split("/").pop() || rootPath()
+            ? basename(rootPath()!) || rootPath()
             : "Explorer"}
         </span>
         <div class="sidebar-header-actions">
@@ -206,7 +207,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
               onPointerLeave={handleRootPointerLeave}
               onPointerUp={handleRootDrop}
             >
-              / {rootPath()?.split("/").pop() || "root"}
+              / {(rootPath() ? basename(rootPath()!) : "") || "root"}
             </div>
           </Show>
         </div>

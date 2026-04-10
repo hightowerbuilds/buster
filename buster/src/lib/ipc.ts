@@ -60,6 +60,9 @@ export const setWorkspaceRootIpc = (path: string | null) =>
 export const terminalKill = (termId: string) =>
   invoke<void>("terminal_kill", { termId });
 
+export const setTerminalTheme = (themeName: string) =>
+  invoke<void>("set_terminal_theme", { themeName });
+
 // Settings
 export interface AppSettings {
   word_wrap: boolean;
@@ -81,6 +84,7 @@ export interface AppSettings {
   agent_max_commands: number;
   agent_timeout_secs: number;
   keybindings?: Record<string, string>;
+  terminal_theme?: string;
 }
 
 export const loadSettings = () =>
@@ -330,8 +334,19 @@ export interface LspLocation {
 export const lspStart = (filePath: string, workspaceRoot: string) =>
   invoke<boolean>("lsp_start", { filePath, workspaceRoot });
 
+export interface EditDelta {
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
+  newText: string;
+}
+
 export const lspDidChange = (filePath: string, text: string, version: number) =>
   invoke<void>("lsp_did_change", { filePath, text, version });
+
+export const lspDidChangeIncremental = (filePath: string, edits: EditDelta[], version: number) =>
+  invoke<void>("lsp_did_change_incremental", { filePath, edits, version });
 
 export const lspDidSave = (filePath: string) =>
   invoke<void>("lsp_did_save", { filePath });

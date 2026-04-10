@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 use libloading;
 
@@ -52,7 +52,7 @@ pub struct HighlightSpan {
 }
 
 pub struct SyntaxService {
-    configs: RwLock<HashMap<String, &'static HighlightConfiguration>>,
+    configs: RwLock<HashMap<String, Arc<HighlightConfiguration>>>,
     /// Keep loaded libraries alive so their symbols remain valid
     _loaded_libs: RwLock<Vec<libloading::Library>>,
 }
@@ -62,17 +62,17 @@ fn make_config(
     highlights_query: &str,
     injections_query: &str,
     locals_query: &str,
-) -> &'static HighlightConfiguration {
+) -> Arc<HighlightConfiguration> {
     let mut config =
         HighlightConfiguration::new(language, "source", highlights_query, injections_query, locals_query)
             .expect("Failed to create highlight config");
     config.configure(HIGHLIGHT_NAMES);
-    Box::leak(Box::new(config))
+    Arc::new(config)
 }
 
 impl SyntaxService {
     pub fn new() -> Self {
-        let mut configs: HashMap<String, &'static HighlightConfiguration> = HashMap::new();
+        let mut configs: HashMap<String, Arc<HighlightConfiguration>> = HashMap::new();
 
         // JavaScript (uses HIGHLIGHT_QUERY)
         let js_config = make_config(
@@ -81,8 +81,8 @@ impl SyntaxService {
             tree_sitter_javascript::INJECTIONS_QUERY,
             tree_sitter_javascript::LOCALS_QUERY,
         );
-        configs.insert("js".to_string(), js_config);
-        configs.insert("jsx".to_string(), js_config);
+        configs.insert("js".to_string(), Arc::clone(&js_config));
+        configs.insert("jsx".to_string(), Arc::clone(&js_config));
         configs.insert("mjs".to_string(), js_config);
 
         // TypeScript (uses HIGHLIGHTS_QUERY)
@@ -163,7 +163,7 @@ impl SyntaxService {
             tree_sitter_html::INJECTIONS_QUERY,
             "",
         );
-        configs.insert("html".to_string(), html_config);
+        configs.insert("html".to_string(), Arc::clone(&html_config));
         configs.insert("htm".to_string(), html_config);
 
         // Go
@@ -184,7 +184,7 @@ impl SyntaxService {
             "",
             "",
         );
-        configs.insert("c".to_string(), c_config);
+        configs.insert("c".to_string(), Arc::clone(&c_config));
         configs.insert("h".to_string(), c_config);
 
         // C++
@@ -199,10 +199,10 @@ impl SyntaxService {
             "",
             "",
         );
-        configs.insert("cpp".to_string(), cpp_config);
-        configs.insert("cc".to_string(), cpp_config);
-        configs.insert("cxx".to_string(), cpp_config);
-        configs.insert("hpp".to_string(), cpp_config);
+        configs.insert("cpp".to_string(), Arc::clone(&cpp_config));
+        configs.insert("cc".to_string(), Arc::clone(&cpp_config));
+        configs.insert("cxx".to_string(), Arc::clone(&cpp_config));
+        configs.insert("hpp".to_string(), Arc::clone(&cpp_config));
         configs.insert("hh".to_string(), cpp_config);
 
         // Bash / Shell
@@ -212,8 +212,8 @@ impl SyntaxService {
             "",
             "",
         );
-        configs.insert("sh".to_string(), bash_config);
-        configs.insert("bash".to_string(), bash_config);
+        configs.insert("sh".to_string(), Arc::clone(&bash_config));
+        configs.insert("bash".to_string(), Arc::clone(&bash_config));
         configs.insert("zsh".to_string(), bash_config);
 
         // YAML
@@ -223,7 +223,7 @@ impl SyntaxService {
             "",
             "",
         );
-        configs.insert("yaml".to_string(), yaml_config);
+        configs.insert("yaml".to_string(), Arc::clone(&yaml_config));
         configs.insert("yml".to_string(), yaml_config);
 
         // TOML
@@ -244,7 +244,7 @@ impl SyntaxService {
             "",
             tree_sitter_ruby::LOCALS_QUERY,
         );
-        configs.insert("rb".to_string(), rb_config);
+        configs.insert("rb".to_string(), Arc::clone(&rb_config));
         configs.insert("ruby".to_string(), rb_config);
 
         // Java
@@ -287,8 +287,8 @@ impl SyntaxService {
             "",
             "",
         );
-        configs.insert("xml".to_string(), xml_config);
-        configs.insert("svg".to_string(), xml_config);
+        configs.insert("xml".to_string(), Arc::clone(&xml_config));
+        configs.insert("svg".to_string(), Arc::clone(&xml_config));
         configs.insert("xsl".to_string(), xml_config);
 
         // SCSS
@@ -406,7 +406,7 @@ impl SyntaxService {
 
         // Register
         let mut configs = self.configs.write().map_err(|e| e.to_string())?;
-        configs.insert(lang_name.to_string(), config);
+        configs.insert(lang_name.to_string(), Arc::clone(&config));
 
         // Map common extensions
         let ext_map: &[(&str, &[&str])] = &[
@@ -427,7 +427,7 @@ impl SyntaxService {
         for (name, exts) in ext_map {
             if *name == lang_name {
                 for ext in *exts {
-                    configs.insert(ext.to_string(), config);
+                    configs.insert(ext.to_string(), Arc::clone(&config));
                 }
             }
         }
@@ -450,16 +450,18 @@ impl SyntaxService {
     }
 
     pub fn highlight(&self, source: &str, extension: &str) -> Vec<HighlightSpan> {
-        let configs = self.configs.read().unwrap_or_else(|e| e.into_inner());
-        let config = match configs.get(extension) {
-            Some(c) => *c,
-            None => return Vec::new(),
+        let config = {
+            let configs = self.configs.read().unwrap_or_else(|e| e.into_inner());
+            match configs.get(extension) {
+                Some(c) => Arc::clone(c),
+                None => return Vec::new(),
+            }
         };
 
         let mut highlighter = Highlighter::new();
         let source_bytes = source.as_bytes();
 
-        let events = match highlighter.highlight(config, source_bytes, None, |_| None) {
+        let events = match highlighter.highlight(&config, source_bytes, None, |_| None) {
             Ok(events) => events,
             Err(_) => return Vec::new(),
         };

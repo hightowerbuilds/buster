@@ -19,9 +19,11 @@
 mod document;
 mod grammar;
 mod highlight;
+mod parser;
 mod types;
 
 pub use document::DocumentTree;
 pub use grammar::{GrammarConfig, GrammarRegistry};
 pub use highlight::{HighlightSpan, HighlightTheme, TokenKind};
+pub use parser::{FallbackParser, ParseProvider};
 pub use types::{EditRange, SyntaxError, ViewportRange};

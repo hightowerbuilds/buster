@@ -21,6 +21,7 @@ import type { Tab } from "../lib/tab-types";
 import type { SearchMatch, DiffHunk } from "../lib/ipc";
 import type { AppSettings } from "../lib/ipc";
 import type { EditorEngine } from "../editor/engine";
+import { basename, relativeTo } from "buster-path";
 
 interface Diagnostic {
   line: number;
@@ -209,7 +210,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
       const root = deps.workspaceRoot();
       const fp = tab.path;
       if (!fp) return [];
-      let rel = root && fp.startsWith(root) ? fp.slice(root.length).replace(/^\//, "") : fp;
+      const rel = root ? relativeTo(fp, root) : fp;
       return rel.split("/");
     };
 

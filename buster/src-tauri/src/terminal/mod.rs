@@ -14,18 +14,20 @@ pub mod term_pro {
 }
 
 // Active terminal theme — used by color_to_rgb/color_to_bg_rgb/idx_to_rgb
-use std::sync::OnceLock;
-static ACTIVE_THEME: OnceLock<term_pro::TerminalTheme> = OnceLock::new();
+use std::sync::RwLock;
+use std::sync::LazyLock;
+static ACTIVE_THEME: LazyLock<RwLock<term_pro::TerminalTheme>> =
+    LazyLock::new(|| RwLock::new(term_pro::TerminalTheme::catppuccin_mocha()));
 
-fn active_theme() -> &'static term_pro::TerminalTheme {
-    ACTIVE_THEME.get_or_init(term_pro::TerminalTheme::catppuccin_mocha)
+fn with_active_theme<R>(f: impl FnOnce(&term_pro::TerminalTheme) -> R) -> R {
+    let guard = ACTIVE_THEME.read().unwrap();
+    f(&guard)
 }
 
 /// Set the active terminal theme at runtime.
 pub fn set_terminal_theme(theme: term_pro::TerminalTheme) {
-    // OnceLock can only be set once; for runtime switching we need a different approach.
-    // For now, the theme is set at startup. Full runtime switching requires RwLock.
-    let _ = ACTIVE_THEME.set(theme);
+    let mut guard = ACTIVE_THEME.write().unwrap();
+    *guard = theme;
 }
 
 #[derive(Clone, Serialize, PartialEq)]
@@ -50,7 +52,7 @@ pub struct TermScreen {
 
 fn color_to_rgb(color: &vt100::Color) -> [u8; 3] {
     match color {
-        vt100::Color::Default => hex_to_rgb(active_theme().get(term_pro::ThemeColor::Foreground)),
+        vt100::Color::Default => with_active_theme(|t| hex_to_rgb(t.get(term_pro::ThemeColor::Foreground))),
         vt100::Color::Idx(i) => idx_to_rgb(*i),
         vt100::Color::Rgb(r, g, b) => [*r, *g, *b],
     }
@@ -58,7 +60,7 @@ fn color_to_rgb(color: &vt100::Color) -> [u8; 3] {
 
 fn color_to_bg_rgb(color: &vt100::Color) -> [u8; 3] {
     match color {
-        vt100::Color::Default => hex_to_rgb(active_theme().get(term_pro::ThemeColor::Background)),
+        vt100::Color::Default => with_active_theme(|t| hex_to_rgb(t.get(term_pro::ThemeColor::Background))),
         vt100::Color::Idx(i) => idx_to_rgb(*i),
         vt100::Color::Rgb(r, g, b) => [*r, *g, *b],
     }
@@ -78,25 +80,24 @@ fn hex_to_rgb(hex: &str) -> [u8; 3] {
 
 fn idx_to_rgb(i: u8) -> [u8; 3] {
     use term_pro::ThemeColor;
-    let theme = active_theme();
     // Standard 16 ANSI colors — read from the active theme
     match i {
-        0 => hex_to_rgb(theme.get(ThemeColor::Black)),
-        1 => hex_to_rgb(theme.get(ThemeColor::Red)),
-        2 => hex_to_rgb(theme.get(ThemeColor::Green)),
-        3 => hex_to_rgb(theme.get(ThemeColor::Yellow)),
-        4 => hex_to_rgb(theme.get(ThemeColor::Blue)),
-        5 => hex_to_rgb(theme.get(ThemeColor::Magenta)),
-        6 => hex_to_rgb(theme.get(ThemeColor::Cyan)),
-        7 => hex_to_rgb(theme.get(ThemeColor::White)),
-        8 => hex_to_rgb(theme.get(ThemeColor::BrightBlack)),
-        9 => hex_to_rgb(theme.get(ThemeColor::BrightRed)),
-        10 => hex_to_rgb(theme.get(ThemeColor::BrightGreen)),
-        11 => hex_to_rgb(theme.get(ThemeColor::BrightYellow)),
-        12 => hex_to_rgb(theme.get(ThemeColor::BrightBlue)),
-        13 => hex_to_rgb(theme.get(ThemeColor::BrightMagenta)),
-        14 => hex_to_rgb(theme.get(ThemeColor::BrightCyan)),
-        15 => hex_to_rgb(theme.get(ThemeColor::BrightWhite)),
+        0 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Black))),
+        1 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Red))),
+        2 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Green))),
+        3 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Yellow))),
+        4 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Blue))),
+        5 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Magenta))),
+        6 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::Cyan))),
+        7 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::White))),
+        8 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightBlack))),
+        9 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightRed))),
+        10 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightGreen))),
+        11 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightYellow))),
+        12 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightBlue))),
+        13 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightMagenta))),
+        14 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightCyan))),
+        15 => with_active_theme(|t| hex_to_rgb(t.get(ThemeColor::BrightWhite))),
         // 256-color: 16-231 = 6x6x6 cube, 232-255 = grayscale
         16..=231 => {
             let c = i - 16;
@@ -240,6 +241,7 @@ pub struct PtyInstance {
     writer: Box<dyn Write + Send>,
     _master: Box<dyn MasterPty + Send>,
     parser: Arc<Mutex<vt100::Parser>>,
+    monitor: Arc<term_pro::PtyMonitor>,
 }
 
 pub struct TerminalManager {
@@ -261,8 +263,11 @@ impl TerminalManager {
         cols: u16,
         cwd: Option<String>,
         on_screen: impl Fn(String, TermScreenDelta) + Send + Sync + 'static,
+        on_sixel: impl Fn(String, term_pro::SixelImage) + Send + Sync + 'static,
+        on_pty_error: impl Fn(String, String) + Send + Sync + 'static,
     ) -> Result<String, String> {
         let pty_system = native_pty_system();
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
         let pair = pty_system
             .openpty(PtySize {
@@ -273,10 +278,9 @@ impl TerminalManager {
             })
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let mut cmd = CommandBuilder::new(&shell);
         cmd.arg("-l");
-        if let Some(dir) = cwd {
+        if let Some(ref dir) = cwd {
             cmd.cwd(dir);
         }
 
@@ -301,19 +305,25 @@ impl TerminalManager {
 
         let parser = Arc::new(Mutex::new(vt100::Parser::new(rows, cols, 10_000)));
 
+        // Create a PtyMonitor for crash recovery (allow up to 3 restarts)
+        let monitor = Arc::new(term_pro::PtyMonitor::new(3));
+
         let instance = Arc::new(Mutex::new(PtyInstance {
             writer,
             _master: pair.master,
             parser: parser.clone(),
+            monitor: monitor.clone(),
         }));
 
         self.instances
             .lock()
             .map_err(|e| e.to_string())?
-            .insert(term_id.clone(), instance);
+            .insert(term_id.clone(), instance.clone());
 
         // Send initial empty screen as a full delta
         let on_screen = Arc::new(on_screen);
+        let on_sixel = Arc::new(on_sixel);
+        let on_pty_error = Arc::new(on_pty_error);
         {
             let p = parser.lock().unwrap_or_else(|e| e.into_inner());
             let screen = extract_screen(&p);
@@ -335,25 +345,164 @@ impl TerminalManager {
             on_screen(term_id.clone(), initial_delta);
         }
 
-        // Reader thread: feed PTY output into vt100, emit screen updates
+        // Reader thread: feed PTY output into vt100, detect sixel, handle crash recovery
         let term_id_for_reader = term_id.clone();
         let parser_for_reader = parser.clone();
         let on_screen_for_reader = on_screen.clone();
+        let on_sixel_for_reader = on_sixel.clone();
+        let on_pty_error_for_reader = on_pty_error.clone();
+        let monitor_for_reader = monitor.clone();
+        let cwd_for_reader = cwd.clone();
+        let instance_for_reader = instance.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             let mut last_cells: Vec<Vec<TermCell>> = Vec::new();
+            let mut sixel_parser = term_pro::SixelParser::new();
+            let mut sixel_buf: Vec<u8> = Vec::new();
+            let mut in_sixel = false;
             loop {
                 match reader.read(&mut buf) {
-                    Ok(0) => break,
+                    Ok(0) | Err(_) => {
+                        // PTY exited or errored — attempt respawn via PtyMonitor
+                        monitor_for_reader.mark_crashed();
+                        match monitor_for_reader.try_restart() {
+                            Ok(count) => {
+                                // Attempt to respawn the PTY
+                                let pty_system = native_pty_system();
+                                let pair = match pty_system.openpty(PtySize {
+                                    rows,
+                                    cols,
+                                    pixel_width: 0,
+                                    pixel_height: 0,
+                                }) {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        on_pty_error_for_reader(
+                                            term_id_for_reader.clone(),
+                                            "Failed to reopen PTY after crash".to_string(),
+                                        );
+                                        break;
+                                    }
+                                };
+
+                                let shell = std::env::var("SHELL")
+                                    .unwrap_or_else(|_| "/bin/zsh".to_string());
+                                let mut cmd = CommandBuilder::new(&shell);
+                                cmd.arg("-l");
+                                if let Some(ref dir) = cwd_for_reader {
+                                    cmd.cwd(dir);
+                                }
+
+                                if pair.slave.spawn_command(cmd).is_err() {
+                                    on_pty_error_for_reader(
+                                        term_id_for_reader.clone(),
+                                        "Failed to respawn shell after crash".to_string(),
+                                    );
+                                    break;
+                                }
+
+                                let new_reader = match pair.master.try_clone_reader() {
+                                    Ok(r) => r,
+                                    Err(_) => {
+                                        on_pty_error_for_reader(
+                                            term_id_for_reader.clone(),
+                                            "Failed to clone reader for respawned PTY".to_string(),
+                                        );
+                                        break;
+                                    }
+                                };
+
+                                let new_writer = match pair.master.take_writer() {
+                                    Ok(w) => w,
+                                    Err(_) => {
+                                        on_pty_error_for_reader(
+                                            term_id_for_reader.clone(),
+                                            "Failed to take writer for respawned PTY".to_string(),
+                                        );
+                                        break;
+                                    }
+                                };
+
+                                // Update the instance with new PTY handles
+                                {
+                                    let mut inst = instance_for_reader.lock()
+                                        .unwrap_or_else(|e| e.into_inner());
+                                    inst.writer = new_writer;
+                                    inst._master = pair.master;
+                                    // Reset the vt100 parser for the new session
+                                    let mut p = inst.parser.lock()
+                                        .unwrap_or_else(|e| e.into_inner());
+                                    *p = vt100::Parser::new(rows, cols, 10_000);
+                                }
+
+                                reader = new_reader;
+                                last_cells.clear();
+                                eprintln!(
+                                    "[terminal] PTY {} respawned (restart #{})",
+                                    term_id_for_reader, count
+                                );
+                                continue;
+                            }
+                            Err(e) => {
+                                // Max restarts exceeded — notify frontend
+                                on_pty_error_for_reader(
+                                    term_id_for_reader.clone(),
+                                    format!("Terminal crashed: {}", e),
+                                );
+                                break;
+                            }
+                        }
+                    }
                     Ok(n) => {
+                        let data = &buf[..n];
+
+                        // Detect sixel sequences in the raw PTY output
+                        let mut i = 0;
+                        while i < n {
+                            if in_sixel {
+                                sixel_buf.push(data[i]);
+                                // Check for sixel terminator (ESC \ or ST)
+                                let slen = sixel_buf.len();
+                                if (data[i] == 0x5C && slen >= 2 && sixel_buf[slen - 2] == 0x1B)
+                                    || data[i] == 0x9C
+                                {
+                                    // End of sixel — decode and emit
+                                    let cursor_row = {
+                                        let p = parser_for_reader.lock()
+                                            .unwrap_or_else(|e| e.into_inner());
+                                        let (cr, _) = p.screen().cursor_position();
+                                        cr
+                                    };
+                                    let img = sixel_parser.decode(&sixel_buf, cursor_row, 0);
+                                    if img.width > 0 && img.height > 0 {
+                                        on_sixel_for_reader(term_id_for_reader.clone(), img);
+                                    }
+                                    sixel_buf.clear();
+                                    in_sixel = false;
+                                }
+                                i += 1;
+                            } else if term_pro::SixelParser::is_sixel_start(&data[i..]) {
+                                in_sixel = true;
+                                sixel_buf.clear();
+                                // Skip the DCS introducer bytes
+                                if data[i] == 0x1B {
+                                    i += 2; // ESC P
+                                } else {
+                                    i += 1; // 0x90
+                                }
+                            } else {
+                                i += 1;
+                            }
+                        }
+
+                        // Feed the full output into vt100 (sixel bytes are ignored by vt100)
                         let mut p = parser_for_reader.lock().unwrap_or_else(|e| e.into_inner());
-                        p.process(&buf[..n]);
+                        p.process(data);
                         let screen = extract_screen(&p);
                         let delta = compute_delta(screen, &mut last_cells, &p);
                         drop(p);
                         on_screen_for_reader(term_id_for_reader.clone(), delta);
                     }
-                    Err(_) => break,
                 }
             }
         });

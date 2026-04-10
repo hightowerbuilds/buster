@@ -6,10 +6,12 @@
  * - Operation broadcast to all peers
  * - Peer presence (cursor positions, selections)
  * - Reconnection with operation replay
+ * - Auth via workspace-scoped tokens
  */
 
 import { Document, type Peer } from "./document.ts";
 import type { Operation } from "./crdt.ts";
+import { AuthManager, type TokenClaims } from "./auth.ts";
 
 interface ClientMessage {
   type: "join" | "operation" | "cursor" | "leave";
@@ -22,7 +24,7 @@ interface ClientMessage {
 }
 
 interface ServerMessage {
-  type: "joined" | "operation" | "cursor" | "peer_left" | "sync";
+  type: "joined" | "operation" | "cursor" | "peer_left" | "sync" | "error";
   documentId: string;
   siteId?: string;
   name?: string;
@@ -31,47 +33,95 @@ interface ServerMessage {
   content?: string;
   peers?: Peer[];
   cursor?: { position: number; selectionStart?: number; selectionEnd?: number };
+  message?: string;
 }
 
 const documents = new Map<string, Document>();
-const clientDocs = new Map<WebSocket, { documentId: string; siteId: string }>();
+const clientDocs = new Map<WebSocket, { documentId: string; siteId: string; workspaceId?: string }>();
 
-function getOrCreateDocument(id: string): Document {
-  let doc = documents.get(id);
+function getOrCreateDocument(id: string, workspaceId?: string): Document {
+  const key = workspaceId ? `${workspaceId}:${id}` : id;
+  let doc = documents.get(key);
   if (!doc) {
-    doc = new Document(id);
-    documents.set(id, doc);
+    doc = new Document(id, "", workspaceId);
+    documents.set(key, doc);
   }
   return doc;
 }
 
-export function createServer(port = 3001) {
+/** Resolve the storage key for a document within a workspace. */
+function docKey(documentId: string, workspaceId?: string): string {
+  return workspaceId ? `${workspaceId}:${documentId}` : documentId;
+}
+
+export interface ServerOptions {
+  port?: number;
+  /** Set to `false` to disable auth (useful in tests). Defaults to `true`. */
+  requireAuth?: boolean;
+  /** Custom AuthManager instance. If not provided, one is created from env. */
+  authManager?: AuthManager;
+}
+
+export function createServer(portOrOptions?: number | ServerOptions) {
+  const opts: ServerOptions =
+    typeof portOrOptions === "number"
+      ? { port: portOrOptions }
+      : portOrOptions ?? {};
+
+  const port = opts.port ?? 3001;
+  const requireAuth = opts.requireAuth ?? true;
+  const auth = opts.authManager ?? new AuthManager();
+
   return Bun.serve({
     port,
-    fetch(req, server) {
-      if (server.upgrade(req)) return;
+    async fetch(req, server) {
+      const url = new URL(req.url);
+
+      if (url.pathname === "/health") {
+        return new Response("ok", { status: 200 });
+      }
+
+      // --- Auth on upgrade ---
+      if (requireAuth) {
+        const token = url.searchParams.get("token") ?? req.headers.get("x-collab-token");
+        if (!token) {
+          return new Response("Missing auth token", { status: 401 });
+        }
+        let claims: TokenClaims;
+        try {
+          claims = await auth.validateToken(token);
+        } catch (err: any) {
+          return new Response(err.message ?? "Invalid token", { status: 403 });
+        }
+        // Attach claims to the WebSocket via upgrade data
+        if (server.upgrade(req, { data: { claims } })) return;
+      } else {
+        if (server.upgrade(req)) return;
+      }
+
       return new Response("Buster Collab Server", { status: 200 });
     },
     websocket: {
-      open(ws) {
+      open(ws: any) {
         // Client connects — no action until they join a document
       },
-      message(ws, message) {
+      message(ws: any, message: any) {
         try {
           const msg: ClientMessage = JSON.parse(message as string);
-          handleMessage(ws, msg);
+          const claims: TokenClaims | undefined = ws.data?.claims;
+          handleMessage(ws, msg, claims);
         } catch {
           ws.send(JSON.stringify({ type: "error", message: "invalid message" }));
         }
       },
-      close(ws) {
+      close(ws: any) {
         const info = clientDocs.get(ws);
         if (info) {
-          const doc = documents.get(info.documentId);
+          const key = docKey(info.documentId, info.workspaceId);
+          const doc = documents.get(key);
           if (doc) {
             doc.removePeer(info.siteId);
-            // Broadcast peer departure
-            broadcastToDocument(info.documentId, ws, {
+            broadcastToDocument(key, ws, {
               type: "peer_left",
               documentId: info.documentId,
               siteId: info.siteId,
@@ -84,11 +134,14 @@ export function createServer(port = 3001) {
   });
 }
 
-function handleMessage(ws: WebSocket, msg: ClientMessage) {
+function handleMessage(ws: WebSocket, msg: ClientMessage, claims?: TokenClaims) {
+  const workspaceId = claims?.workspaceId;
+  const key = docKey(msg.documentId, workspaceId);
+
   switch (msg.type) {
     case "join": {
-      const doc = getOrCreateDocument(msg.documentId);
-      clientDocs.set(ws, { documentId: msg.documentId, siteId: msg.siteId });
+      const doc = getOrCreateDocument(msg.documentId, workspaceId);
+      clientDocs.set(ws, { documentId: msg.documentId, siteId: msg.siteId, workspaceId });
 
       doc.setPeer({
         siteId: msg.siteId,
@@ -108,7 +161,7 @@ function handleMessage(ws: WebSocket, msg: ClientMessage) {
       ws.send(JSON.stringify(response));
 
       // Broadcast join to others
-      broadcastToDocument(msg.documentId, ws, {
+      broadcastToDocument(key, ws, {
         type: "joined",
         documentId: msg.documentId,
         siteId: msg.siteId,
@@ -119,12 +172,22 @@ function handleMessage(ws: WebSocket, msg: ClientMessage) {
 
     case "operation": {
       if (!msg.operation || msg.version === undefined) return;
-      const doc = documents.get(msg.documentId);
+      const doc = documents.get(key);
       if (!doc) return;
+
+      // Reject if the document's workspace doesn't match the token's workspace
+      if (workspaceId && doc.workspaceId && doc.workspaceId !== workspaceId) {
+        ws.send(JSON.stringify({
+          type: "error",
+          documentId: msg.documentId,
+          message: "workspace mismatch",
+        }));
+        return;
+      }
 
       const transformed = doc.applyOperation(msg.operation, msg.version);
 
-      broadcastToDocument(msg.documentId, ws, {
+      broadcastToDocument(key, ws, {
         type: "operation",
         documentId: msg.documentId,
         siteId: msg.siteId,
@@ -136,7 +199,7 @@ function handleMessage(ws: WebSocket, msg: ClientMessage) {
 
     case "cursor": {
       if (!msg.cursor) return;
-      const doc = documents.get(msg.documentId);
+      const doc = documents.get(key);
       if (!doc) return;
 
       doc.setPeer({
@@ -148,7 +211,7 @@ function handleMessage(ws: WebSocket, msg: ClientMessage) {
         lastSeen: Date.now(),
       });
 
-      broadcastToDocument(msg.documentId, ws, {
+      broadcastToDocument(key, ws, {
         type: "cursor",
         documentId: msg.documentId,
         siteId: msg.siteId,
@@ -158,12 +221,12 @@ function handleMessage(ws: WebSocket, msg: ClientMessage) {
     }
 
     case "leave": {
-      const doc = documents.get(msg.documentId);
+      const doc = documents.get(key);
       if (doc) {
         doc.removePeer(msg.siteId);
       }
       clientDocs.delete(ws);
-      broadcastToDocument(msg.documentId, ws, {
+      broadcastToDocument(key, ws, {
         type: "peer_left",
         documentId: msg.documentId,
         siteId: msg.siteId,
@@ -174,13 +237,14 @@ function handleMessage(ws: WebSocket, msg: ClientMessage) {
 }
 
 function broadcastToDocument(
-  documentId: string,
+  key: string,
   exclude: WebSocket,
   message: ServerMessage,
 ) {
   const json = JSON.stringify(message);
   for (const [client, info] of clientDocs) {
-    if (info.documentId === documentId && client !== exclude) {
+    const clientKey = docKey(info.documentId, info.workspaceId);
+    if (clientKey === key && client !== exclude) {
       client.send(json);
     }
   }

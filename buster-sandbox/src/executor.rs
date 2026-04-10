@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use crate::config::SandboxConfig;
 use crate::error::SandboxError;
+use crate::os_sandbox::OsSandbox;
 use crate::policy::{ExecutionPolicy, PolicyVerdict};
 use crate::types::{ExecutionRequest, ExecutionResult, ExitStatus};
 
@@ -67,6 +68,13 @@ pub fn execute(
     for (key, value) in &request.env {
         cmd.env(key, value);
     }
+
+    // Step 3b: Apply OS-level sandbox (Seatbelt on macOS, seccomp on Linux)
+    let os_sandbox = OsSandbox::from_capabilities(
+        config.workspace_root.clone(),
+        &request.capabilities,
+    );
+    os_sandbox.apply(&mut cmd)?;
 
     // Step 4: Spawn
     let mut child = cmd.spawn()?;

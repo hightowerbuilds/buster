@@ -16,7 +16,8 @@ import { createInlayHints } from "./editor-inlay-hints";
 import { createEditorA11y } from "./editor-a11y";
 import CanvasSurface from "../ui/CanvasSurface";
 import { clipboardWrite, clipboardRead } from "../lib/clipboard";
-import { lspDidChange } from "../lib/ipc";
+import { basename, extname } from "buster-path";
+import { lspDidChange, lspDidChangeIncremental } from "../lib/ipc";
 import { palette, apiKey as globalApiKey, workspaceRoot, tabTrapping } from "../lib/app-state";
 
 // ─── Props ──────────────────────────────────────────────────────────
@@ -77,7 +78,16 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     if (!fp || seq === 0) return;
     clearTimeout(didChangeTimer);
     didChangeTimer = setTimeout(() => {
-      lspDidChange(fp, engine.getText(), seq).catch(() => {});
+      const deltas = engine.takeEditDeltas();
+      if (deltas === null || deltas.length === 0) {
+        // Full-document sync (complex op, undo/redo, or no deltas)
+        lspDidChange(fp, engine.getText(), seq).catch(() => {});
+      } else {
+        // Incremental sync with fallback
+        lspDidChangeIncremental(fp, deltas, seq).catch(() => {
+          lspDidChange(fp, engine.getText(), seq).catch(() => {});
+        });
+      }
     }, 300);
   });
   onCleanup(() => clearTimeout(didChangeTimer));
@@ -508,7 +518,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     // Toggle line comment (Cmd+/)
     if (isMod && e.key === "/") {
       e.preventDefault();
-      const ext = props.filePath?.split(".").pop() ?? "";
+      const ext = props.filePath ? extname(props.filePath).slice(1) : "";
       const prefix = (ext === "py" || ext === "sh" || ext === "bash" || ext === "zsh" || ext === "yml" || ext === "yaml" || ext === "toml") ? "#"
         : (ext === "css") ? "//" // CSS uses /* */ but // is simpler for line toggle
         : "//";
@@ -577,7 +587,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
           if (locations.length > 0) {
             // Show in hover tooltip as a simple list
             const text = locations.map(l => {
-              const name = l.file_path.split("/").pop() ?? l.file_path;
+              const name = basename(l.file_path) || l.file_path;
               return `${name}:${l.line + 1}:${l.col + 1}`;
             }).join("\n");
             hover.showImmediate(`${locations.length} references:\n${text}`, c.line, c.col);
@@ -940,7 +950,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       a11y={<a11y.ParallelDOM />}
       textareaProps={{
         role: "textbox",
-        "aria-label": `Code editor${props.filePath ? `: ${props.filePath.split("/").pop()}` : ""}`,
+        "aria-label": `Code editor${props.filePath ? `: ${basename(props.filePath)}` : ""}`,
         "aria-multiline": "true",
         onKeyDown: handleKeyDown,
         onInput: handleInput,

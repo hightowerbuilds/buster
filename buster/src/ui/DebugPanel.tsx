@@ -9,6 +9,7 @@ import {
   debugStepOut, debugPause, debugStop, debugStackTrace, debugVariables,
   type DebugStackFrame, type DebugVariable,
 } from "../lib/ipc";
+import { basename } from "buster-path";
 import "../styles/debug.css";
 
 const DebugPanel: Component = () => {
@@ -216,7 +217,7 @@ const DebugPanel: Component = () => {
                       <span class="debug-frame-name">{frame.name}</span>
                       <Show when={frame.file_path}>
                         <span class="debug-frame-loc">
-                          {frame.file_path!.split("/").pop()}:{frame.line}
+                          {basename(frame.file_path!)}:{frame.line}
                         </span>
                       </Show>
                     </div>

@@ -1,6 +1,7 @@
 import { createSignal, createEffect, createMemo, Index, type JSX } from "solid-js";
 import type { Pos } from "./engine";
 import { announce, createDebouncedAnnounce } from "../lib/a11y";
+import { basename } from "buster-path";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ export function createEditorA11y(deps: EditorA11yDeps) {
   function ParallelDOM(): JSX.Element {
     const fileName = () => {
       const fp = deps.filePath();
-      return fp ? fp.split("/").pop() : "untitled";
+      return fp ? (basename(fp) || "untitled") : "untitled";
     };
 
     return (

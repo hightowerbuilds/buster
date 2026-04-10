@@ -16,12 +16,14 @@
 mod config;
 mod error;
 mod executor;
+pub mod os_sandbox;
 mod policy;
 mod types;
 
 pub use config::SandboxConfig;
 pub use error::SandboxError;
 pub use executor::execute;
+pub use os_sandbox::OsSandbox;
 pub use policy::{ExecutionPolicy, PolicyVerdict};
 pub use types::{
     Capability, ExecutionRequest, ExecutionResult, ExitStatus, FsAccess, ResourceLimits,

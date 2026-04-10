@@ -4,6 +4,7 @@ import type { WorkspaceFile, AiChatRequest, WorkspaceSearchResult, LspDocumentSy
 import { listen } from "@tauri-apps/api/event";
 import { workspaceRoot as globalWorkspaceRoot, apiKey as globalApiKey } from "../lib/app-state";
 import { createFocusTrap } from "../lib/a11y";
+import { basename, dirname } from "buster-path";
 
 interface CommandPaletteProps {
   visible: boolean;
@@ -386,7 +387,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           <Show when={isSearchMode() && !isAiMode()}>
             <For each={searchResults()}>
               {(result, idx) => {
-                const fileName = result.path.split("/").pop() || result.path;
+                const fileName = basename(result.path) || result.path;
                 const truncated = result.line_content.length > 60
                   ? result.line_content.substring(0, 60) + "..."
                   : result.line_content;
@@ -465,7 +466,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
                   >
                     <span class="palette-item-icon">~</span>
                     <span class="palette-item-name">{file.name}</span>
-                    <span class="palette-item-path">{file.path.split("/").slice(-2, -1)[0] || ""}</span>
+                    <span class="palette-item-path">{basename(dirname(file.path)) || ""}</span>
                   </div>
                 )}
               </For>

@@ -34,10 +34,7 @@ pub struct DebugSession {
     pub thread_id: Option<i64>,
 }
 
-// DapClient holds a Child process and Mutex<Box<dyn Write + Send>> — make it Send+Sync
-// TODO: Replace with Arc-based design from buster-dap to eliminate this unsafe
-unsafe impl Send for DapClient {}
-unsafe impl Sync for DapClient {}
+// DapClient is now naturally Send + Sync: all fields use Arc/Mutex/Atomic.
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DebugState {

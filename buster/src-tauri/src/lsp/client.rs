@@ -284,6 +284,30 @@ impl LspClient {
         }))
     }
 
+    pub fn did_change_incremental(
+        &self,
+        uri: &str,
+        version: i32,
+        edits: &[crate::commands::lsp::EditDelta],
+    ) -> Result<(), String> {
+        let content_changes: Vec<serde_json::Value> = edits
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "range": {
+                        "start": { "line": e.start_line, "character": e.start_col },
+                        "end": { "line": e.end_line, "character": e.end_col }
+                    },
+                    "text": e.new_text
+                })
+            })
+            .collect();
+        self.send_notification("textDocument/didChange", serde_json::json!({
+            "textDocument": { "uri": uri, "version": version },
+            "contentChanges": content_changes
+        }))
+    }
+
     pub fn did_save(&self, uri: &str) -> Result<(), String> {
         self.send_notification("textDocument/didSave", serde_json::json!({
             "textDocument": { "uri": uri }

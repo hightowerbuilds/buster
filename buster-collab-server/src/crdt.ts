@@ -6,12 +6,16 @@
  * Uses a Lamport timestamp + site ID for causal ordering.
  */
 
+import { LamportClock, type LamportTimestamp } from "./clock.ts";
+
 export interface InsertOp {
   type: "insert";
   position: number;
   text: string;
   siteId: string;
+  /** @deprecated Use `timestamp.value` — kept for wire compat */
   timestamp: number;
+  lamport?: LamportTimestamp;
 }
 
 export interface DeleteOp {
@@ -19,7 +23,9 @@ export interface DeleteOp {
   position: number;
   length: number;
   siteId: string;
+  /** @deprecated Use `timestamp.value` — kept for wire compat */
   timestamp: number;
+  lamport?: LamportTimestamp;
 }
 
 export type Operation = InsertOp | DeleteOp;
@@ -48,9 +54,19 @@ export function transform(op: Operation, against: Operation): Operation {
 }
 
 function transformInsertInsert(op: InsertOp, against: InsertOp): InsertOp {
-  if (op.position < against.position ||
-      (op.position === against.position && op.siteId < against.siteId)) {
+  if (op.position < against.position) {
     return op;
+  }
+  if (op.position === against.position) {
+    // Use Lamport timestamps for causal tiebreak when available
+    if (op.lamport && against.lamport) {
+      if (LamportClock.compare(op.lamport, against.lamport) < 0) {
+        return op;
+      }
+    } else if (op.siteId < against.siteId) {
+      // Fallback to siteId comparison for backward compat
+      return op;
+    }
   }
   return { ...op, position: op.position + against.text.length };
 }

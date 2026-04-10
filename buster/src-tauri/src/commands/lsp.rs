@@ -85,10 +85,14 @@ pub async fn lsp_start(
         client.did_open(&uri, lang_id, &text)
     })?;
 
+    // Create document state for incremental sync tracking
+    lsp.open_document(&uri, lang_id, &text)?;
+
     Ok(true)
 }
 
-/// Notify LSP of document change.
+/// Notify LSP of document change (full sync fallback).
+/// Resets the tracked DocumentState so it stays in sync.
 #[command]
 pub fn lsp_did_change(
     lsp: State<'_, LspManager>,
@@ -102,6 +106,61 @@ pub fn lsp_did_change(
 
     lsp.get_client(lang_id, |client| {
         client.did_change(&uri, version, &text)
+    })?;
+
+    // Keep the tracked document state in sync with the full content
+    lsp.reset_document_content(&uri, &text)?;
+
+    Ok(())
+}
+
+/// A single incremental edit delta from the editor engine.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditDelta {
+    pub start_line: u32,
+    pub start_col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
+    pub new_text: String,
+}
+
+/// Notify LSP of incremental document change.
+/// Applies each EditDelta to the tracked DocumentState, then sends the
+/// pending edits as incremental content changes to the language server.
+/// The `version` parameter from the frontend is accepted but ignored;
+/// the DocumentState maintains the authoritative version number.
+#[allow(unused_variables)]
+#[command]
+pub fn lsp_did_change_incremental(
+    lsp: State<'_, LspManager>,
+    file_path: String,
+    edits: Vec<EditDelta>,
+    version: i32,
+) -> Result<(), String> {
+    let ext = ext_from_path(&file_path).ok_or("No extension")?;
+    let lang_id = language_id_for_ext(&ext).ok_or("Unsupported language")?;
+    let uri = uri_from_path(&file_path);
+
+    // Apply edits to the tracked document state and get the authoritative
+    // version + pending TextEdits to send to the server.
+    let (doc_version, pending_edits) = lsp.apply_incremental_edits(&uri, &edits)?;
+
+    // Convert buster_lsp_manager::TextEdit into the EditDelta format that
+    // LspClient::did_change_incremental expects.
+    let deltas: Vec<EditDelta> = pending_edits
+        .iter()
+        .map(|te| EditDelta {
+            start_line: te.range.start.line,
+            start_col: te.range.start.character_utf8,
+            end_line: te.range.end.line,
+            end_col: te.range.end.character_utf8,
+            new_text: te.new_text.clone(),
+        })
+        .collect();
+
+    lsp.get_client(lang_id, |client| {
+        client.did_change_incremental(&uri, doc_version, &deltas)
     })
 }
 
@@ -118,6 +177,26 @@ pub fn lsp_did_save(
     lsp.get_client(lang_id, |client| {
         client.did_save(&uri)
     })
+}
+
+/// Notify LSP that a document was closed. Removes the tracked DocumentState.
+#[command]
+pub fn lsp_did_close(
+    lsp: State<'_, LspManager>,
+    file_path: String,
+) -> Result<(), String> {
+    let ext = ext_from_path(&file_path).ok_or("No extension")?;
+    let lang_id = language_id_for_ext(&ext).ok_or("Unsupported language")?;
+    let uri = uri_from_path(&file_path);
+
+    lsp.get_client(lang_id, |client| {
+        client.did_close(&uri)
+    })?;
+
+    // Remove the tracked document state
+    lsp.close_document(&uri)?;
+
+    Ok(())
 }
 
 /// Request completions from LSP.

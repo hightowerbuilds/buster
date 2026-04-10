@@ -1,4 +1,5 @@
 import { Component, For, Show, createMemo } from "solid-js";
+import { basename } from "buster-path";
 
 interface Diagnostic {
   line: number;
@@ -22,7 +23,7 @@ const ProblemsPanel: Component<ProblemsPanelProps> = (props) => {
     const groups: { file: string; name: string; diagnostics: Diagnostic[] }[] = [];
     for (const [file, diags] of props.diagnosticsMap) {
       if (diags.length === 0) continue;
-      const name = file.split("/").pop() ?? file;
+      const name = basename(file) || file;
       // Sort by severity then line
       const sorted = [...diags].sort((a, b) => a.severity !== b.severity ? a.severity - b.severity : a.line - b.line);
       groups.push({ file, name, diagnostics: sorted });

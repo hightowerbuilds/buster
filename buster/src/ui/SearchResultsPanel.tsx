@@ -1,5 +1,6 @@
 import { Component, For, Show, createSignal, createEffect, on } from "solid-js";
 import { workspaceSearch, type WorkspaceSearchResult } from "../lib/ipc";
+import { basename } from "buster-path";
 
 interface SearchResultsProps {
   workspaceRoot: string | null;
@@ -40,7 +41,7 @@ const SearchResultsPanel: Component<SearchResultsProps> = (props) => {
       }
       const fileGroups: FileGroup[] = [];
       for (const [file, matches] of groups) {
-        const name = file.split("/").pop() ?? file;
+        const name = basename(file) || file;
         fileGroups.push({ file, name, matches });
       }
       fileGroups.sort((a, b) => b.matches.length - a.matches.length);

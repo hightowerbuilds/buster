@@ -8,7 +8,7 @@ import { type Component, type JSX, createEffect, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { BusterContext, type BusterContextValue, type BusterActions, type EngineMap } from "./buster-context";
 import type { BusterStoreState } from "./store-types";
-import { basename } from "buster-path";
+import { basename, extname } from "buster-path";
 import { type Tab, isImageFile } from "./tab-types";
 import type { LayoutMode } from "../ui/LayoutPicker";
 import type { EditorEngine } from "../editor/engine";
@@ -410,8 +410,8 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   };
 
   function getExtFromPath(path: string): string | null {
-    const dot = path.lastIndexOf(".");
-    return dot >= 0 ? path.slice(dot + 1).toLowerCase() : null;
+    const ext = extname(path);
+    return ext ? ext.slice(1).toLowerCase() : null;
   }
 
   function handleTabClose(tabId: string) {

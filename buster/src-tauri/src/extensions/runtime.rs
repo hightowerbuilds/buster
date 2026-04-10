@@ -6,6 +6,9 @@ use wasmtime::*;
 use super::gateway::{GatewayEvent, GatewayManager};
 use super::manifest::ExtensionManifest;
 
+// Buster sandbox integration — allowlist-based command execution
+use buster_sandbox::{SandboxConfig, ExecutionRequest, ExitStatus, ResourceLimits, execute as sandbox_execute};
+
 /// Read a UTF-8 string from WASM linear memory at the given pointer and length.
 fn read_wasm_str(memory: &Memory, caller: &Caller<'_, ExtensionState>, ptr: i32, len: i32) -> Option<String> {
     let mut buf = vec![0u8; len as usize];
@@ -386,7 +389,7 @@ fn link_host_functions(linker: &mut Linker<ExtensionState>, _caps: &super::manif
             None => return -1,
         };
 
-        // Validate command safety using the shared blocklist
+        // Defense-in-depth: validate command safety using the shared blocklist
         if crate::ai::tools::is_command_safe(&cmd_str).is_err() {
             let ext_id = &caller.data().manifest.extension.id;
             eprintln!("[ext:{}] Blocked unsafe command: {}", ext_id, cmd_str);
@@ -394,36 +397,88 @@ fn link_host_functions(linker: &mut Linker<ExtensionState>, _caps: &super::manif
             return -1;
         }
 
-        // Execute the command
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&cmd_str)
-            .current_dir(&ws_root)
-            .output();
+        // Parse the command string into program + args
+        let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+        if parts.is_empty() {
+            caller.data_mut().return_buffer = b"Error: empty command".to_vec();
+            return -1;
+        }
 
-        match output {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let result = if out.status.success() {
-                    serde_json::json!({
-                        "status": out.status.code().unwrap_or(-1),
-                        "stdout": stdout,
-                        "stderr": stderr,
-                    })
-                } else {
-                    serde_json::json!({
-                        "status": out.status.code().unwrap_or(-1),
-                        "stdout": stdout,
-                        "stderr": stderr,
-                        "error": true,
-                    })
-                };
-                caller.data_mut().return_buffer = result.to_string().into_bytes();
-                if out.status.success() { 0 } else { 1 }
+        let program = parts[0];
+        let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+        // Build sandbox config and execution request
+        let config = SandboxConfig::new(&ws_root);
+        let request = ExecutionRequest {
+            program: program.to_string(),
+            args,
+            working_dir: PathBuf::from(&ws_root),
+            env: std::collections::HashMap::new(),
+            stdin: None,
+            capabilities: vec![],
+            limits: ResourceLimits::default(),
+        };
+
+        // Execute through the sandbox
+        match sandbox_execute(&config, &request) {
+            Ok(result) => {
+                match result.status {
+                    ExitStatus::Denied => {
+                        let reason = String::from_utf8_lossy(&result.stderr);
+                        let json = serde_json::json!({
+                            "status": -1,
+                            "stdout": "",
+                            "stderr": format!("Blocked by sandbox: {}", reason),
+                            "error": true,
+                        });
+                        caller.data_mut().return_buffer = json.to_string().into_bytes();
+                        -1
+                    }
+                    ExitStatus::Timeout => {
+                        let json = serde_json::json!({
+                            "status": -1,
+                            "stdout": "",
+                            "stderr": "Error: command timed out",
+                            "error": true,
+                        });
+                        caller.data_mut().return_buffer = json.to_string().into_bytes();
+                        -1
+                    }
+                    ExitStatus::ResourceLimit => {
+                        let json = serde_json::json!({
+                            "status": -1,
+                            "stdout": "",
+                            "stderr": "Error: command exceeded resource limits",
+                            "error": true,
+                        });
+                        caller.data_mut().return_buffer = json.to_string().into_bytes();
+                        -1
+                    }
+                    ExitStatus::Code(code) => {
+                        let stdout = String::from_utf8_lossy(&result.stdout);
+                        let stderr = String::from_utf8_lossy(&result.stderr);
+                        let success = code == 0;
+                        let json = if success {
+                            serde_json::json!({
+                                "status": code,
+                                "stdout": stdout,
+                                "stderr": stderr,
+                            })
+                        } else {
+                            serde_json::json!({
+                                "status": code,
+                                "stdout": stdout,
+                                "stderr": stderr,
+                                "error": true,
+                            })
+                        };
+                        caller.data_mut().return_buffer = json.to_string().into_bytes();
+                        if success { 0 } else { 1 }
+                    }
+                }
             }
             Err(e) => {
-                caller.data_mut().return_buffer = format!("Failed to execute: {}", e).into_bytes();
+                caller.data_mut().return_buffer = format!("Sandbox error: {}", e).into_bytes();
                 -1
             }
         }

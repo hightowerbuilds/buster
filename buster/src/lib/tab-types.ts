@@ -1,3 +1,5 @@
+import { extname } from "buster-path";
+
 export type TabType =
   | "file"
   | "image"
@@ -18,9 +20,9 @@ const IMAGE_EXTENSIONS = new Set([
 ]);
 
 export function isImageFile(path: string): boolean {
-  const dot = path.lastIndexOf(".");
-  if (dot < 0) return false;
-  return IMAGE_EXTENSIONS.has(path.slice(dot + 1).toLowerCase());
+  const ext = extname(path);
+  if (!ext) return false;
+  return IMAGE_EXTENSIONS.has(ext.slice(1).toLowerCase());
 }
 
 export interface Tab {

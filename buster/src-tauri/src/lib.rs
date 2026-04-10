@@ -183,6 +183,7 @@ pub fn run() {
             commands::terminal::terminal_write,
             commands::terminal::terminal_resize,
             commands::terminal::terminal_kill,
+            commands::terminal::set_terminal_theme,
             // Syntax highlighting
             commands::syntax::highlight_code,
             commands::syntax::syntax_languages,
@@ -227,7 +228,9 @@ pub fn run() {
             // LSP
             commands::lsp::lsp_start,
             commands::lsp::lsp_did_change,
+            commands::lsp::lsp_did_change_incremental,
             commands::lsp::lsp_did_save,
+            commands::lsp::lsp_did_close,
             commands::lsp::lsp_completion,
             commands::lsp::lsp_hover,
             commands::lsp::lsp_definition,

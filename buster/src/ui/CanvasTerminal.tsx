@@ -15,6 +15,20 @@ interface TermCell {
   inverse: boolean;
 }
 
+/** A decoded sixel image received from the Rust backend. */
+interface SixelImageData {
+  /** Image width in pixels. */
+  width: number;
+  /** Image height in pixels. */
+  height: number;
+  /** RGBA pixel data (width * height * 4 bytes), base64-encoded. */
+  pixels: number[];
+  /** Terminal row where the image starts. */
+  row: number;
+  /** Terminal column where the image starts. */
+  col: number;
+}
+
 interface ChangedRow {
   index: number;
   cells: TermCell[];
@@ -72,6 +86,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   let mouseMode = "none";
   let mouseEncoding = "default";
   let bracketedPaste = false;
+  let sixelImages: SixelImageData[] = [];
+  let sixelBitmapCache: Map<string, ImageData> = new Map();
 
   const termA11y = createTerminalA11y();
 
@@ -269,6 +285,28 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
         ctx.fillStyle = p.editorBg;
         ctx.fillText(cursorCell.ch, cx, cy);
       }
+    }
+
+    // Draw sixel images on the canvas
+    for (const img of sixelImages) {
+      if (img.width === 0 || img.height === 0) continue;
+
+      const cacheKey = `${img.row},${img.col},${img.width},${img.height}`;
+      let imgData = sixelBitmapCache.get(cacheKey);
+      if (!imgData) {
+        imgData = new ImageData(img.width, img.height);
+        const src = img.pixels;
+        const dst = imgData.data;
+        const len = Math.min(src.length, dst.length);
+        for (let i = 0; i < len; i++) {
+          dst[i] = src[i];
+        }
+        sixelBitmapCache.set(cacheKey, imgData);
+      }
+
+      const sx = img.col * cw;
+      const sy = img.row * ch;
+      ctx.putImageData(imgData, sx, sy);
     }
 
     // Scroll indicator
@@ -537,6 +575,41 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       }
     )) as unknown as () => void;
 
+    // Listen for sixel images from Rust
+    let unlistenSixel: (() => void) | null = null;
+    listen<{ term_id: string; image: SixelImageData }>(
+      "terminal-sixel",
+      (event) => {
+        if (event.payload.term_id === ptyId) {
+          const img = event.payload.image;
+          // Replace any existing image at the same position, or add new
+          const idx = sixelImages.findIndex(
+            (s) => s.row === img.row && s.col === img.col
+          );
+          if (idx >= 0) {
+            sixelImages[idx] = img;
+          } else {
+            sixelImages.push(img);
+          }
+          // Invalidate cache for this position
+          sixelBitmapCache.delete(`${img.row},${img.col},${img.width},${img.height}`);
+          needsRedraw = true;
+          scheduleTermRender();
+        }
+      }
+    ).then((fn) => { unlistenSixel = fn as unknown as () => void; });
+
+    // Listen for terminal theme changes — force a full re-render
+    let unlistenTheme: (() => void) | null = null;
+    listen<void>("terminal-theme-changed", () => {
+      // Request a fresh full screen from the backend to pick up new theme colors
+      if (ptyId) {
+        invoke("terminal_write", { termId: ptyId, data: "" }).catch(() => {});
+      }
+      needsRedraw = true;
+      scheduleTermRender();
+    }).then((fn) => { unlistenTheme = fn as unknown as () => void; });
+
     // Compute initial grid size
     const { rows, cols } = computeGridSize();
     termRows = rows;
@@ -566,8 +639,12 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     onCleanup(() => {
       cancelAnimationFrame(animId);
       if (unlisten) unlisten();
+      if (unlistenSixel) unlistenSixel();
+      if (unlistenTheme) unlistenTheme();
       if (resizeObs) resizeObs.disconnect();
       termA11y.cleanup();
+      sixelImages = [];
+      sixelBitmapCache.clear();
       if (ptyId) {
         invoke("terminal_kill", { termId: ptyId }).catch((e) => console.warn("Terminal IPC error:", e));
       }

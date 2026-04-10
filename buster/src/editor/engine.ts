@@ -38,6 +38,20 @@ export interface DisplayRow {
   text: string;
 }
 
+/** A single edit range describing what text was replaced and with what. */
+export interface EditDelta {
+  /** Start line of the replaced range (zero-based, before the edit). */
+  startLine: number;
+  /** Start column of the replaced range (zero-based, before the edit). */
+  startCol: number;
+  /** End line of the replaced range (zero-based, before the edit). */
+  endLine: number;
+  /** End column of the replaced range (zero-based, before the edit). */
+  endCol: number;
+  /** The new text that replaced the range. Empty string means deletion. */
+  newText: string;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────
 
 export const PADDING_LEFT = 8;
@@ -214,6 +228,10 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
   // Sticky column: remembered horizontal target for vertical movement
   let desiredCol: number | null = null;
 
+  // Edit delta accumulator for incremental sync
+  let editDeltas: EditDelta[] = [];
+  let fullSyncNeeded = false;
+
   // Code folding state
   const foldStarts = new Set<number>();    // lines that start a fold
   const foldedLineSet = new Set<number>(); // lines that are hidden
@@ -245,6 +263,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       setExtras(entry.extras.map(p => ({ ...p })));
       setSel(entry.sel ? { anchor: { ...entry.sel.anchor }, head: { ...entry.sel.head } } : null);
       setDirty(true);
+      fullSyncNeeded = true;
       setEditSeq(s => s + 1);
     });
     invalidateCache();
@@ -272,9 +291,14 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     lastEditTime = now;
   }
 
-  function afterEdit() {
+  function afterEdit(deltas?: EditDelta[] | null) {
     desiredCol = null;
     setDirty(true);
+    if (deltas === null || deltas === undefined) {
+      fullSyncNeeded = true;
+    } else {
+      editDeltas.push(...deltas);
+    }
     setEditSeq(s => s + 1);
     redoStack.length = 0;
     invalidateCache();
@@ -374,6 +398,18 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     getLine: (n: number) => lines()[n] ?? "",
     getCursors: () => [cursor(), ...extras()],
     hasMultiCursors: () => extras().length > 0,
+
+    /** Take accumulated edit deltas since last call. Returns null if full-document sync is needed. */
+    takeEditDeltas(): EditDelta[] | null {
+      if (fullSyncNeeded) {
+        editDeltas = [];
+        fullSyncNeeded = false;
+        return null;
+      }
+      const result = editDeltas;
+      editDeltas = [];
+      return result;
+    },
 
     getOrderedSelection(): { from: Pos; to: Pos } | null {
       const s = sel();
@@ -549,21 +585,27 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     insert(text: string) {
       recordUndo();
       let ls = lines();
+      const deltas: EditDelta[] = [];
 
       // Delete selection first
       if (sel()) {
         const r = deleteCurrentSelection(ls);
         ls = r.lines;
         const pos = r.pos;
+        const s = sel()!;
+        const [from, to] = orderPositions(s.anchor, s.head);
         // Now insert at the collapsed position
         if (extras().length > 0) {
           // Multi-cursor: adjust extras for the deleted selection, then insert
-          const s = sel()!;
-          const [from, to] = orderPositions(s.anchor, s.head);
           const adjusted = extras().map(p => adjustPosAfterDelete(p, from, to));
           const all = [pos, ...adjusted].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
           const newPositions: Pos[] = [];
+          // Back-to-front: first delta replaces selection, rest are pure inserts
+          deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: text });
           for (const p of all) {
+            if (p !== pos) {
+              deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col, newText: text });
+            }
             const r2 = insertAtPos(ls, p, text);
             ls = r2.lines;
             newPositions.push(r2.newPos);
@@ -577,14 +619,16 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
             setSel(null);
           });
         } else {
+          deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: text });
           const r2 = insertAtPos(ls, pos, text);
           batch(() => { setLines(r2.lines); setCursor(r2.newPos); setSel(null); });
         }
       } else if (extras().length > 0) {
-        // Multi-cursor insert (no selection)
+        // Multi-cursor insert (no selection) — back-to-front order
         const all = [cursor(), ...extras()].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
         const newPositions: Pos[] = [];
         for (const p of all) {
+          deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col, newText: text });
           const r = insertAtPos(ls, p, text);
           ls = r.lines;
           newPositions.push(r.newPos);
@@ -594,23 +638,35 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         batch(() => { setLines(ls); setCursor(deduped.primary); setExtras(deduped.extras); });
       } else {
         // Single cursor insert
-        const r = insertAtPos(ls, cursor(), text);
+        const pos = cursor();
+        deltas.push({ startLine: pos.line, startCol: pos.col, endLine: pos.line, endCol: pos.col, newText: text });
+        const r = insertAtPos(ls, pos, text);
         batch(() => { setLines(r.lines); setCursor(r.newPos); });
       }
-      afterEdit();
+      afterEdit(deltas);
     },
 
     backspace() {
       recordUndo();
       let ls = lines();
+      const deltas: EditDelta[] = [];
 
       if (sel()) {
+        const s = sel()!;
+        const [from, to] = orderPositions(s.anchor, s.head);
+        deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: "" });
         const r = deleteCurrentSelection(ls);
         batch(() => { setLines(r.lines); setCursor(r.pos); setSel(null); });
       } else if (extras().length > 0) {
         const all = [cursor(), ...extras()].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
         const newPositions: Pos[] = [];
         for (const p of all) {
+          if (p.col > 0) {
+            deltas.push({ startLine: p.line, startCol: p.col - 1, endLine: p.line, endCol: p.col, newText: "" });
+          } else if (p.line > 0) {
+            const prevLen = ls[p.line - 1].length;
+            deltas.push({ startLine: p.line - 1, startCol: prevLen, endLine: p.line, endCol: 0, newText: "" });
+          }
           const r = backspaceAtPos(ls, p);
           ls = r.lines;
           newPositions.push(r.newPos);
@@ -619,23 +675,40 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         const deduped = deduplicateCursors(newPositions[0], newPositions.slice(1));
         batch(() => { setLines(ls); setCursor(deduped.primary); setExtras(deduped.extras); });
       } else {
-        const r = backspaceAtPos(ls, cursor());
+        const p = cursor();
+        if (p.col > 0) {
+          deltas.push({ startLine: p.line, startCol: p.col - 1, endLine: p.line, endCol: p.col, newText: "" });
+        } else if (p.line > 0) {
+          const prevLen = ls[p.line - 1].length;
+          deltas.push({ startLine: p.line - 1, startCol: prevLen, endLine: p.line, endCol: 0, newText: "" });
+        }
+        const r = backspaceAtPos(ls, p);
         batch(() => { setLines(r.lines); setCursor(r.newPos); });
       }
-      afterEdit();
+      afterEdit(deltas);
     },
 
     deleteForward() {
       recordUndo();
       let ls = lines();
+      const deltas: EditDelta[] = [];
 
       if (sel()) {
+        const s = sel()!;
+        const [from, to] = orderPositions(s.anchor, s.head);
+        deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: "" });
         const r = deleteCurrentSelection(ls);
         batch(() => { setLines(r.lines); setCursor(r.pos); setSel(null); });
       } else if (extras().length > 0) {
         const all = [cursor(), ...extras()].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
         const newPositions: Pos[] = [];
         for (const p of all) {
+          const line = ls[p.line] ?? "";
+          if (p.col < line.length) {
+            deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col + 1, newText: "" });
+          } else if (p.line < ls.length - 1) {
+            deltas.push({ startLine: p.line, startCol: line.length, endLine: p.line + 1, endCol: 0, newText: "" });
+          }
           ls = deleteForwardAtPos(ls, p);
           newPositions.push(p);
         }
@@ -643,10 +716,17 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         const deduped = deduplicateCursors(newPositions[0], newPositions.slice(1));
         batch(() => { setLines(ls); setCursor(deduped.primary); setExtras(deduped.extras); });
       } else {
-        ls = deleteForwardAtPos(ls, cursor());
+        const p = cursor();
+        const line = ls[p.line] ?? "";
+        if (p.col < line.length) {
+          deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col + 1, newText: "" });
+        } else if (p.line < ls.length - 1) {
+          deltas.push({ startLine: p.line, startCol: line.length, endLine: p.line + 1, endCol: 0, newText: "" });
+        }
+        ls = deleteForwardAtPos(ls, p);
         setLines(ls);
       }
-      afterEdit();
+      afterEdit(deltas);
     },
 
     deleteRange(from: Pos, to: Pos) {
@@ -654,7 +734,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       const [s, e] = orderPositions(from, to);
       const ls = deleteRangeFromLines(lines(), s, e);
       batch(() => { setLines(ls); setCursor(s); setSel(null); });
-      afterEdit();
+      afterEdit([{ startLine: s.line, startCol: s.col, endLine: e.line, endCol: e.col, newText: "" }]);
     },
 
     // ── Undo / Redo ─────────────────────────────────────────────
@@ -742,7 +822,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         newLines[c.line] = "\t" + newLines[c.line];
         batch(() => { setLines(newLines); setCursor({ line: c.line, col: c.col + 1 }); });
       }
-      afterEdit();
+      afterEdit(null);
     },
 
     /** Outdent: remove leading tab/spaces from each line in selection or current line. */
@@ -786,7 +866,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           });
         }
       });
-      afterEdit();
+      afterEdit(null);
     },
 
     /** Duplicate the current line (or all lines in selection) below. */
@@ -811,7 +891,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           });
         }
       });
-      afterEdit();
+      afterEdit(null);
     },
 
     /** Move line(s) up or down. */
@@ -842,7 +922,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           if (s) setSel({ anchor: { line: s.anchor.line + 1, col: s.anchor.col }, head: { line: s.head.line + 1, col: s.head.col } });
         });
       }
-      afterEdit();
+      afterEdit(null);
     },
 
     /** Join current line with the next line. */
@@ -856,7 +936,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       newLines[c.line] = newLines[c.line] + " " + newLines[c.line + 1].trimStart();
       newLines.splice(c.line + 1, 1);
       batch(() => { setLines(newLines); setCursor({ line: c.line, col: currentEnd }); });
-      afterEdit();
+      afterEdit(null);
     },
 
     /** Toggle line comment for current line or selection. */
@@ -916,7 +996,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           });
         }
       });
-      afterEdit();
+      afterEdit(null);
     },
 
     // ── Code folding ─────────────────────────────────────────
@@ -1106,6 +1186,8 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       undoTotalBytes = 0;
       pendingSnapshot = null;
       desiredCol = null;
+      editDeltas = [];
+      fullSyncNeeded = false;
       invalidateCache();
     },
 
@@ -1121,6 +1203,8 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       redoStack.length = 0;
       undoTotalBytes = 0;
       pendingSnapshot = null;
+      editDeltas = [];
+      fullSyncNeeded = false;
       invalidateCache();
     },
   };
