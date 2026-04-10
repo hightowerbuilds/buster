@@ -55,7 +55,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
   let reassembleTimer = 0; // counts frames since last drag to trigger reassembly
 
   const SUBTITLE = "canvas-rendered ide";
-  const DRAG_RADIUS = 60;  // how close the drag must be to knock particles loose
+  const DRAG_RADIUS = 40;  // how close the drag must be to knock particles loose
   const GRAVITY = 0.15;
 
   function sampleTextPixels(
