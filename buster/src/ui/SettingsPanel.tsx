@@ -17,49 +17,27 @@ type SettingsItem =
   | { id: string; type: "theme" }
   | { id: string; type: "effect"; key: keyof AppSettings; label: string; description: string };
 
-const DEFAULT_ITEMS: SettingsItem[] = [
-  { id: "word_wrap", type: "toggle", key: "word_wrap", label: "Word Wrap", description: "Wrap long lines to fit the editor width" },
-  { id: "line_numbers", type: "toggle", key: "line_numbers", label: "Line Numbers", description: "Show line numbers in the gutter" },
-  { id: "minimap", type: "toggle", key: "minimap", label: "Minimap", description: "Show a minimap preview of the file" },
-  { id: "autocomplete", type: "toggle", key: "autocomplete", label: "Autocomplete", description: "Suggest words as you type (Ctrl+Space to trigger)" },
-  { id: "tab_size", type: "number", key: "tab_size", label: "Tab Size", description: "Number of spaces per tab stop", min: 1, max: 8, step: 1 },
-  { id: "font_size", type: "number", key: "font_size", label: "Editor Font Size", description: "Font size for the code editor and terminal", min: 10, max: 32, step: 1 },
-  { id: "ui_zoom", type: "number", key: "ui_zoom", label: "UI Zoom", description: "Scale the entire interface (Cmd+/Cmd-)", min: 50, max: 200, step: 10 },
+// Color/visual settings first, then text/editor settings, then agent settings
+const SETTINGS_ITEMS: SettingsItem[] = [
+  // Color & Visual
   { id: "theme", type: "theme" },
   { id: "effect_cursor_glow", type: "effect", key: "effect_cursor_glow", label: "Cursor Glow", description: "Soft bloom around the text cursor" },
   { id: "effect_vignette", type: "effect", key: "effect_vignette", label: "Vignette", description: "Darken the edges of the editor" },
   { id: "effect_grain", type: "effect", key: "effect_grain", label: "Film Grain", description: "Subtle noise texture overlay" },
+  { id: "minimap", type: "toggle", key: "minimap", label: "Minimap", description: "Show a minimap preview of the file" },
+  // Text & Editor
+  { id: "font_size", type: "number", key: "font_size", label: "Editor Font Size", description: "Font size for the code editor and terminal", min: 10, max: 32, step: 1 },
+  { id: "tab_size", type: "number", key: "tab_size", label: "Tab Size", description: "Number of spaces per tab stop", min: 1, max: 8, step: 1 },
+  { id: "word_wrap", type: "toggle", key: "word_wrap", label: "Word Wrap", description: "Wrap long lines to fit the editor width" },
+  { id: "line_numbers", type: "toggle", key: "line_numbers", label: "Line Numbers", description: "Show line numbers in the gutter" },
+  { id: "autocomplete", type: "toggle", key: "autocomplete", label: "Autocomplete", description: "Suggest words as you type (Ctrl+Space to trigger)" },
+  { id: "ui_zoom", type: "number", key: "ui_zoom", label: "UI Zoom", description: "Scale the entire interface (Cmd+/Cmd-)", min: 50, max: 200, step: 10 },
+  // Agent limits
   { id: "agent_max_tool_calls", type: "number", key: "agent_max_tool_calls", label: "Agent Tool Calls", description: "Max tool calls per agent session", min: 5, max: 200, step: 5 },
   { id: "agent_max_writes", type: "number", key: "agent_max_writes", label: "Agent File Writes", description: "Max file writes per agent session", min: 1, max: 50, step: 1 },
   { id: "agent_max_commands", type: "number", key: "agent_max_commands", label: "Agent Commands", description: "Max shell commands per agent session", min: 1, max: 20, step: 1 },
   { id: "agent_timeout_secs", type: "number", key: "agent_timeout_secs", label: "Agent Timeout", description: "Session timeout in seconds", min: 60, max: 1800, step: 30 },
 ];
-
-const ORDER_KEY = "buster-settings-order";
-
-function loadOrder(): string[] {
-  try {
-    const stored = localStorage.getItem(ORDER_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return DEFAULT_ITEMS.map(i => i.id);
-}
-
-function saveOrder(order: string[]) {
-  localStorage.setItem(ORDER_KEY, JSON.stringify(order));
-}
-
-function getOrderedItems(order: string[]): SettingsItem[] {
-  const byId = new Map(DEFAULT_ITEMS.map(i => [i.id, i]));
-  const ordered: SettingsItem[] = [];
-  for (const id of order) {
-    const item = byId.get(id);
-    if (item) { ordered.push(item); byId.delete(id); }
-  }
-  // Append any new items not in saved order
-  for (const item of byId.values()) ordered.push(item);
-  return ordered;
-}
 
 // --- Canvas checkbox component ---
 function mountCanvasCheckbox(canvas: HTMLCanvasElement, checked: boolean) {
@@ -121,53 +99,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   const themeHue = () => props.settings.theme_hue ?? -1;
   const themeMode = () => props.settings.theme_mode || "dark";
-
-  // --- Ordered items with drag-and-drop ---
-  const [order, setOrder] = createSignal(loadOrder());
-  const items = () => getOrderedItems(order());
-
-  // Drag state
-  let dragIdx = -1;
-  const [dropIdx, setDropIdx] = createSignal(-1);
-  const [dragging, setDragging] = createSignal(false);
-
-  function handleDragStart(idx: number, e: DragEvent) {
-    dragIdx = idx;
-    setDragging(true);
-    e.dataTransfer!.effectAllowed = "move";
-    // Set a transparent drag image so the browser doesn't show a ghost
-    const el = e.currentTarget as HTMLElement;
-    e.dataTransfer!.setDragImage(el, 0, 0);
-  }
-
-  function handleDragOver(idx: number, e: DragEvent) {
-    e.preventDefault();
-    e.dataTransfer!.dropEffect = "move";
-    setDropIdx(idx);
-  }
-
-  function handleDrop(idx: number, e: DragEvent) {
-    e.preventDefault();
-    if (dragIdx < 0 || dragIdx === idx) { cleanup(); return; }
-    const newOrder = [...order()];
-    const currentItems = getOrderedItems(newOrder);
-    const ids = currentItems.map(i => i.id);
-    const [moved] = ids.splice(dragIdx, 1);
-    ids.splice(idx, 0, moved);
-    setOrder(ids);
-    saveOrder(ids);
-    cleanup();
-  }
-
-  function handleDragEnd() {
-    cleanup();
-  }
-
-  function cleanup() {
-    dragIdx = -1;
-    setDropIdx(-1);
-    setDragging(false);
-  }
 
   // Reusable checkbox renderer
   function Checkbox(p: { checked: boolean; onToggle: () => void }) {
@@ -274,7 +205,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                             vignette: props.settings.effect_vignette ?? 0,
                             grain: props.settings.effect_grain ?? 0,
                           };
-                          // Verify it parses
                           importVSCodeTheme(json, fx);
                           update("theme_mode", "imported");
                         } catch {
@@ -371,7 +301,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.key === "Escape") { setEditingKey(null); return; }
-    // Ignore lone modifier keys
     if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
 
     const parts: string[] = [];
@@ -388,7 +317,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     const combo = parts.join("+");
     setRecordedKey(combo);
 
-    // Save immediately
     const commandId = editingKey()!;
     const newBindings = { ...userBindings(), [commandId]: combo };
     props.onChange({ ...props.settings, keybindings: newBindings });
@@ -417,17 +345,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
         <h1 class="settings-title">Settings</h1>
       </div>
       <div class="settings-body">
-        <For each={items()}>
-          {(item, idx) => (
-            <div
-              class={`settings-row${dropIdx() === idx() ? " settings-drop-target" : ""}${dragging() && dragIdx === idx() ? " settings-dragging" : ""}`}
-              draggable="true"
-              onDragStart={(e) => handleDragStart(idx(), e)}
-              onDragOver={(e) => handleDragOver(idx(), e)}
-              onDrop={(e) => handleDrop(idx(), e)}
-              onDragEnd={handleDragEnd}
-            >
-              <div class="settings-drag-handle" aria-hidden="true">::</div>
+        <For each={SETTINGS_ITEMS}>
+          {(item) => (
+            <div class="settings-row">
               {renderItem(item)}
             </div>
           )}

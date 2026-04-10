@@ -43,24 +43,6 @@
   background: var(--bg-surface0);
 }
 
-.settings-row.settings-drop-target {
-  border-bottom-color: var(--accent);
-}
-
-.settings-row.settings-dragging {
-  opacity: 0.4;
-}
-
-.settings-drag-handle {
-  color: var(--text-muted);
-  font-size: 14px;
-  cursor: grab;
-  user-select: none;
-  flex-shrink: 0;
-  width: 16px;
-  letter-spacing: 1px;
-}
-
 .settings-row-content {
   display: flex;
   align-items: center;
