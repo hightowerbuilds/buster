@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Buster - Canvas-Rendered IDE</title>
-  <meta name="description" content="Buster is a canvas-rendered IDE. No DOM. No bloat. No ads. 11 MB.">
+  <meta name="description" content="Buster is a canvas-rendered IDE built on Tauri v2. Editor, terminal, AI agent, git, LSP, debugger, and WASM extensions in 11 MB.">
   <link rel="icon" href="/favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,16 +17,17 @@
   <!-- Screen reader accessible content -->
   <div class="sr-only">
     <h1>Buster - Canvas-Rendered IDE</h1>
-    <p>No DOM. No bloat. No ads. 11 MB.</p>
+    <p>11 MB.</p>
     <h2>What Buster Does</h2>
-    <p>Canvas-Rendered Editor: Every character is drawn on canvas. No DOM text nodes.</p>
-    <p>Full Terminal Emulator: A real PTY-backed terminal rendered on canvas.</p>
-    <p>AI Agent: Chat with Claude or local Ollama models directly in the editor.</p>
-    <p>Git Integration: 28 built-in git commands.</p>
-    <p>Language Server Protocol: LSP support for Rust, TypeScript, Python, and Go.</p>
+    <p>Canvas-Rendered Editor: Every character is drawn on canvas. No DOM text nodes. Tree-sitter highlighting for 100+ languages. Code folding, minimap, AI ghost text.</p>
+    <p>Full Terminal Emulator: A real PTY-backed terminal rendered on canvas with sixel image support.</p>
+    <p>AI Agent: Chat with Claude, Ollama, Codex, or Gemini directly in the editor.</p>
+    <p>Git and GitHub: 30 built-in git commands plus GitHub PR and issue browsing.</p>
+    <p>Language Server Protocol: LSP support for Rust, TypeScript, Python, and Go. Rename, references, diagnostics panel.</p>
+    <p>Debugger: DAP-based debugging with breakpoints, stepping, stack frames, and variable inspection.</p>
     <p>Quick Open and Command Palette: Cmd+P opens fuzzy file search.</p>
     <p>Session Persistence: Auto-saves every 30 seconds.</p>
-    <p>WASM Extensions: Sandboxed extension runtime powered by Wasmtime.</p>
+    <p>WASM Extensions: Sandboxed extension runtime powered by Wasmtime with custom UI surfaces.</p>
     <p>Panel Layouts: Seven layout modes.</p>
     <p>11 MB Installer: Built on Tauri v2.</p>
     <h2>Building Extensions</h2>
@@ -37,8 +38,8 @@
   <noscript>
     <div style="background:#1e1e2e;color:#cdd6f4;font-family:'Courier New',monospace;padding:40px;max-width:800px;margin:0 auto;">
       <h1 style="font-weight:normal;font-size:28px;">Buster</h1>
-      <p>Canvas-rendered IDE. No DOM. No bloat. No ads. 11 MB.</p>
-      <p>Buster is an IDE where every character is drawn on canvas. It includes a full terminal emulator, AI agent, git integration, LSP support, WASM extensions, and ships as an 11 MB installer built on Tauri v2.</p>
+      <p>Canvas-rendered IDE. 11 MB.</p>
+      <p>Buster is an IDE where every character is drawn on canvas. It includes a full terminal emulator, AI agent (Claude, Ollama, Codex, Gemini), git and GitHub integration, LSP support, DAP debugger, WASM extensions, and ships as an 11 MB installer built on Tauri v2.</p>
       <p><a href="https://github.com/hightowerbuilds/buster" style="color:#89b4fa;">github.com/hightowerbuilds/buster</a></p>
     </div>
   </noscript>

@@ -1,23 +1,27 @@
 export const FEATURES = [
   {
     name: "Canvas-Rendered Editor",
-    desc: "Every character is drawn on canvas. No DOM text nodes. The editor uses a TypeScript string[] buffer backed by SolidJS signals. Syntax highlighting for JavaScript, TypeScript, TSX, Rust, Python, JSON, and CSS via Tree-sitter. Undo/redo with time-based grouping. Multi-cursor editing. Word wrap. Virtual scrolling.",
+    desc: "Every character is drawn on canvas. No DOM text nodes. TypeScript string[] buffer backed by SolidJS signals. Syntax highlighting via Tree-sitter for 100+ languages. Code folding, find/replace with regex, minimap, multi-cursor editing, word wrap, virtual scrolling, and AI ghost text completions. Files over 50 MB are streamed on demand.",
   },
   {
     name: "Full Terminal Emulator",
-    desc: "A real PTY-backed terminal rendered on canvas. VT100/ANSI parsing in Rust. Supports NeoVim, htop, tmux -- anything that runs in a terminal. Mouse reporting, bracketed paste, scrollback history. Each terminal opens as a tab alongside your files.",
+    desc: "A real PTY-backed terminal rendered on canvas. VT100/ANSI parsing in Rust with sixel image support. Supports NeoVim, htop, tmux -- anything that runs in a terminal. Mouse reporting, bracketed paste, scrollback history, configurable themes. Each terminal opens as a tab alongside your files.",
   },
   {
     name: "AI Agent",
-    desc: "Chat with Claude (Sonnet, Opus, Haiku) or local Ollama models directly in the editor. The agent can read files, write code, search the codebase, and run shell commands. State-changing tools require your approval before executing. API keys stored securely in OS keychain.",
+    desc: "Chat with Claude (Sonnet 4.6, Opus 4.6, Haiku 4.5), Ollama (local), Codex (OpenAI), or Gemini (Google). The agent can read files, write code, search the codebase, and run shell commands. State-changing tools require your approval before executing. Configurable rate limits for tool calls, writes, and commands. API keys stored securely in OS keychain.",
   },
   {
-    name: "Git Integration",
-    desc: "28 built-in git commands. Status, staging, commit, push, pull, fetch, branches, stash, blame overlay, diff gutter indicators, conflict resolution, and a canvas-rendered commit graph. No terminal required.",
+    name: "Git & GitHub",
+    desc: "30 built-in git commands. Status, staging, commit, push, pull, fetch, branches, stash, remote management, blame overlay, diff gutter indicators, conflict resolution, and a canvas-rendered commit graph. Browse GitHub PRs and issues directly in the editor via the gh CLI. No terminal required.",
   },
   {
     name: "Language Server Protocol",
-    desc: "LSP support for Rust (rust-analyzer), TypeScript/JavaScript (typescript-language-server), Python (pyright), and Go (gopls). Autocomplete, hover, signature help, code actions, inlay hints, go-to-definition, document symbols, and diagnostic squiggles with automatic crash recovery.",
+    desc: "LSP support for Rust (rust-analyzer), TypeScript/JavaScript (typescript-language-server), Python (pyright), and Go (gopls). Autocomplete, hover, signature help, code actions, inlay hints, go-to-definition, document symbols, rename refactoring, find all references, and a diagnostics panel with automatic crash recovery.",
+  },
+  {
+    name: "Debugger",
+    desc: "DAP-based debugging. Set breakpoints (with conditions), launch programs, step over/into/out, pause, and inspect stack frames and variables. Works with any Debug Adapter Protocol server.",
   },
   {
     name: "Quick Open & Command Palette",
@@ -29,7 +33,7 @@ export const FEATURES = [
   },
   {
     name: "WASM Extensions",
-    desc: "Sandboxed extension runtime powered by Wasmtime. Capability-based permissions. Extensions can read/write files, run commands, show notifications, and connect to external services via WebSocket or HTTP SSE gateways.",
+    desc: "Sandboxed extension runtime powered by Wasmtime. Capability-based permissions. Extensions can read/write files, run commands, show notifications, render custom UI surfaces, and connect to external services via WebSocket or HTTP SSE gateways.",
   },
   {
     name: "Panel Layouts",
@@ -49,7 +53,7 @@ export const TECH_STACK = [
   ["Syntax highlighting", "Tree-sitter (Rust)"],
   ["Text measurement", "Pretext"],
   ["Terminal", "portable-pty + vt100 crate"],
-  ["AI models", "Claude API + Ollama"],
+  ["AI models", "Claude API + Ollama + Codex + Gemini"],
   ["Extensions", "Wasmtime (WASM sandbox)"],
   ["Theme", "Catppuccin Mocha"],
   ["UI font", "Courier New"],
@@ -61,14 +65,14 @@ export const SHORTCUTS = [
   ["Cmd+Z / Cmd+Shift+Z", "Undo / Redo"],
   ["Cmd+F", "Find & Replace"],
   ["Cmd+P", "Quick Open"],
-  ["Cmd+Shift+P", "Command Palette"],
-  ["Ctrl+`", "New Terminal"],
+  ["Cmd+Shift+P", "Show All Commands"],
+  ["Cmd+T", "New Terminal"],
   ["Cmd+L", "AI Agent"],
   ["Cmd+Shift+G", "Git Panel"],
-  ["Cmd+Shift+B", "Git Blame"],
+  ["Cmd+B", "Toggle Sidebar"],
   ["Cmd+W", "Close Tab"],
   ["Cmd+,", "Settings"],
-  ["Cmd+T", "Guided Tour"],
+  ["F8", "Next Problem"],
 ];
 
 export const HOST_API = [
