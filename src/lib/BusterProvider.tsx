@@ -757,7 +757,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
           setStore("tabs", produce(tabs => {
             tabs.push({ id: tabId, name: stab.name || "Terminal", path: "", dirty: false, type: "terminal" });
           }));
-        } else if (["settings", "git", "extensions", "manual", "debug", "github", "explorer"].includes(stab.type)) {
+        } else if (["settings", "git", "extensions", "manual", "debug", "explorer"].includes(stab.type)) {
           setStore("tabs", produce(tabs => {
             tabs.push({ id: stab.id, name: stab.name, path: "", dirty: false, type: stab.type as Tab["type"] });
           }));

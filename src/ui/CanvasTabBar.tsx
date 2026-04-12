@@ -42,7 +42,6 @@ function tabIcon(type: string): string {
     case "terminal": return ">";
     case "settings": return "~";
     case "git":      return "&";
-    case "github":   return "@";
     case "explorer": return "/";
     case "surface":  return "^";
     default:         return "#";

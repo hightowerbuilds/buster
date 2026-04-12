@@ -7,7 +7,6 @@ pub mod git;
 pub mod lsp;
 pub mod extensions;
 pub mod session;
-pub mod github;
 pub mod browser;
 pub mod filebuffer;
 pub mod debugger;

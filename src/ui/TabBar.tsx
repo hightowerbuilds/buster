@@ -117,7 +117,7 @@ const TabBar: Component<TabBarProps> = (props) => {
               onPointerDown={(e) => handlePointerDown(idx(), e)}
               onKeyDown={(e) => handleTabKeyDown(e, idx())}
             >
-              <span class="tab-icon">{tab.type === "terminal" ? ">" : tab.type === "settings" ? "~" : tab.type === "git" ? "&" : tab.type === "legend" ? "?" : tab.type === "github" ? "@" : tab.type === "explorer" ? "/" : "#"}</span>
+              <span class="tab-icon">{tab.type === "terminal" ? ">" : tab.type === "settings" ? "~" : tab.type === "git" ? "&" : tab.type === "legend" ? "?" : tab.type === "explorer" ? "/" : "#"}</span>
               <span class="tab-name">
                 {tab.dirty ? "\u2022 " : ""}
                 {tab.name}

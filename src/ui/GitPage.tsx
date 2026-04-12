@@ -2,11 +2,10 @@ import { Component, createSignal, createEffect, on, Show, onMount, onCleanup } f
 import GitPanel from "./GitPanel";
 import GitGraph from "./GitGraph";
 import ConflictResolver from "./ConflictResolver";
-import GitHubPage from "./GitHubPage";
 import { useBuster } from "../lib/buster-context";
 import { measureTextWidth } from "../editor/text-measure";
 
-type GitView = "status" | "graph" | "log" | "github";
+type GitView = "status" | "graph" | "log";
 
 interface GitPageProps {
   active: boolean;
@@ -39,12 +38,6 @@ const GitPage: Component<GitPageProps> = (props) => {
         >
           Log
         </button>
-        <button
-          class={`git-page-tab ${view() === "github" ? "git-page-tab-active" : ""}`}
-          onClick={() => setView("github")}
-        >
-          GitHub
-        </button>
       </div>
       <div class="git-page-content">
         <div style={{ display: view() === "status" ? "contents" : "none" }}>
@@ -63,12 +56,6 @@ const GitPage: Component<GitPageProps> = (props) => {
         <div style={{ display: view() === "log" ? "contents" : "none" }}>
           <GitLog
             active={props.active && view() === "log"}
-            workspaceRoot={props.workspaceRoot}
-          />
-        </div>
-        <div style={{ display: view() === "github" ? "contents" : "none" }}>
-          <GitHubPage
-            active={props.active && view() === "github"}
             workspaceRoot={props.workspaceRoot}
           />
         </div>

@@ -9,7 +9,6 @@ export type TabType =
   | "extensions"
   | "manual"
   | "debug"
-  | "github"
   | "explorer"
   | "problems"
   | "search-results"

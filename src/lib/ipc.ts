@@ -280,29 +280,6 @@ export interface GitBlameLine {
 export const gitBlame = (workspaceRoot: string, path: string) =>
   invoke<GitBlameLine[]>("git_blame", { workspaceRoot, path });
 
-// GitHub (gh CLI)
-export interface GhAuthStatus { logged_in: boolean; username: string; }
-export interface GhRepoInfo { name: string; owner: { login: string }; description: string | null; url: string; defaultBranchRef: { name: string } | null; }
-export interface GhPullRequest { number: number; title: string; state: string; author: { login: string }; createdAt: string; url: string; headRefName: string; }
-export interface GhPrFile { path: string; additions: number; deletions: number; }
-export interface GhPullRequestDetail { number: number; title: string; body: string; state: string; author: { login: string }; createdAt: string; url: string; headRefName: string; additions: number; deletions: number; files: GhPrFile[]; }
-export interface GhIssue { number: number; title: string; state: string; author: { login: string }; createdAt: string; url: string; labels: { name: string }[]; }
-export interface GhComment { author: { login: string }; body: string; createdAt: string; }
-export interface GhIssueDetail { number: number; title: string; body: string; state: string; author: { login: string }; createdAt: string; url: string; labels: { name: string }[]; comments: GhComment[]; }
-
-export const ghAuthStatus = (workspaceRoot: string) =>
-  invoke<GhAuthStatus>("gh_auth_status", { workspaceRoot });
-export const ghRepoInfo = (workspaceRoot: string) =>
-  invoke<GhRepoInfo>("gh_repo_info", { workspaceRoot });
-export const ghPrList = (workspaceRoot: string, state?: string, limit?: number) =>
-  invoke<GhPullRequest[]>("gh_pr_list", { workspaceRoot, state, limit });
-export const ghPrView = (workspaceRoot: string, number: number) =>
-  invoke<GhPullRequestDetail>("gh_pr_view", { workspaceRoot, number });
-export const ghIssueList = (workspaceRoot: string, state?: string, limit?: number) =>
-  invoke<GhIssue[]>("gh_issue_list", { workspaceRoot, state, limit });
-export const ghIssueView = (workspaceRoot: string, number: number) =>
-  invoke<GhIssueDetail>("gh_issue_view", { workspaceRoot, number });
-
 // LSP
 export interface LspCompletionItem {
   label: string;

@@ -359,13 +359,6 @@ pub fn run() {
             commands::browser::hide_all_browser_views,
             commands::browser::show_all_browser_views,
             commands::browser::scan_local_ports,
-            // GitHub (gh CLI)
-            commands::github::gh_auth_status,
-            commands::github::gh_repo_info,
-            commands::github::gh_pr_list,
-            commands::github::gh_pr_view,
-            commands::github::gh_issue_list,
-            commands::github::gh_issue_view,
             // Session
             commands::session::save_session,
             commands::session::load_session,
