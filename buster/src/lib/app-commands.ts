@@ -7,7 +7,6 @@
  */
 
 import { registry, type Command } from "./command-registry";
-import { settings, updateSettings, tabTrapping, setTabTrapping } from "./app-state";
 import { announce } from "./a11y";
 import { closeApp } from "./session";
 import type { Accessor, Setter } from "solid-js";
@@ -64,6 +63,8 @@ export interface CommandDeps {
   changeDirectory: () => void;
   handleTabClose: (id: string) => void;
   activeTabId: Accessor<string | null>;
+  tabs: Accessor<Array<{ id: string }>>;
+  switchToTab: (id: string) => void;
   activeEngine: () => EditorEngine | null;
   setFindVisible: Setter<boolean>;
   setPaletteVisible: Setter<boolean>;
@@ -71,13 +72,38 @@ export interface CommandDeps {
   createTerminalTab: () => void;
   createSettingsTab: () => void;
   createGitTab: () => void;
-  createAiTab: () => void;
   setSidebarVisible: Setter<boolean>;
   setTourActive: Setter<boolean>;
   jumpToDiagnostic: (direction: 1 | -1) => void;
   tourActive: Accessor<boolean>;
   findVisible: Accessor<boolean>;
   paletteVisible: Accessor<boolean>;
+  settings: Accessor<import("./ipc").AppSettings>;
+  updateSettings: (s: import("./ipc").AppSettings) => void;
+  tabTrapping: Accessor<boolean>;
+  setTabTrapping: (v: boolean) => void;
+}
+
+const MAX_TAB_HOTKEYS = 9;
+
+function tabCommandId(position: number): string {
+  return `tabs.${position}`;
+}
+
+function moveTab(deps: Pick<CommandDeps, "tabs" | "activeTabId" | "switchToTab">, direction: 1 | -1) {
+  const tabs = deps.tabs();
+  if (tabs.length < 2) return;
+
+  const activeId = deps.activeTabId();
+  const currentIndex = tabs.findIndex((tab) => tab.id === activeId);
+  if (currentIndex === -1) {
+    const fallbackIndex = direction === 1 ? 0 : tabs.length - 1;
+    deps.switchToTab(tabs[fallbackIndex]!.id);
+    return;
+  }
+
+  const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+  deps.switchToTab(tabs[nextIndex]!.id);
 }
 
 // ── Default keybinding map ───────────────────────────────────────
@@ -100,12 +126,19 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "editor.zoomOut": "Mod+-",
   "editor.zoomReset": "Mod+0",
   "git.open": "Mod+Shift+g",
-  "ai.open": "Mod+l",
   "editor.nextProblem": "F8",
   "editor.prevProblem": "Shift+F8",
   "view.focusNextRegion": "F6",
   "view.focusPrevRegion": "Shift+F6",
   "editor.toggleTabTrapping": "Ctrl+m",
+  "tabs.prev": "Mod+Shift+[",
+  "tabs.next": "Mod+Shift+]",
+  ...Object.fromEntries(
+    Array.from({ length: MAX_TAB_HOTKEYS }, (_, idx) => {
+      const position = idx + 1;
+      return [tabCommandId(position), `Mod+${position}`];
+    }),
+  ),
 };
 
 /** Resolve the hotkey for a command: user override → default. */
@@ -122,21 +155,36 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "file.closeTab", label: "Close Tab / Close Window", category: "File", keybinding: "Mod+W", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); else closeApp(); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
     { id: "editor.goToLine", label: "Go to Line...", category: "Editor", keybinding: "Ctrl+G", execute: () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); } },
-    { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => updateSettings({ ...settings(), ui_zoom: Math.min(200, settings().ui_zoom + 10) }) },
-    { id: "editor.zoomOut", label: "Zoom Out", category: "View", keybinding: "Mod+-", execute: () => updateSettings({ ...settings(), ui_zoom: Math.max(50, settings().ui_zoom - 10) }) },
-    { id: "editor.zoomReset", label: "Reset Zoom", category: "View", keybinding: "Mod+0", execute: () => updateSettings({ ...settings(), ui_zoom: 100 }) },
+    { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }) },
+    { id: "editor.zoomOut", label: "Zoom Out", category: "View", keybinding: "Mod+-", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }) },
+    { id: "editor.zoomReset", label: "Reset Zoom", category: "View", keybinding: "Mod+0", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }) },
     { id: "terminal.new", label: "New Terminal", category: "Terminal", keybinding: "Mod+T", execute: () => deps.createTerminalTab() },
     { id: "view.commandPalette", label: "Command Palette", category: "View", keybinding: "Mod+P", execute: () => { deps.setPaletteInitialQuery(""); deps.setPaletteVisible(true); } },
     { id: "view.showCommands", label: "Show All Commands", category: "View", keybinding: "Mod+Shift+P", execute: () => { deps.setPaletteInitialQuery(">"); deps.setPaletteVisible(true); } },
     { id: "view.settings", label: "Settings", category: "View", keybinding: "Mod+,", execute: () => deps.createSettingsTab() },
     { id: "view.toggleSidebar", label: "Toggle Sidebar", category: "View", keybinding: "Mod+B", execute: () => deps.setSidebarVisible(v => !v) },
     { id: "git.open", label: "Git", category: "Git", keybinding: "Mod+Shift+G", execute: () => deps.createGitTab() },
-    { id: "ai.open", label: "AI Agent", category: "AI", keybinding: "Mod+L", execute: () => deps.createAiTab() },
     { id: "editor.nextProblem", label: "Go to Next Problem", category: "Editor", keybinding: "F8", execute: () => deps.jumpToDiagnostic(1) },
     { id: "editor.prevProblem", label: "Go to Previous Problem", category: "Editor", keybinding: "Shift+F8", execute: () => deps.jumpToDiagnostic(-1) },
     { id: "view.focusNextRegion", label: "Focus Next Region", category: "View", keybinding: "F6", execute: () => cycleRegion(1) },
     { id: "view.focusPrevRegion", label: "Focus Previous Region", category: "View", keybinding: "Shift+F6", execute: () => cycleRegion(-1) },
-    { id: "editor.toggleTabTrapping", label: "Toggle Tab Key Moves Focus", category: "Editor", keybinding: "Ctrl+M", execute: () => { const next = !tabTrapping(); setTabTrapping(next); announce(next ? "Tab key inserts tab character" : "Tab key moves focus", "assertive"); } },
+    { id: "editor.toggleTabTrapping", label: "Toggle Tab Key Moves Focus", category: "Editor", keybinding: "Ctrl+M", execute: () => { const next = !deps.tabTrapping(); deps.setTabTrapping(next); announce(next ? "Tab key inserts tab character" : "Tab key moves focus", "assertive"); } },
+    { id: "tabs.prev", label: "Go to Previous Tab", category: "Tabs", keybinding: "Mod+Shift+[", when: () => deps.tabs().length > 1, execute: () => moveTab(deps, -1) },
+    { id: "tabs.next", label: "Go to Next Tab", category: "Tabs", keybinding: "Mod+Shift+]", when: () => deps.tabs().length > 1, execute: () => moveTab(deps, 1) },
+    ...Array.from({ length: MAX_TAB_HOTKEYS }, (_, idx) => {
+      const position = idx + 1;
+      return {
+        id: tabCommandId(position),
+        label: `Go to Tab ${position}`,
+        category: "Tabs",
+        keybinding: `Mod+${position}`,
+        when: () => deps.tabs().length >= position,
+        execute: () => {
+          const tab = deps.tabs()[position - 1];
+          if (tab) deps.switchToTab(tab.id);
+        },
+      };
+    }),
     { id: "tour.start", label: "Start Guided Tour", category: "Help", execute: () => deps.setTourActive(true) },
   ];
 }
@@ -187,20 +235,28 @@ export function buildHotkeyDefinitions(
   add("editor.find", () => { if (deps.activeEngine()) deps.setFindVisible(true); });
   add("editor.goToLine", () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); });
   add("editor.goToSymbol", () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); });
-  add("editor.zoomIn", () => updateSettings({ ...settings(), ui_zoom: Math.min(200, settings().ui_zoom + 10) }));
-  add("editor.zoomOut", () => updateSettings({ ...settings(), ui_zoom: Math.max(50, settings().ui_zoom - 10) }));
-  add("editor.zoomReset", () => updateSettings({ ...settings(), ui_zoom: 100 }));
+  add("editor.zoomIn", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }));
+  add("editor.zoomOut", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }));
+  add("editor.zoomReset", () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }));
   add("git.open", () => deps.createGitTab());
-  add("ai.open", () => deps.createAiTab());
   add("editor.nextProblem", () => deps.jumpToDiagnostic(1));
   add("editor.prevProblem", () => deps.jumpToDiagnostic(-1));
   add("view.focusNextRegion", () => cycleRegion(1));
   add("view.focusPrevRegion", () => cycleRegion(-1));
   add("editor.toggleTabTrapping", () => {
-    const next = !tabTrapping();
-    setTabTrapping(next);
+    const next = !deps.tabTrapping();
+    deps.setTabTrapping(next);
     announce(next ? "Tab key inserts tab character" : "Tab key moves focus", "assertive");
   });
+  add("tabs.prev", () => moveTab(deps, -1));
+  add("tabs.next", () => moveTab(deps, 1));
+  for (let idx = 0; idx < MAX_TAB_HOTKEYS; idx++) {
+    const position = idx + 1;
+    add(tabCommandId(position), () => {
+      const tab = deps.tabs()[idx];
+      if (tab) deps.switchToTab(tab.id);
+    });
+  }
 
   // Escape cascade (not rebindable)
   defs.push({

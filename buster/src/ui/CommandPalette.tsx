@@ -1,8 +1,7 @@
 import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
-import { listWorkspaceFiles, aiChat, workspaceSearch, lspDocumentSymbol } from "../lib/ipc";
-import type { WorkspaceFile, AiChatRequest, WorkspaceSearchResult, LspDocumentSymbol } from "../lib/ipc";
-import { listen } from "@tauri-apps/api/event";
-import { workspaceRoot as globalWorkspaceRoot, apiKey as globalApiKey } from "../lib/app-state";
+import { listWorkspaceFiles, workspaceSearch, lspDocumentSymbol } from "../lib/ipc";
+import type { WorkspaceFile, WorkspaceSearchResult, LspDocumentSymbol } from "../lib/ipc";
+import { registry, type Command } from "../lib/command-registry";
 import { createFocusTrap } from "../lib/a11y";
 import { basename, dirname } from "buster-path";
 
@@ -12,10 +11,6 @@ interface CommandPaletteProps {
   onClose: () => void;
   onFileSelect: (path: string) => void;
   onGoToLine?: (line: number, col: number) => void;
-  onNewTerminal: () => void;
-  onOpenManual?: () => void;
-  onNewAiChat?: () => void;
-  onGitGraph?: () => void;
   initialQuery?: string;
   activeFilePath?: string | null;
   recentFiles?: { path: string; name: string }[];
@@ -31,9 +26,7 @@ function fuzzyMatch(query: string, text: string): number {
   for (let ti = 0; ti < t.length && qi < q.length; ti++) {
     if (t[ti] === q[qi]) {
       score += 1;
-      // Bonus for consecutive matches
       if (lastMatchIdx === ti - 1) score += 2;
-      // Bonus for matching at word boundaries
       if (ti === 0 || t[ti - 1] === "/" || t[ti - 1] === "." || t[ti - 1] === "-" || t[ti - 1] === "_") {
         score += 3;
       }
@@ -59,32 +52,29 @@ function symbolKindAbbrev(kind: string): string {
   return SYMBOL_KIND_ABBREV[kind] ?? kind.toLowerCase();
 }
 
+function formatKeybinding(kb?: string): string {
+  if (!kb) return "";
+  return kb
+    .replace(/Mod\+/g, navigator.platform.startsWith("Mac") ? "\u2318" : "Ctrl+")
+    .replace(/Shift\+/g, "\u21E7")
+    .replace(/Alt\+/g, "\u2325");
+}
+
 const CommandPalette: Component<CommandPaletteProps> = (props) => {
   let inputRef: HTMLInputElement | undefined;
-
-  const commands = [
-    { name: "New Terminal", action: () => { props.onNewTerminal(); props.onClose(); } },
-    { name: "Open Manual", action: () => { props.onOpenManual?.(); props.onClose(); } },
-    { name: "AI Agent", action: () => { props.onNewAiChat?.(); props.onClose(); } },
-    { name: "Git", action: () => { props.onGitGraph?.(); props.onClose(); } },
-  ];
 
   const [query, setQuery] = createSignal("");
   const [files, setFiles] = createSignal<WorkspaceFile[]>([]);
   const [filtered, setFiltered] = createSignal<WorkspaceFile[]>([]);
   const [selectedIdx, setSelectedIdx] = createSignal(0);
   const [isCommand, setIsCommand] = createSignal(false);
-  const [isAiMode, setIsAiMode] = createSignal(false);
   const [isSearchMode, setIsSearchMode] = createSignal(false);
   const [searchResults, setSearchResults] = createSignal<WorkspaceSearchResult[]>([]);
   const [isLineMode, setIsLineMode] = createSignal(false);
   const [isSymbolMode, setIsSymbolMode] = createSignal(false);
   const [symbols, setSymbols] = createSignal<LspDocumentSymbol[]>([]);
   const [filteredSymbols, setFilteredSymbols] = createSignal<LspDocumentSymbol[]>([]);
-  const [filteredCommands, setFilteredCommands] = createSignal(commands);
-  const [aiResponse, setAiResponse] = createSignal("");
-  const [aiLoading, setAiLoading] = createSignal(false);
-  let aiUnlisten: (() => void) | null = null;
+  const [filteredCommands, setFilteredCommands] = createSignal<Command[]>([]);
   let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let paletteRef: HTMLDivElement | undefined;
 
@@ -104,7 +94,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           setIsLineMode(initial.startsWith(":"));
           setSearchResults([]);
           setIsSymbolMode(initial.startsWith("@"));
-          setFilteredCommands(commands);
+          setFilteredCommands(registry.getAll());
           trap.activate();
           requestAnimationFrame(() => inputRef?.focus());
 
@@ -125,7 +115,6 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
     on(query, async (q) => {
       if (q.startsWith(":")) {
         setIsLineMode(true);
-        setIsAiMode(false);
         setIsCommand(false);
         setIsSearchMode(false);
         setIsSymbolMode(false);
@@ -135,23 +124,12 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
       setIsLineMode(false);
 
-      if (q.startsWith("?")) {
-        setIsAiMode(true);
-        setIsCommand(false);
-        setIsSearchMode(false);
-        setIsSymbolMode(false);
-        return;
-      }
-
-      setIsAiMode(false);
-
       if (q.startsWith("#")) {
         setIsSearchMode(true);
         setIsCommand(false);
         setSelectedIdx(0);
 
         const searchQuery = q.slice(1).trim();
-        // Clear previous debounce
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
 
         if (!searchQuery) {
@@ -159,7 +137,6 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           return;
         }
 
-        // Debounce 300ms before calling backend
         searchDebounceTimer = setTimeout(async () => {
           if (props.workspaceRoot) {
             try {
@@ -179,7 +156,6 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
         setIsCommand(false);
         setSelectedIdx(0);
 
-        // Load symbols if not already loaded
         if (symbols().length === 0 && props.activeFilePath && props.workspaceRoot) {
           try {
             const syms = await lspDocumentSymbol(props.activeFilePath, props.workspaceRoot);
@@ -208,20 +184,12 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
         setIsCommand(true);
         const cmdQuery = q.slice(1).trim();
         setFiltered([]);
-        if (!cmdQuery) {
-          setFilteredCommands(commands);
-          return;
-        }
-        const scored = commands
-          .map((cmd) => ({ cmd, score: fuzzyMatch(cmdQuery, cmd.name) }))
-          .filter((x) => x.score > 0)
-          .sort((a, b) => b.score - a.score);
-        setFilteredCommands(scored.map((x) => x.cmd));
+        setSelectedIdx(0);
+        setFilteredCommands(registry.search(cmdQuery));
         return;
       }
 
       setIsCommand(false);
-      setFilteredCommands(commands);
       setSelectedIdx(0);
 
       if (!q) {
@@ -252,12 +220,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       setSelectedIdx(Math.max(selectedIdx() - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (isAiMode()) {
-        const q = query().slice(1).trim();
-        if (q && !aiLoading()) {
-          sendAiQuery(q);
-        }
-      } else if (isSearchMode()) {
+      if (isSearchMode()) {
         const result = searchResults()[selectedIdx()];
         if (result) {
           props.onFileSelect(result.path);
@@ -281,7 +244,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
         }
       } else if (isCommand()) {
         const cmd = filteredCommands()[selectedIdx()];
-        if (cmd) cmd.action();
+        if (cmd) { cmd.execute(); props.onClose(); }
       } else {
         const file = filtered()[selectedIdx()];
         if (file) {
@@ -292,59 +255,17 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
     }
   }
 
-  async function sendAiQuery(q: string) {
-    setAiResponse("");
-    setAiLoading(true);
-
-    const apiKey = globalApiKey() || "";
-    if (!apiKey) {
-      setAiResponse("No API key set. Open AI Agent tab first to configure.");
-      setAiLoading(false);
-      return;
-    }
-
-    // Listen for streaming events
-    if (aiUnlisten) { aiUnlisten(); aiUnlisten = null; }
-    aiUnlisten = (await listen<{ kind: string; content: string }>("ai-event", (event) => {
-      const { kind, content } = event.payload;
-      if (kind === "text") {
-        setAiResponse((prev) => prev + content);
-      } else if (kind === "done" || kind === "error") {
-        setAiLoading(false);
-        if (kind === "error" && content) {
-          setAiResponse((prev) => prev + "\n[Error: " + content + "]");
-        }
-      }
-    })) as unknown as () => void;
-
-    try {
-      await aiChat({
-        prompt: q,
-        api_key: apiKey,
-        workspace_root: globalWorkspaceRoot() ?? undefined,
-      } as AiChatRequest);
-    } catch (err) {
-      setAiResponse("Request failed");
-      setAiLoading(false);
-    }
-  }
-
-  // Cleanup AI listener and search state when palette closes
   // Cleanup when palette closes
   createEffect(on(() => props.visible, (visible) => {
     if (!visible) {
       trap.deactivate();
-      setAiResponse("");
-      setAiLoading(false);
-      setIsAiMode(false);
       setIsSearchMode(false);
       setIsLineMode(false);
       setSearchResults([]);
       setIsSymbolMode(false);
       setSymbols([]);
       setFilteredSymbols([]);
-      setFilteredCommands(commands);
-      if (aiUnlisten) { aiUnlisten(); aiUnlisten = null; }
+      setFilteredCommands([]);
       if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
     }
   }));
@@ -366,25 +287,12 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           ref={inputRef}
           class="palette-input"
           type="text"
-          placeholder={isAiMode() ? "Ask a question... (Enter to send)" : isSearchMode() ? "Search file contents..." : isLineMode() ? "Go to line[:column]..." : isSymbolMode() ? "Search symbols by name..." : props.workspaceRoot ? "Search files by name... (: line, # content, @ symbols, ? AI, > commands)" : "Open a folder first (: line, ? AI, > commands)"}
+          placeholder={isSearchMode() ? "Search file contents..." : isLineMode() ? "Go to line[:column]..." : isSymbolMode() ? "Search symbols by name..." : props.workspaceRoot ? "Search files by name... (: line, # content, @ symbols, > commands)" : "Open a folder first (: line, > commands)"}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
         <div class="palette-results">
-          <Show when={isAiMode()}>
-            <div class="palette-ai-response">
-              <Show when={aiResponse()}>
-                <pre class="palette-ai-text">{aiResponse()}</pre>
-              </Show>
-              <Show when={aiLoading() && !aiResponse()}>
-                <div class="palette-empty">Thinking...</div>
-              </Show>
-              <Show when={!aiLoading() && !aiResponse()}>
-                <div class="palette-empty">Type a question and press Enter</div>
-              </Show>
-            </div>
-          </Show>
-          <Show when={isSearchMode() && !isAiMode()}>
+          <Show when={isSearchMode()}>
             <For each={searchResults()}>
               {(result, idx) => {
                 const fileName = basename(result.path) || result.path;
@@ -413,10 +321,10 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
               <div class="palette-empty">No matches found</div>
             </Show>
           </Show>
-          <Show when={isLineMode() && !isAiMode()}>
+          <Show when={isLineMode()}>
             <div class="palette-empty">Enter `line` or `line:column` and press Enter</div>
           </Show>
-          <Show when={isSymbolMode() && !isAiMode()}>
+          <Show when={isSymbolMode()}>
             <For each={filteredSymbols()}>
               {(sym, idx) => (
                 <div
@@ -438,20 +346,23 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
               <div class="palette-empty">No symbols found</div>
             </Show>
           </Show>
-          <Show when={isCommand() && !isAiMode() && !isSearchMode() && !isLineMode() && !isSymbolMode()}>
+          <Show when={isCommand() && !isSearchMode() && !isLineMode() && !isSymbolMode()}>
             <For each={filteredCommands()}>
               {(cmd, idx) => (
                 <div
                   class={`palette-item ${idx() === selectedIdx() ? "palette-item-active" : ""}`}
-                  onClick={() => cmd.action()}
+                  onClick={() => { cmd.execute(); props.onClose(); }}
                 >
                   <span class="palette-item-icon">{">"}</span>
-                  <span class="palette-item-name">{cmd.name}</span>
+                  <span class="palette-item-name">{cmd.label}</span>
+                  <Show when={cmd.keybinding}>
+                    <span class="palette-item-keybinding">{formatKeybinding(cmd.keybinding)}</span>
+                  </Show>
                 </div>
               )}
             </For>
           </Show>
-          <Show when={!isCommand() && !isAiMode() && !isSearchMode() && !isLineMode() && !isSymbolMode()}>
+          <Show when={!isCommand() && !isSearchMode() && !isLineMode() && !isSymbolMode()}>
             {/* Recent files — shown when query is empty */}
             <Show when={!query() && props.recentFiles && props.recentFiles.length > 0}>
               <div class="palette-section-label">Recent</div>
@@ -493,7 +404,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           <Show when={isCommand() && filteredCommands().length === 0}>
             <div class="palette-empty">No commands found</div>
           </Show>
-          <Show when={!isCommand() && !isAiMode() && !isSearchMode() && !isLineMode() && !isSymbolMode() && filtered().length === 0 && query()}>
+          <Show when={!isCommand() && !isSearchMode() && !isLineMode() && !isSymbolMode() && filtered().length === 0 && query()}>
             <div class="palette-empty">No files found</div>
           </Show>
         </div>

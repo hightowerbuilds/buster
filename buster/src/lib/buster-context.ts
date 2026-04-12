@@ -34,7 +34,6 @@ export interface BusterActions {
   switchToTab(tabId: string): void;
   handleTabClose(tabId: string): void;
   createTerminalTab(): void;
-  createAiTab(): void;
   createGitTab(): void;
   createSettingsTab(): void;
   createExtensionsTab(): void;
@@ -61,7 +60,6 @@ export interface BusterActions {
 
   // Settings
   updateSettings(s: AppSettings): void;
-  saveApiKey(key: string): Promise<void>;
   addRecentFile(path: string, name: string): void;
 
   // Diagnostics

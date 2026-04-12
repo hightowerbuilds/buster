@@ -6,6 +6,7 @@ interface TabBarProps {
   activeTab: string | null;
   groupedTabIds?: Set<string>;
   onSelect: (id: string) => void;
+  onActivate?: (id: string) => void;
   onClose: (id: string) => void;
   onNewTerminal: () => void;
   onReorder?: (fromIdx: number, toIdx: number) => void;
@@ -107,16 +108,16 @@ const TabBar: Component<TabBarProps> = (props) => {
         <For each={props.tabs}>
           {(tab, idx) => (
             <div
-              class={`tab ${tab.id === props.activeTab ? "tab-active" : ""} ${props.groupedTabIds?.has(tab.id) ? "tab-grouped" : ""} ${tab.type === "terminal" ? "tab-terminal" : ""} ${tab.type === "ai" ? "tab-ai" : ""} ${tab.type === "settings" ? "tab-settings" : ""} ${tab.type === "git" ? "tab-git" : ""} ${dragIdx() === idx() ? "tab-dragging" : ""} ${dropIdx() === idx() && dragIdx() !== idx() ? "tab-drop-target" : ""}`}
+              class={`tab ${tab.id === props.activeTab ? "tab-active" : ""} ${props.groupedTabIds?.has(tab.id) ? "tab-grouped" : ""} ${tab.type === "terminal" ? "tab-terminal" : ""} ${tab.type === "settings" ? "tab-settings" : ""} ${tab.type === "git" ? "tab-git" : ""} ${dragIdx() === idx() ? "tab-dragging" : ""} ${dropIdx() === idx() && dragIdx() !== idx() ? "tab-drop-target" : ""}`}
               role="tab"
               aria-selected={tab.id === props.activeTab}
               aria-label={`${tab.name}${tab.dirty ? " (unsaved)" : ""}`}
               tabIndex={tab.id === props.activeTab ? 0 : -1}
-              onClick={() => props.onSelect(tab.id)}
+              onClick={() => (props.onActivate ?? props.onSelect)(tab.id)}
               onPointerDown={(e) => handlePointerDown(idx(), e)}
               onKeyDown={(e) => handleTabKeyDown(e, idx())}
             >
-              <span class="tab-icon">{tab.type === "terminal" ? ">" : tab.type === "ai" ? "*" : tab.type === "settings" ? "~" : tab.type === "git" ? "&" : tab.type === "legend" ? "?" : tab.type === "github" ? "@" : tab.type === "explorer" ? "/" : "#"}</span>
+              <span class="tab-icon">{tab.type === "terminal" ? ">" : tab.type === "settings" ? "~" : tab.type === "git" ? "&" : tab.type === "legend" ? "?" : tab.type === "github" ? "@" : tab.type === "explorer" ? "/" : "#"}</span>
               <span class="tab-name">
                 {tab.dirty ? "\u2022 " : ""}
                 {tab.name}

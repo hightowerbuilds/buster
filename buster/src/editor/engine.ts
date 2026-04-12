@@ -16,7 +16,7 @@
  */
 
 import { createSignal, batch } from "solid-js";
-import { getCharWidth, FONT_FAMILY } from "./text-measure";
+import { getCharWidth, isWideChar, stringDisplayWidth, pixelToCol } from "./text-measure";
 
 export { getCharWidth };
 
@@ -101,23 +101,29 @@ export function computeDisplayRows(
     return rows;
   }
 
-  const maxChars = Math.max(10, Math.floor((editorWidth - gutterW - PADDING_LEFT - 10) / charW));
-  // Pre-allocate with a reasonable estimate (most lines don't wrap)
+  const maxWidth = Math.max(charW * 10, editorWidth - gutterW - PADDING_LEFT - 10);
   const rows: DisplayRow[] = [];
-  if (lines.length > 1000) rows.length = 0; // hint to V8 to use flat array
 
   for (let i = 0; i < lines.length; i++) {
-    if (foldedLines?.has(i)) continue; // skip folded lines
+    if (foldedLines?.has(i)) continue;
     const line = lines[i];
-    // Fast path: line fits without wrapping (majority of lines in real code)
-    if (line.length <= maxChars) {
+    // Fast path: line fits without wrapping
+    if (stringDisplayWidth(line) * charW <= maxWidth) {
       rows.push({ bufferLine: i, startCol: 0, text: line });
       continue;
     }
-    // Slow path: word-wrap split
+    // Slow path: word-wrap by accumulating pixel width
     let col = 0;
     while (col < line.length) {
-      let end = Math.min(col + maxChars, line.length);
+      let px = 0;
+      let end = col;
+      while (end < line.length) {
+        const cw = isWideChar(line.charCodeAt(end)) ? charW * 2 : charW;
+        if (px + cw > maxWidth && end > col) break;
+        px += cw;
+        end++;
+      }
+      // Try to break at a word boundary
       if (end < line.length) {
         let breakAt = end;
         while (breakAt > col + 1 && !/\s/.test(line[breakAt - 1])) breakAt--;
@@ -1135,7 +1141,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
       const rowIdx = Math.max(0, Math.min(Math.floor(y / lineHeight), rows.length - 1));
       const dr = rows[rowIdx];
-      const localCol = Math.max(0, Math.min(Math.round(x / charW), dr.text.length));
+      const localCol = Math.max(0, Math.min(pixelToCol(dr.text, x, charW), dr.text.length));
       return { line: dr.bufferLine, col: dr.startCol + localCol };
     },
 

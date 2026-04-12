@@ -203,7 +203,7 @@ const DisplayListSurface: Component<DisplayListSurfaceProps> = (props) => {
         background: "#1e1e2e",
       }}
     >
-      <canvas ref={canvasRef} />
+      <canvas ref={canvasRef} data-tab-focus-target="true" />
     </div>
   );
 };

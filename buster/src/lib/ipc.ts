@@ -60,8 +60,8 @@ export const setWorkspaceRootIpc = (path: string | null) =>
 export const terminalKill = (termId: string) =>
   invoke<void>("terminal_kill", { termId });
 
-export const setTerminalTheme = (themeName: string) =>
-  invoke<void>("set_terminal_theme", { themeName });
+export const setTerminalTheme = (colors: Record<string, string>) =>
+  invoke<void>("set_terminal_theme", { colors });
 
 // Settings
 export interface AppSettings {
@@ -79,12 +79,7 @@ export interface AppSettings {
   effect_cursor_glow: number;
   effect_vignette: number;
   effect_grain: number;
-  agent_max_tool_calls: number;
-  agent_max_writes: number;
-  agent_max_commands: number;
-  agent_timeout_secs: number;
   keybindings?: Record<string, string>;
-  terminal_theme?: string;
 }
 
 export const loadSettings = () =>
@@ -439,39 +434,6 @@ export interface CompletionItem {
   label: string;
   detail: string;
 }
-
-// AI Agent
-export interface AiChatRequest {
-  prompt: string;
-  api_key: string;
-  model?: string;
-  provider?: string;
-  base_url?: string;
-  workspace_root?: string;
-}
-
-export interface AgentEvent {
-  kind: "text" | "tool_call" | "tool_result" | "tool_approval" | "done" | "error";
-  content: string;
-  tool_name: string | null;
-}
-
-export const aiChat = (request: AiChatRequest) =>
-  invoke<void>("ai_chat", { request });
-
-export const storeApiKey = (key: string) =>
-  invoke<void>("store_api_key", { key });
-
-export const loadApiKey = () =>
-  invoke<string | null>("load_api_key");
-
-export const deleteApiKey = () =>
-  invoke<void>("delete_api_key");
-export const aiApproveTool = (requestId: string, approved: boolean) =>
-  invoke<void>("ai_approve_tool", { requestId, approved });
-
-export const aiCancel = () =>
-  invoke<void>("ai_cancel");
 
 // Extensions
 export interface ExtensionCommand {

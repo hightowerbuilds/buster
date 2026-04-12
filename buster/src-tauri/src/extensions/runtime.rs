@@ -511,14 +511,6 @@ fn link_host_functions(linker: &mut Linker<ExtensionState>, _caps: &super::manif
             None => return -1,
         };
 
-        // Defense-in-depth: validate command safety using the shared blocklist
-        if crate::ai::tools::is_command_safe(&cmd_str).is_err() {
-            let ext_id = &caller.data().manifest.extension.id;
-            eprintln!("[ext:{}] Blocked unsafe command: {}", ext_id, cmd_str);
-            caller.data_mut().return_buffer = b"Command blocked by safety policy".to_vec();
-            return -1;
-        }
-
         // Parse the command string into program + args
         let parts: Vec<&str> = cmd_str.split_whitespace().collect();
         if parts.is_empty() {

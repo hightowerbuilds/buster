@@ -10,7 +10,6 @@ import { BusterContext, type BusterContextValue, type BusterActions, type Engine
 import type { BusterStoreState } from "./store-types";
 import { basename, extname } from "buster-path";
 import { type Tab, isImageFile } from "./tab-types";
-import type { LayoutMode } from "../ui/LayoutPicker";
 import type { EditorEngine } from "../editor/engine";
 import type { DirtyCloseResult } from "../ui/DirtyCloseDialog";
 import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
@@ -23,23 +22,18 @@ import {
   lspStart, lspDidSave, lspStatus, lspStop, terminalKill,
   setWorkspaceRootIpc, largeFileOpen, largeFileReadLines,
   largeFileClose, loadSettings as loadSettingsIpc, saveSettings as saveSettingsIpc,
-  loadApiKey as loadApiKeyIpc, storeApiKey as storeApiKeyIpc,
-  extUnload,
+  setTerminalTheme as setTerminalThemeIpc, extUnload,
 } from "./ipc";
-import { CATPPUCCIN, LIGHT_THEME, generatePalette, importVSCodeTheme, applyPaletteToCss, clearCssOverrides, type ThemePalette } from "./theme";
+import { CATPPUCCIN, LIGHT_THEME, generatePalette, importVSCodeTheme, applyPaletteToCss, clearCssOverrides, paletteToTerminalColors, type ThemePalette } from "./theme";
 import type { AppSettings } from "./ipc";
 import { persistSession, loadSessionFromDisk, closeApp } from "./session";
 import { setupFileWatcher } from "./file-watcher";
 import { setupSurfaceMeasureListener } from "./surface-measure";
 import type { SurfaceEvent } from "./ipc";
 import { setupMenuHandlers } from "./menu-handlers";
+import { autoDemotePanelCount, parsePanelCount, type PanelCount } from "./panel-count";
 import { setRefreshDir } from "../ui/SidebarTree";
 import { listen } from "@tauri-apps/api/event";
-import {
-  _setSettingsRaw, _setPalette, _setApiKeyRaw,
-  _setWorkspaceRoot, _setActiveFilePath, _setRecentFiles,
-  _setTabTrapping, _setLspState, _setLspLanguages,
-} from "./app-state";
 
 // ── Default settings ─────────────────────────────────────────
 
@@ -58,10 +52,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   effect_cursor_glow: 0,
   effect_vignette: 0,
   effect_grain: 0,
-  agent_max_tool_calls: 50,
-  agent_max_writes: 10,
-  agent_max_commands: 5,
-  agent_timeout_secs: 300,
 };
 
 const RECENT_FILES_KEY = "buster-recent-files";
@@ -76,7 +66,6 @@ const INITIAL_STATE: BusterStoreState = {
   scrollPositions: {},
   termPtyIds: {},
   terminalCounter: 0,
-  aiCounter: 0,
   fileTabCounter: 0,
 
   cursorLine: 0,
@@ -89,7 +78,7 @@ const INITIAL_STATE: BusterStoreState = {
   branchPickerVisible: false,
   syncing: false,
 
-  layoutMode: "tabs" as LayoutMode,
+  panelCount: 1 as PanelCount,
   sidebarWidth: 220,
   sidebarVisible: true,
 
@@ -106,9 +95,6 @@ const INITIAL_STATE: BusterStoreState = {
 
   settings: DEFAULT_SETTINGS,
   palette: CATPPUCCIN,
-  apiKey: "",
-  apiKeyInsecure: false,
-
   workspaceRoot: null,
   activeFilePath: null,
 
@@ -149,32 +135,43 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       grain: s.effect_grain ?? 0,
     };
     const mode = s.theme_mode || "dark";
+    let p: ThemePalette;
+
     if (mode === "imported") {
       try {
         const raw = localStorage.getItem("buster-imported-theme");
         if (raw) {
-          const json = JSON.parse(raw);
-          const p = importVSCodeTheme(json, fx);
+          p = importVSCodeTheme(JSON.parse(raw), fx);
           setStore("palette", p);
           applyPaletteToCss(p);
-          return;
+        } else {
+          p = { ...CATPPUCCIN, ...fx };
+          setStore("palette", p);
+          clearCssOverrides();
         }
-      } catch {}
-      // Fallback to dark if imported theme is missing/corrupt
-      setStore("palette", { ...CATPPUCCIN, ...fx });
-      clearCssOverrides();
+      } catch {
+        p = { ...CATPPUCCIN, ...fx };
+        setStore("palette", p);
+        clearCssOverrides();
+      }
     } else if (mode === "custom" && s.theme_hue >= 0) {
-      const p = generatePalette(s.theme_hue, fx);
+      p = generatePalette(s.theme_hue, fx);
       setStore("palette", p);
       applyPaletteToCss(p);
     } else if (mode === "light") {
-      const p: ThemePalette = { ...LIGHT_THEME, ...fx };
+      p = { ...LIGHT_THEME, ...fx };
       setStore("palette", p);
       applyPaletteToCss(p);
     } else {
-      setStore("palette", { ...CATPPUCCIN, ...fx });
+      p = { ...CATPPUCCIN, ...fx };
+      setStore("palette", p);
       clearCssOverrides();
     }
+
+    // Sync terminal ANSI colors with the app palette
+    setTerminalThemeIpc(paletteToTerminalColors(p!)).catch((e) =>
+      console.warn("Failed to sync terminal theme:", e),
+    );
   }
 
   // ── Actions ──────────────────────────────────────────────
@@ -193,37 +190,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       document.documentElement.style.fontSize = `${s.ui_zoom}%`;
       rebuildPalette(s);
     } catch (e) { console.warn("Failed to load settings:", e); }
-  }
-
-  async function initApiKey() {
-    try {
-      const stored = await loadApiKeyIpc();
-      if (stored) { setStore("apiKey", stored); setStore("apiKeyInsecure", false); return; }
-    } catch (e) { console.warn("[api-key] keyring load failed:", e); }
-    const legacy = localStorage.getItem("buster-ai-key");
-    if (legacy) {
-      setStore("apiKey", legacy);
-      // Try to migrate to keyring
-      try {
-        await storeApiKeyIpc(legacy);
-        localStorage.removeItem("buster-ai-key");
-        setStore("apiKeyInsecure", false);
-      } catch {
-        setStore("apiKeyInsecure", true);
-      }
-    }
-  }
-
-  async function saveApiKey(key: string) {
-    setStore("apiKey", key);
-    try {
-      await storeApiKeyIpc(key);
-      localStorage.removeItem("buster-ai-key");
-      setStore("apiKeyInsecure", false);
-      return;
-    } catch { showToast("Keyring unavailable — key stored in localStorage", "error"); }
-    localStorage.setItem("buster-ai-key", key);
-    setStore("apiKeyInsecure", true);
   }
 
   function addRecentFile(path: string, name: string) {
@@ -264,6 +230,8 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   }
 
   function openWorkspace(path: string) {
+    setStore("sidebarVisible", true);
+    setStore("sidebarWidth", (width) => Math.max(width, 275));
     setStore("workspaceRoot", path);
     rememberWorkspace(path);
     refreshGitBranch(path);
@@ -377,13 +345,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     switchToTab(id);
   }
 
-  function createAiTab() {
-    const existing = store.tabs.find(t => t.type === "ai");
-    if (existing) { switchToTab(existing.id); return; }
-    setStore("aiCounter", c => c + 1);
-    openSingletonTab("ai", `ai_tab_${store.aiCounter}`, "AI Agent");
-  }
-
   function createGitTab() { openSingletonTab("git", "git_tab", "Git"); }
   function createSettingsTab() { openSingletonTab("settings", "settings_tab", "Settings"); }
   function createExtensionsTab() { openSingletonTab("extensions", "extensions_tab", "Extensions"); }
@@ -402,7 +363,17 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   // ── Tab management ───────────────────────────────────────
 
   function switchToTab(tabId: string) {
+    const tab = store.tabs.find(t => t.id === tabId);
     setStore("activeTabId", tabId);
+    if (tab?.type === "file") {
+      const engine = engines.get(tabId);
+      const cursor = engine?.cursor();
+      setStore("cursorLine", cursor?.line ?? 0);
+      setStore("cursorCol", cursor?.col ?? 0);
+    } else {
+      setStore("cursorLine", 0);
+      setStore("cursorCol", 0);
+    }
   }
 
   const EXT_TO_LANG: Record<string, string> = {
@@ -499,6 +470,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
     const newTabs = store.tabs.filter(t => t.id !== tabId);
     setStore("tabs", newTabs);
+    setStore("panelCount", autoDemotePanelCount(store.panelCount, newTabs.length));
 
     if (store.activeTabId === tabId) {
       if (newTabs.length > 0) switchToTab(newTabs[newTabs.length - 1].id);
@@ -634,7 +606,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     return {
       workspaceRoot: store.workspaceRoot,
       activeTabId: store.activeTabId,
-      layoutMode: store.layoutMode,
+      panelCount: store.panelCount,
       sidebarVisible: store.sidebarVisible,
       sidebarWidth: store.sidebarWidth,
       tabs: [...store.tabs],
@@ -682,20 +654,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     setStore("activeFilePath", tab?.type === "file" ? tab.path : null);
   });
 
-  // ── Bridge: sync store → app-state.ts signals (temporary) ──
-  // Components that still import from app-state.ts see updates.
-  // Removed once all consumers migrate to useBuster().
-
-  createEffect(() => _setSettingsRaw(store.settings));
-  createEffect(() => _setPalette(store.palette));
-  createEffect(() => _setApiKeyRaw(store.apiKey));
-  createEffect(() => _setWorkspaceRoot(store.workspaceRoot));
-  createEffect(() => _setActiveFilePath(store.activeFilePath));
-  createEffect(() => _setRecentFiles(store.recentFiles));
-  createEffect(() => _setTabTrapping(store.tabTrapping));
-  createEffect(() => _setLspState(store.lspState));
-  createEffect(() => _setLspLanguages([...store.lspLanguages]));
-
   // ── Initialization ───────────────────────────────────────
 
   // Crash detection: set running flag and check if last shutdown was dirty
@@ -708,7 +666,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   });
 
   initSettings();
-  initApiKey();
 
   // File watcher
   setupFileWatcher({
@@ -765,7 +722,15 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   setupSurfaceMeasureListener().then((u) => menuListeners.push(u));
 
   // Menu handlers
-  setupMenuHandlers({ activeEngine, changeDirectory, closeDirectory })
+  setupMenuHandlers({
+    activeEngine,
+    changeDirectory,
+    closeDirectory,
+    openExtensions: createExtensionsTab,
+    openDebug: createDebugTab,
+    openSettings: createSettingsTab,
+    openDocs: createManualTab,
+  })
     .then(handles => menuListeners.push(...handles));
 
   // Session restore — restore layout preferences only, not workspace or files.
@@ -775,7 +740,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       const session = await loadSessionFromDisk();
       if (!session) return;
       // Do NOT restore workspace_root — users must open a folder explicitly
-      setStore("layoutMode", (session.layout_mode as LayoutMode) || "tabs");
+      setStore("panelCount", parsePanelCount(session.layout_mode));
       setStore("sidebarVisible", session.sidebar_visible ?? true);
       const sw = session.sidebar_width;
       setStore("sidebarWidth", sw && sw >= 140 && sw <= 600 ? sw : 220);
@@ -792,7 +757,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
           setStore("tabs", produce(tabs => {
             tabs.push({ id: tabId, name: stab.name || "Terminal", path: "", dirty: false, type: "terminal" });
           }));
-        } else if (["ai", "settings", "git", "extensions", "manual", "debug", "github", "explorer"].includes(stab.type)) {
+        } else if (["settings", "git", "extensions", "manual", "debug", "github", "explorer"].includes(stab.type)) {
           setStore("tabs", produce(tabs => {
             tabs.push({ id: stab.id, name: stab.name, path: "", dirty: false, type: stab.type as Tab["type"] });
           }));
@@ -805,8 +770,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
         if (m) setStore("fileTabCounter", Math.max(store.fileTabCounter, Number(m[1])));
         const tm = t.id.match(/^term_tab_(\d+)$/);
         if (tm) setStore("terminalCounter", Math.max(store.terminalCounter, Number(tm[1])));
-        const am = t.id.match(/^ai_tab_(\d+)$/);
-        if (am) setStore("aiCounter", Math.max(store.aiCounter, Number(am[1])));
       }
 
       if (session.active_tab_id && store.tabs.some(t => t.id === session.active_tab_id)) {
@@ -827,7 +790,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     switchToTab,
     handleTabClose,
     createTerminalTab,
-    createAiTab,
     createGitTab,
     createSettingsTab,
     createExtensionsTab,
@@ -846,7 +808,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     activeEngine,
     getFileTextForTab,
     updateSettings,
-    saveApiKey,
     addRecentFile,
     jumpToDiagnostic,
     diagnosticCounts,

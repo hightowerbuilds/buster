@@ -2,7 +2,7 @@ import { Component, createEffect, on, onMount, onCleanup } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import CanvasSurface from "./CanvasSurface";
-import { tabTrapping } from "../lib/app-state";
+import { useBuster } from "../lib/buster-context";
 import { FONT_FAMILY, getCharWidth, measureTextWidth } from "../editor/text-measure";
 
 interface TermCell {
@@ -46,20 +46,22 @@ interface TermScreenDelta {
   bracketed_paste?: boolean;
 }
 
-import { settings } from "../lib/app-state";
-
 interface CanvasTerminalProps {
   termTabId: string;
   active: boolean;
   cwd?: string;
   onTermIdReady: (termTabId: string, ptyId: string) => void;
+  autoFocus?: boolean;
 }
 
-import { palette } from "../lib/app-state";
 import { createTerminalA11y } from "./terminal-a11y";
 // Cursor is always visible when focused — no blink
 
 const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
+  const { store } = useBuster();
+  const settings = () => store.settings;
+  const palette = () => store.palette;
+  const tabTrapping = () => store.tabTrapping;
   let canvasRef: HTMLCanvasElement | undefined;
   let containerRef: HTMLDivElement | undefined;
   let hiddenInput: HTMLTextAreaElement | undefined;
@@ -534,21 +536,16 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     // Let printable characters go through the hidden textarea input event
   }
 
-  // React to active state changes — send focus/blur events to PTY
+  // React to visibility changes — resize once the terminal becomes visible.
   createEffect(
     on(
       () => props.active,
       (active, prevActive) => {
         if (active && !prevActive) {
           requestAnimationFrame(() => {
-            hiddenInput?.focus();
             // Debounced — waits for layout to settle before resizing PTY
             handleResize();
           });
-          if (ptyId) invoke("terminal_write", { termId: ptyId, data: "\x1b[I" }).catch((e) => console.warn("Terminal IPC error:", e));
-        }
-        if (!active && prevActive) {
-          if (ptyId) invoke("terminal_write", { termId: ptyId, data: "\x1b[O" }).catch((e) => console.warn("Terminal IPC error:", e));
         }
       }
     )
@@ -653,7 +650,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
 
     scheduleTermRender();
 
-    if (props.active) hiddenInput?.focus();
+    if (props.autoFocus) hiddenInput?.focus();
 
     onCleanup(() => {
       cancelAnimationFrame(animId);
@@ -695,12 +692,23 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
         onKeyDown: handleKeyDown,
         onInput: handleInput,
         onPaste: handlePaste,
-        onFocus: () => { isFocused = true; needsRedraw = true; scheduleTermRender(); },
-        onBlur: () => { isFocused = false; needsRedraw = true; scheduleTermRender(); },
+        onFocus: () => {
+          isFocused = true;
+          needsRedraw = true;
+          scheduleTermRender();
+          if (ptyId) invoke("terminal_write", { termId: ptyId, data: "\x1b[I" }).catch((e) => console.warn("Terminal IPC error:", e));
+        },
+        onBlur: () => {
+          isFocused = false;
+          needsRedraw = true;
+          scheduleTermRender();
+          if (ptyId) invoke("terminal_write", { termId: ptyId, data: "\x1b[O" }).catch((e) => console.warn("Terminal IPC error:", e));
+        },
         autocomplete: "off",
         autocapitalize: "off",
         spellcheck: false,
         tabIndex: 0,
+        "data-tab-focus-target": "true",
       }}
     />
   );

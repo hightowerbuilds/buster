@@ -3,6 +3,7 @@
 @import "./sidebar.css";
 @import "./tabbar.css";
 @import "./layout-picker.css";
+@import "./command-line.css";
 @import "./panel-layout.css";
 @import "./terminal.css";
 @import "./find-replace.css";
@@ -10,9 +11,6 @@
 @import "./welcome.css";
 @import "./statusbar.css";
 @import "./settings.css";
-@import "./ai-chat.css";
-@import "./model-gallery.css";
-@import "./api-keys.css";
 @import "./git-panel.css";
 @import "./git-graph.css";
 @import "./extensions.css";

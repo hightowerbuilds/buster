@@ -1,7 +1,7 @@
 import type { SearchMatch, CompletionItem, CursorPos, LspSignatureHelp, LspCodeAction, DiffHunk, GitBlameLine } from "../lib/ipc";
 import type { LineToken } from "./ts-highlighter";
 import { type DisplayRow, PADDING_LEFT, computeDisplayRows } from "./engine";
-import { getCharWidth, FONT_FAMILY, measureTextWidth } from "./text-measure";
+import { getCharWidth, FONT_FAMILY, measureTextWidth, colToPixel, stringDisplayWidth } from "./text-measure";
 import { type ThemePalette, drawVignette, drawGrain, applyCursorGlow, clearCursorGlow } from "../lib/theme";
 import { isWebGLActive, beginTextFrame, queueText, flushTextFrame } from "./webgl-text";
 
@@ -201,7 +201,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
       for (let r = firstVisRow; r < lastVisRow; r++) {
         const dr = displayRows[r];
         if (dr.bufferLine === pos.line && pos.col >= dr.startCol && pos.col < dr.startCol + dr.text.length) {
-          const x = gutterW + PADDING_LEFT + (pos.col - dr.startCol) * charW;
+          const x = gutterW + PADDING_LEFT + colToPixel(dr.text, pos.col - dr.startCol, charW);
           const y = (r - firstVisRow) * lineHeight + offsetY;
           ctx.strokeStyle = p.accent;
           ctx.lineWidth = 1;
@@ -274,8 +274,8 @@ function drawSelection(
       const startCol = dr.bufferLine === sLine ? Math.max(0, sCol - dr.startCol) : 0;
       const endCol = dr.bufferLine === eLine ? Math.min(dr.text.length, eCol - dr.startCol) : dr.text.length;
       if (endCol > startCol) {
-        const x1 = gutterW + PADDING_LEFT + startCol * charW;
-        const x2 = gutterW + PADDING_LEFT + endCol * charW;
+        const x1 = gutterW + PADDING_LEFT + colToPixel(dr.text, startCol, charW);
+        const x2 = gutterW + PADDING_LEFT + colToPixel(dr.text, endCol, charW);
         ctx.fillRect(x1, y, x2 - x1, lineHeight);
       }
     }
@@ -308,8 +308,8 @@ function drawSearchHighlights(
           const y = (r - firstVisRow) * lineHeight + offsetY;
           const cs = Math.max(0, localStart);
           const ce = Math.min(dr.text.length, localEnd);
-          const x1 = gutterW + PADDING_LEFT + cs * charW;
-          const x2 = gutterW + PADDING_LEFT + ce * charW;
+          const x1 = gutterW + PADDING_LEFT + colToPixel(dr.text, cs, charW);
+          const x2 = gutterW + PADDING_LEFT + colToPixel(dr.text, ce, charW);
           ctx.fillRect(x1, y, x2 - x1, lineHeight);
         }
       }
@@ -393,10 +393,10 @@ function drawTextRows(
         }
 
         // Draw phantom text
-        const phantomX = gutterW + PADDING_LEFT + (realCol * charW) + xOffset;
+        const phantomX = gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset;
         const phantomColor = pt.style === "ghost" ? "rgba(137, 180, 250, 0.35)" : p.textMuted;
         monoText(ctx, pt.text, phantomX, y, phantomColor, font, charW, lineHeight, baselineY);
-        xOffset += pt.text.length * charW;
+        xOffset += stringDisplayWidth(pt.text) * charW;
       }
 
       // Draw remaining real text after last phantom
@@ -432,14 +432,14 @@ function drawLineText(
       const visEnd = Math.min(dr.text.length, tEnd);
 
       if (visStart > lastEnd) {
-        monoText(ctx, dr.text.slice(lastEnd, visStart), gutterW + PADDING_LEFT + lastEnd * charW, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
+        monoText(ctx, dr.text.slice(lastEnd, visStart), gutterW + PADDING_LEFT + colToPixel(dr.text, lastEnd, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
       }
 
-      monoText(ctx, dr.text.slice(visStart, visEnd), gutterW + PADDING_LEFT + visStart * charW, rowY, token.color, font, charW, lineHeight, baselineY);
+      monoText(ctx, dr.text.slice(visStart, visEnd), gutterW + PADDING_LEFT + colToPixel(dr.text, visStart, charW), rowY, token.color, font, charW, lineHeight, baselineY);
       lastEnd = visEnd;
     }
     if (lastEnd < dr.text.length) {
-      monoText(ctx, dr.text.slice(lastEnd), gutterW + PADDING_LEFT + lastEnd * charW, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
+      monoText(ctx, dr.text.slice(lastEnd), gutterW + PADDING_LEFT + colToPixel(dr.text, lastEnd, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
     }
   } else {
     monoText(ctx, dr.text, gutterW + PADDING_LEFT, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
@@ -480,14 +480,14 @@ function drawSegmentWithTokens(
 
       // Gap before this token in our segment
       if (segStart > drawn) {
-        monoText(ctx, segment.slice(drawn, segStart), baseX + drawn * charW, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
+        monoText(ctx, segment.slice(drawn, segStart), baseX + colToPixel(segment, drawn, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
       }
 
-      monoText(ctx, segment.slice(segStart, segEnd), baseX + segStart * charW, rowY, token.color, font, charW, lineHeight, baselineY);
+      monoText(ctx, segment.slice(segStart, segEnd), baseX + colToPixel(segment, segStart, charW), rowY, token.color, font, charW, lineHeight, baselineY);
       drawn = segEnd;
     }
     if (drawn < segment.length) {
-      monoText(ctx, segment.slice(drawn), baseX + drawn * charW, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
+      monoText(ctx, segment.slice(drawn), baseX + colToPixel(segment, drawn, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
     }
   } else {
     monoText(ctx, segment, baseX, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
@@ -585,7 +585,7 @@ function drawCursors(
     for (let r = firstVisRow; r < lastVisRow; r++) {
       const dr = displayRows[r];
       if (dr.bufferLine === cLine && cCol >= dr.startCol && cCol <= dr.startCol + dr.text.length) {
-        const x = gutterW + PADDING_LEFT + (cCol - dr.startCol) * charW;
+        const x = gutterW + PADDING_LEFT + colToPixel(dr.text, cCol - dr.startCol, charW);
         const y = (r - firstVisRow) * lineHeight + offsetY;
         ctx.fillStyle = ci === 0 ? p.cursor : p.cursorAlt;
         ctx.fillRect(x, y + 2, 2, lineHeight - 4);
@@ -624,11 +624,12 @@ function drawAutocomplete(
   const dropH = maxVisible * itemH + 4;
 
   // Position below cursor
-  let dropX = gutterW + PADDING_LEFT + cCol * charW;
+  let dropX = gutterW + PADDING_LEFT;
   let dropY = 0;
   for (let r = firstVisRow; r < lastVisRow; r++) {
     const dr = displayRows[r];
     if (dr.bufferLine === cLine && cCol >= dr.startCol && cCol <= dr.startCol + dr.text.length) {
+      dropX = gutterW + PADDING_LEFT + colToPixel(dr.text, cCol - dr.startCol, charW);
       dropY = (r - firstVisRow + 1) * lineHeight + offsetY;
       break;
     }
@@ -662,7 +663,7 @@ function drawAutocomplete(
     monoText(ctx, item.label, dropX + 8, iy, labelColor, font, charW, itemH, acBaselineY);
 
     // Detail (right-aligned)
-    const detailX = dropX + dropW - 8 - item.detail.length * charW;
+    const detailX = dropX + dropW - 8 - stringDisplayWidth(item.detail) * charW;
     monoText(ctx, item.detail, detailX, iy, "#585b70", font, charW, itemH, acBaselineY);
   }
 
@@ -671,7 +672,7 @@ function drawAutocomplete(
     const moreFont = `${fontSize - 2}px JetBrains Mono, monospace`;
     const moreText = `+${items.length - maxVisible} more`;
     const moreCharW = getCharWidth(fontSize - 2);
-    const moreX = dropX + dropW - 8 - moreText.length * moreCharW;
+    const moreX = dropX + dropW - 8 - stringDisplayWidth(moreText) * moreCharW;
     monoText(ctx, moreText, moreX, dropY + dropH - itemH, "#585b70", moreFont, moreCharW, itemH, acBaselineY);
   }
 }
@@ -801,8 +802,8 @@ function drawDiagnostics(
         const startC = dr.bufferLine === diag.line ? Math.max(0, diag.col - dr.startCol) : 0;
         const endC = dr.bufferLine === diag.endLine ? Math.min(dr.text.length, diag.endCol - dr.startCol) : dr.text.length;
         if (endC > startC) {
-          const x1 = gutterW + PADDING_LEFT + startC * charW;
-          const x2 = gutterW + PADDING_LEFT + endC * charW;
+          const x1 = gutterW + PADDING_LEFT + colToPixel(dr.text, startC, charW);
+          const x2 = gutterW + PADDING_LEFT + colToPixel(dr.text, endC, charW);
           const y = (r - firstVisRow + 1) * lineHeight + offsetY - 2;
           // Wavy underline
           ctx.strokeStyle = diag.severity === 1 ? "#f38ba8" : diag.severity === 2 ? "#fab387" : "#89b4fa";
@@ -840,15 +841,16 @@ function drawHoverTooltip(
   const hp = params.hoverPos;
   const text = params.hoverText;
   const tooltipLines = text.split("\n").slice(0, 8);
-  const maxLen = Math.max(...tooltipLines.map(l => l.length));
-  const tipW = Math.min(Math.max(maxLen * charW * 0.65 + 24, 120), w - 40);
+  const maxDisplayW = Math.max(...tooltipLines.map(l => stringDisplayWidth(l)));
+  const tipW = Math.min(Math.max(maxDisplayW * charW * 0.65 + 24, 120), w - 40);
   const tipH = tooltipLines.length * (fontSize + 4) + 12;
 
-  let tipX = gutterW + PADDING_LEFT + hp.col * charW;
+  let tipX = gutterW + PADDING_LEFT;
   let tipY = 0;
   for (let r = firstVisRow; r < lastVisRow; r++) {
     const dr = displayRows[r];
     if (dr.bufferLine === hp.line) {
+      tipX = gutterW + PADDING_LEFT + colToPixel(dr.text, hp.col - dr.startCol, charW);
       tipY = (r - firstVisRow) * lineHeight + offsetY - tipH - 4;
       break;
     }
@@ -894,11 +896,12 @@ function drawSignatureHelp(
   const cCol = params.cursors[0]?.col ?? 0;
 
   // Position above the cursor
-  let tipX = gutterW + PADDING_LEFT + cCol * charW;
+  let tipX = gutterW + PADDING_LEFT;
   let tipY = 0;
   for (let r = firstVisRow; r < lastVisRow; r++) {
     const dr = displayRows[r];
     if (dr.bufferLine === cLine) {
+      tipX = gutterW + PADDING_LEFT + colToPixel(dr.text, cCol - dr.startCol, charW);
       tipY = (r - firstVisRow) * lineHeight + offsetY - lineHeight - 8;
       break;
     }
@@ -930,12 +933,12 @@ function drawSignatureHelp(
       const after = sig.label.slice(idx + activeParam.length);
 
       monoText(ctx, before, tipX + 8, tipY, "#a6adc8", font, charW, sigH, sigBaselineY);
-      const beforeW = before.length * charW;
+      const beforeW = stringDisplayWidth(before) * charW;
 
       // Active param (bold, accent color)
       const boldFont = `bold ${fontSize}px JetBrains Mono, monospace`;
       monoText(ctx, activeParam, tipX + 8 + beforeW, tipY, "#f9e2af", boldFont, charW, sigH, sigBaselineY);
-      const paramW = activeParam.length * charW;
+      const paramW = stringDisplayWidth(activeParam) * charW;
 
       monoText(ctx, after, tipX + 8 + beforeW + paramW, tipY, "#a6adc8", font, charW, sigH, sigBaselineY);
       return;
@@ -1003,11 +1006,12 @@ function drawCodeActionMenu(
   const dropW = Math.min(400, w - gutterW - 40);
   const dropH = maxVisible * itemH + 4;
 
-  let dropX = gutterW + PADDING_LEFT + cCol * charW;
+  let dropX = gutterW + PADDING_LEFT;
   let dropY = 0;
   for (let r = firstVisRow; r < lastVisRow; r++) {
     const dr = displayRows[r];
     if (dr.bufferLine === cLine) {
+      dropX = gutterW + PADDING_LEFT + colToPixel(dr.text, cCol - dr.startCol, charW);
       dropY = (r - firstVisRow + 1) * lineHeight + offsetY;
       break;
     }
@@ -1038,7 +1042,7 @@ function drawCodeActionMenu(
     monoText(ctx, item.title, dropX + 8, iy, titleColor, font, charW, itemH, caBaselineY);
 
     if (item.kind) {
-      const kindX = dropX + dropW - 8 - item.kind.length * charW;
+      const kindX = dropX + dropW - 8 - stringDisplayWidth(item.kind) * charW;
       monoText(ctx, item.kind, kindX, iy, "#585b70", font, charW, itemH, caBaselineY);
     }
   }

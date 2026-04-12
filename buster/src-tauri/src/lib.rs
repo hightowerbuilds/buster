@@ -2,7 +2,6 @@ mod commands;
 mod terminal;
 mod syntax;
 mod lsp;
-mod ai;
 mod extensions;
 mod debugger;
 mod remote;
@@ -15,7 +14,6 @@ pub mod filebuffer;
 use terminal::TerminalManager;
 use syntax::SyntaxService;
 use lsp::LspManager;
-use ai::agent::ApprovalManager;
 use debugger::DebugManager;
 use remote::RemoteManager;
 use collab::CollabManager;
@@ -40,7 +38,6 @@ pub fn run() {
         .manage(watcher::FileWatcher::new())
         .manage(Arc::new(BrowserManager::new()))
         .manage(filebuffer::FileBufferManager::new())
-        .manage(ai::audit::AuditLogger::new())
         .manage(DebugManager::new())
         .manage(RemoteManager::new())
         .manage(CollabManager::new())
@@ -48,6 +45,34 @@ pub fn run() {
             // Build the native menu bar
             let change_dir = MenuItem::with_id(app, "change_directory", "Change Directory", true, None::<&str>)?;
             let close_dir = MenuItem::with_id(app, "close_directory", "Close Directory", true, None::<&str>)?;
+            let view_extensions = MenuItem::with_id(
+                app,
+                "view_extensions",
+                "Extensions (Ctrl+` then E)",
+                true,
+                None::<&str>,
+            )?;
+            let view_debug = MenuItem::with_id(
+                app,
+                "view_debug",
+                "Debug (Ctrl+` then D)",
+                true,
+                None::<&str>,
+            )?;
+            let view_settings = MenuItem::with_id(
+                app,
+                "view_settings",
+                "Settings (Cmd+, / Ctrl+` then S)",
+                true,
+                None::<&str>,
+            )?;
+            let view_docs = MenuItem::with_id(
+                app,
+                "view_docs",
+                "Docs (Ctrl+` then Q)",
+                true,
+                None::<&str>,
+            )?;
 
             let file_menu = Submenu::with_items(app, "File", true, &[
                 &change_dir,
@@ -71,7 +96,14 @@ pub fn run() {
                 &PredefinedMenuItem::select_all(app, Some("Select All"))?,
             ])?;
 
-            let menu = Menu::with_items(app, &[&file_menu, &edit_menu])?;
+            let view_menu = Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[&view_extensions, &view_debug, &view_settings, &view_docs],
+            )?;
+
+            let menu = Menu::with_items(app, &[&file_menu, &edit_menu, &view_menu])?;
             app.set_menu(menu)?;
 
             // Handle menu events
@@ -100,6 +132,18 @@ pub fn run() {
                     }
                     "select_all" => {
                         let _ = app_handle.emit("menu-select-all", ());
+                    }
+                    "view_extensions" => {
+                        let _ = app_handle.emit("menu-open-extensions", ());
+                    }
+                    "view_debug" => {
+                        let _ = app_handle.emit("menu-open-debug", ());
+                    }
+                    "view_settings" => {
+                        let _ = app_handle.emit("menu-open-settings", ());
+                    }
+                    "view_docs" => {
+                        let _ = app_handle.emit("menu-open-docs", ());
                     }
                     _ => {}
                 }
@@ -177,7 +221,6 @@ pub fn run() {
 
             Ok(())
         })
-        .manage(Arc::new(ApprovalManager::new()))
         .invoke_handler(tauri::generate_handler![
             // File commands
             commands::file::set_workspace_root,
@@ -289,14 +332,6 @@ pub fn run() {
             commands::git::git_remote_set_url,
             commands::git::git_diff_hunks,
             commands::git::git_blame,
-            // AI
-            commands::ai::ai_chat,
-            commands::ai::ai_cancel,
-            commands::ai::ai_inline_complete,
-            commands::ai::store_api_key,
-            commands::ai::load_api_key,
-            commands::ai::delete_api_key,
-            commands::ai::ai_approve_tool,
             // Extensions
             commands::extensions::ext_list,
             commands::extensions::ext_load,

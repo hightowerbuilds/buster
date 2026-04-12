@@ -92,6 +92,14 @@
   margin-left: auto;
 }
 
+.palette-item-keybinding {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 12px;
+}
+
 .palette-empty {
   padding: 16px;
   text-align: center;

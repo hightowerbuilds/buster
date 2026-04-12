@@ -1,7 +1,7 @@
 import { Component, createSignal, createEffect, on, onMount, onCleanup } from "solid-js";
 import { gitLogGraph } from "../lib/ipc";
 import type { GitCommitNode } from "../lib/ipc";
-import { palette } from "../lib/app-state";
+import { useBuster } from "../lib/buster-context";
 import type { ThemePalette } from "../lib/theme";
 import { measureTextWidth } from "../editor/text-measure";
 
@@ -35,6 +35,8 @@ const FONT = '13px "JetBrains Mono", monospace';
 const LABEL_FONT = '11px "Courier New", Courier, monospace';
 
 const GitGraph: Component<GitGraphProps> = (props) => {
+  const { store } = useBuster();
+  const palette = () => store.palette;
   let canvasRef: HTMLCanvasElement | undefined;
   let containerRef: HTMLDivElement | undefined;
   let needsRedraw = true;

@@ -12,10 +12,10 @@ import { createGhostText } from "./editor-ghost-text";
 import { createInlayHints } from "./editor-inlay-hints";
 import { createEditorA11y } from "./editor-a11y";
 import CanvasSurface from "../ui/CanvasSurface";
-import { clipboardWrite, clipboardRead } from "../lib/clipboard";
+import { clipboardWrite } from "../lib/clipboard";
 import { basename, extname } from "buster-path";
 import { lspDidChange, lspDidChangeIncremental } from "../lib/ipc";
-import { palette, apiKey as globalApiKey, workspaceRoot, tabTrapping } from "../lib/app-state";
+import { useBuster } from "../lib/buster-context";
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ interface CanvasEditorProps {
   initialText: string;
   filePath: string | null;
   active?: boolean;
+  autoFocus?: boolean;
   onEngineReady?: (engine: EditorEngine) => void;
   onCursorChange?: (line: number, col: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -42,6 +43,10 @@ interface CanvasEditorProps {
 // ─── Component ──────────────────────────────────────────────────────
 
 const CanvasEditor: Component<CanvasEditorProps> = (props) => {
+  const { store } = useBuster();
+  const palette = () => store.palette;
+  const workspaceRoot = () => store.workspaceRoot;
+  const tabTrapping = () => store.tabTrapping;
   let canvasRef: HTMLCanvasElement | undefined;
   let hiddenInput: HTMLTextAreaElement | undefined;
   let containerRef: HTMLDivElement | undefined;
@@ -212,7 +217,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       const ls = engine.lines();
       return { lines: ls, total_lines: ls.length, file_path: engine.filePath(), edit_seq: engine.editSeq() };
     },
-    apiKey: () => globalApiKey(),
   });
 
   const inlayHints = createInlayHints({
@@ -482,36 +486,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       return;
     }
 
-    // Copy
-    if (isMod && e.key === "c") {
-      e.preventDefault();
-      const sel = engine.getOrderedSelection();
-      if (sel) clipboardWrite(engine.getTextRange(sel.from, sel.to));
-      return;
-    }
-
-    // Cut
-    if (isMod && e.key === "x") {
-      e.preventDefault();
-      const sel = engine.getOrderedSelection();
-      if (sel) {
-        clipboardWrite(engine.getTextRange(sel.from, sel.to));
-        engine.deleteRange(sel.from, sel.to);
-        clearHighlightCache();
-      }
-           return;
-    }
-
-    // Paste
-    if (isMod && e.key === "v") {
-      e.preventDefault();
-      clipboardRead().then(text => {
-        if (text) {
-          engine.insert(text);
-          clearHighlightCache();        }
-      });
-      return;
-    }
+    // Copy/Cut/Paste are handled by onCopy/onCut/onPaste on the textarea,
+    // using e.clipboardData which works reliably in all Tauri contexts.
 
     // Toggle line comment (Cmd+/)
     if (isMod && e.key === "/") {
@@ -933,7 +909,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     if (containerRef) resizeObserver.observe(containerRef);
 
     scheduleRender();
-    requestAnimationFrame(() => focusInput());
+    if (props.autoFocus) {
+      requestAnimationFrame(() => focusInput());
+    }
 
     onCleanup(() => {
       cancelAnimationFrame(animFrameId);
@@ -964,10 +942,27 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
         "aria-multiline": "true",
         onKeyDown: handleKeyDown,
         onInput: handleInput,
+        onCopy: (e: ClipboardEvent) => {
+          const sel = engine.getOrderedSelection();
+          if (sel) {
+            e.preventDefault();
+            const text = engine.getTextRange(sel.from, sel.to);
+            e.clipboardData?.setData("text/plain", text);
+            clipboardWrite(text);
+          }
+        },
+        onCut: (e: ClipboardEvent) => {
+          const sel = engine.getOrderedSelection();
+          if (sel) {
+            e.preventDefault();
+            const text = engine.getTextRange(sel.from, sel.to);
+            e.clipboardData?.setData("text/plain", text);
+            clipboardWrite(text);
+            engine.deleteRange(sel.from, sel.to);
+            clearHighlightCache();
+          }
+        },
         onPaste: (e: ClipboardEvent) => {
-          // Handle paste events from the native responder chain (Wispr Flow,
-          // macOS Dictation, and other voice tools that simulate Cmd+V via CGEvent).
-          // These may arrive as native paste events without triggering keydown.
           e.preventDefault();
           const text = e.clipboardData?.getData("text/plain");
           if (text) {
@@ -983,6 +978,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
         autocapitalize: "off",
         spellcheck: false,
         tabIndex: 0,
+        "data-tab-focus-target": "true",
       }}
     />
   );

@@ -8,7 +8,7 @@ import {
 
 const WARP_DECAY = 0.92;
 
-export const WARP_RADIUS = 200;
+export const WARP_RADIUS = 85;
 export const WARP_FORCE = 25;
 
 export function applyWarpPost() {

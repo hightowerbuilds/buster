@@ -1,7 +1,6 @@
 import { Component, For, Show, onCleanup, createSignal } from "solid-js";
 import type { AppSettings } from "../lib/ipc";
-import { setTerminalTheme } from "../lib/ipc";
-import { palette } from "../lib/app-state";
+import { useBuster } from "../lib/buster-context";
 import { DEFAULT_KEYBINDINGS } from "../lib/app-commands";
 import { importVSCodeTheme, type ThemeEffects } from "../lib/theme";
 
@@ -17,7 +16,7 @@ type SettingsItem =
   | { id: string; type: "number"; key: keyof AppSettings; label: string; description: string; min: number; max: number; step: number }
   | { id: string; type: "theme" }
   | { id: string; type: "effect"; key: keyof AppSettings; label: string; description: string }
-  | { id: string; type: "terminal_theme" };
+;
 
 // Color/visual settings first, then text/editor settings, then agent settings
 const SETTINGS_ITEMS: SettingsItem[] = [
@@ -27,7 +26,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: "effect_vignette", type: "effect", key: "effect_vignette", label: "Vignette", description: "Darken the edges of the editor" },
   { id: "effect_grain", type: "effect", key: "effect_grain", label: "Film Grain", description: "Subtle noise texture overlay" },
   { id: "minimap", type: "toggle", key: "minimap", label: "Minimap", description: "Show a minimap preview of the file" },
-  { id: "terminal_theme", type: "terminal_theme" },
   // Text & Editor
   { id: "font_size", type: "number", key: "font_size", label: "Editor Font Size", description: "Font size for the code editor and terminal", min: 10, max: 32, step: 1 },
   { id: "tab_size", type: "number", key: "tab_size", label: "Tab Size", description: "Number of spaces per tab stop", min: 1, max: 8, step: 1 },
@@ -91,6 +89,8 @@ function triggerQuake(canvas: HTMLCanvasElement) {
 // --- Component ---
 
 const SettingsPanel: Component<SettingsPanelProps> = (props) => {
+  const { store } = useBuster();
+  const palette = () => store.palette;
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     props.onChange({ ...props.settings, [key]: value });
   }
@@ -275,33 +275,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </div>
         );
       }
-      case "terminal_theme": {
-        const currentTheme = () => props.settings.terminal_theme || "catppuccin-mocha";
-        return (
-          <div class="settings-row-content">
-            <div class="settings-info">
-              <span class="settings-label">Terminal Theme</span>
-              <span class="settings-desc">Color scheme for the integrated terminal</span>
-            </div>
-            <div class="settings-theme-btns">
-              <button
-                class={`settings-theme-btn ${currentTheme() === "catppuccin-mocha" ? "settings-theme-btn-active" : ""}`}
-                onClick={() => {
-                  update("terminal_theme", "catppuccin-mocha");
-                  setTerminalTheme("catppuccin-mocha").catch((e) => console.warn("Failed to set terminal theme:", e));
-                }}
-              >Catppuccin Mocha</button>
-              <button
-                class={`settings-theme-btn ${currentTheme() === "solarized-dark" ? "settings-theme-btn-active" : ""}`}
-                onClick={() => {
-                  update("terminal_theme", "solarized-dark");
-                  setTerminalTheme("solarized-dark").catch((e) => console.warn("Failed to set terminal theme:", e));
-                }}
-              >Solarized Dark</button>
-            </div>
-          </div>
-        );
-      }
     }
   }
 
@@ -315,6 +288,14 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     return hotkey
       .replace(/Mod\+/g, navigator.platform.startsWith("Mac") ? "Cmd+" : "Ctrl+")
       .replace(/\+/g, " + ");
+  }
+
+  function formatCommandLabel(commandId: string): string {
+    const tabMatch = commandId.match(/^tabs\.(\d+)$/);
+    if (tabMatch) return `Go to Tab ${tabMatch[1]}`;
+    if (commandId === "tabs.prev") return "Go to Previous Tab";
+    if (commandId === "tabs.next") return "Go to Next Tab";
+    return commandId.replace(/\./g, ": ").replace(/([A-Z])/g, " $1").trim();
   }
 
   function startRecording(commandId: string) {
@@ -357,7 +338,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const keybindingEntries = () => {
     return Object.entries(DEFAULT_KEYBINDINGS).map(([id, defaultKey]) => ({
       id,
-      label: id.replace(/\./g, ": ").replace(/([A-Z])/g, " $1").trim(),
+      label: formatCommandLabel(id),
       defaultKey,
       currentKey: userBindings()[id] ?? defaultKey,
       isCustom: !!userBindings()[id],

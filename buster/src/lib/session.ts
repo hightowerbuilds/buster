@@ -7,11 +7,12 @@ import {
   type SessionTab,
 } from "./ipc";
 import type { Tab } from "./tab-types";
+import { serializePanelCount, type PanelCount } from "./panel-count";
 
 export interface SessionSnapshot {
   workspaceRoot: string | null;
   activeTabId: string | null;
-  layoutMode: string;
+  panelCount: PanelCount;
   sidebarVisible: boolean;
   sidebarWidth: number;
   tabs: Tab[];
@@ -37,7 +38,7 @@ function buildSessionState(snap: SessionSnapshot): SessionState {
     version: 1,
     workspace_root: snap.workspaceRoot,
     active_tab_id: snap.activeTabId,
-    layout_mode: snap.layoutMode,
+    layout_mode: serializePanelCount(snap.panelCount),
     sidebar_visible: snap.sidebarVisible,
     sidebar_width: snap.sidebarWidth,
     tabs: sessionTabs,

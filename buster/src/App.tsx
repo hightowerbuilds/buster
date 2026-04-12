@@ -1,11 +1,12 @@
-import { Component, Show, onCleanup } from "solid-js";
+import { Component, Show, createSignal, onCleanup } from "solid-js";
 import Sidebar from "./ui/Sidebar";
 import TabBar from "./ui/TabBar";
 import StatusBar from "./ui/StatusBar";
 import FindReplace from "./ui/FindReplace";
 import CommandPalette from "./ui/CommandPalette";
+import CommandLineSwitchboard from "./ui/CommandLineSwitchboard";
 import PanelLayout from "./ui/PanelLayout";
-import LayoutPicker from "./ui/LayoutPicker";
+import LayoutPicker, { PRIMARY_LAYOUT_OPTIONS } from "./ui/LayoutPicker";
 import WelcomeCanvas from "./ui/WelcomeCanvas";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
@@ -15,10 +16,124 @@ import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHot
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { useBuster } from "./lib/buster-context";
 import { createPanelRenderer } from "./ui/PanelRenderer";
+import type { PanelCount } from "./lib/panel-count";
 import "./styles/ide.css";
 
 const App: Component = () => {
   const { store, setStore, engines, actions } = useBuster();
+  let ideRootRef: HTMLDivElement | undefined;
+  const [commandLineVisible, setCommandLineVisible] = createSignal(false);
+
+  function focusTabPanel(tabId: string) {
+    requestAnimationFrame(() => {
+      const panel = Array.from(document.querySelectorAll<HTMLElement>("[data-tab-panel-id]"))
+        .find((el) => el.dataset.tabPanelId === tabId);
+      if (!panel) return;
+
+      const target =
+        panel.querySelector<HTMLElement>('[data-tab-focus-target="true"]') ??
+        panel.querySelector<HTMLElement>('textarea:not([disabled]), input:not([disabled]), button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
+
+      if (target && document.activeElement !== target) {
+        target.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  function activateTab(tabId: string) {
+    actions.switchToTab(tabId);
+    focusTabPanel(tabId);
+  }
+
+  function focusSidebarPrimary() {
+    requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>(".sidebar button, .sidebar [tabindex]:not([tabindex='-1'])");
+      if (target && document.activeElement !== target) {
+        target.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  function updateSidebarVisible(
+    value: boolean | ((prev: boolean) => boolean),
+    options?: { focusSidebar?: boolean },
+  ) {
+    const prevVisible = store.sidebarVisible;
+    const nextVisible = typeof value === "function" ? value(prevVisible) : value;
+    if (nextVisible === prevVisible) return;
+
+    const sidebarWrap = document.querySelector<HTMLElement>(".sidebar-wrap");
+    const activeElement = document.activeElement;
+    const sidebarHadFocus = !!activeElement && !!sidebarWrap?.contains(activeElement);
+
+    setStore("sidebarVisible", nextVisible);
+
+    if (!nextVisible && sidebarHadFocus) {
+      if (store.activeTabId) focusTabPanel(store.activeTabId);
+      else requestAnimationFrame(() => ideRootRef?.focus({ preventScroll: true }));
+      return;
+    }
+
+    if (nextVisible && options?.focusSidebar) {
+      focusSidebarPrimary();
+    }
+  }
+
+  function restorePrimaryWorkspaceFocus() {
+    if (store.activeTabId) {
+      focusTabPanel(store.activeTabId);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      ideRootRef?.focus({ preventScroll: true });
+    });
+  }
+
+  function applyPanelCount(count: PanelCount, options?: { restoreFocus?: boolean }) {
+    setStore("panelCount", count);
+    if (options?.restoreFocus !== false) restorePrimaryWorkspaceFocus();
+  }
+
+  function openCommandLine() {
+    setCommandLineVisible(true);
+  }
+
+  function toggleCommandLine() {
+    setCommandLineVisible((visible) => !visible);
+  }
+
+  function closeCommandLine() {
+    setCommandLineVisible(false);
+  }
+
+  function handleCommandLineLayout(count: PanelCount) {
+    applyPanelCount(count);
+    closeCommandLine();
+  }
+
+  function handleCommandLineExtensions() {
+    actions.createExtensionsTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineDebug() {
+    actions.createDebugTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineSettings() {
+    actions.createSettingsTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineDocs() {
+    actions.createManualTab();
+    closeCommandLine();
+  }
 
   // ── Command registry + keyboard handler ─────────────────
 
@@ -27,6 +142,8 @@ const App: Component = () => {
     changeDirectory: actions.changeDirectory,
     handleTabClose: actions.handleTabClose,
     activeTabId: () => store.activeTabId,
+    tabs: () => store.tabs,
+    switchToTab: activateTab,
     activeEngine: actions.activeEngine,
     setFindVisible: (v: boolean | ((prev: boolean) => boolean)) =>
       setStore("findVisible", typeof v === "function" ? v(store.findVisible) : v),
@@ -37,15 +154,18 @@ const App: Component = () => {
     createTerminalTab: actions.createTerminalTab,
     createSettingsTab: actions.createSettingsTab,
     createGitTab: actions.createGitTab,
-    createAiTab: actions.createAiTab,
     setSidebarVisible: (v: boolean | ((prev: boolean) => boolean)) =>
-      setStore("sidebarVisible", typeof v === "function" ? v(store.sidebarVisible) : v),
+      updateSidebarVisible(v),
     setTourActive: (v: boolean | ((prev: boolean) => boolean)) =>
       setStore("tourActive", typeof v === "function" ? v(store.tourActive) : v),
     jumpToDiagnostic: actions.jumpToDiagnostic,
     tourActive: () => store.tourActive,
     findVisible: () => store.findVisible,
     paletteVisible: () => store.paletteVisible,
+    settings: () => store.settings,
+    updateSettings: actions.updateSettings,
+    tabTrapping: () => store.tabTrapping,
+    setTabTrapping: (v: boolean) => setStore("tabTrapping", v),
   };
 
   const appCommands = createAppCommands(commandDeps);
@@ -53,8 +173,35 @@ const App: Component = () => {
   onCleanup(() => unregisterAppCommands(appCommands));
 
   // TanStack Hotkeys — user overrides from settings.keybindings
-  const hotkeyDefs = buildHotkeyDefinitions(commandDeps, store.settings.keybindings);
-  createHotkeys(hotkeyDefs);
+  createHotkeys(
+    () => buildHotkeyDefinitions(commandDeps, store.settings.keybindings),
+    () => ({
+      target: ideRootRef ?? document,
+    }),
+  );
+
+  createHotkeys(
+    () => [
+      {
+        hotkey: { key: "`", ctrl: true },
+        callback: () => toggleCommandLine(),
+        options: { ignoreInputs: false },
+      },
+      {
+        hotkey: "Escape",
+        callback: () => closeCommandLine(),
+        options: { enabled: commandLineVisible(), ignoreInputs: false },
+      },
+      ...PRIMARY_LAYOUT_OPTIONS.map((layout) => ({
+        hotkey: String(layout.count),
+        callback: () => handleCommandLineLayout(layout.count),
+        options: { enabled: commandLineVisible(), ignoreInputs: false },
+      })),
+    ],
+    () => ({
+      target: ideRootRef ?? document,
+    }),
+  );
 
   // ── Panel rendering ─────────────────────────────────────
 
@@ -64,6 +211,7 @@ const App: Component = () => {
     updateSettings: actions.updateSettings,
     tabs: () => store.tabs,
     activeTabId: () => store.activeTabId,
+    switchToTab: actions.switchToTab,
     searchMatches: () => store.searchMatches,
     diagnosticsMap: () => {
       // Convert Record to Map for PanelRenderer compatibility
@@ -93,17 +241,15 @@ const App: Component = () => {
   }
 
   function groupedTabIds() {
-    const mode = store.layoutMode;
-    if (mode === "tabs") return undefined;
-    const sizes: Record<string, number> = { columns: 6, grid: 4, trio: 3, quint: 5, restack: 5, hq: 6 };
-    const n = sizes[mode] ?? 1;
-    return new Set(store.tabs.slice(0, n).map(t => t.id));
+    const count = Math.min(store.panelCount, store.tabs.length);
+    if (count <= 1) return undefined;
+    return new Set(store.tabs.slice(0, count).map((tab) => tab.id));
   }
 
   // ── JSX ─────────────────────────────────────────────────
 
   return (
-    <div class="ide-container" tabindex={-1}>
+    <div ref={(el) => { ideRootRef = el; }} class="ide-container" tabindex={-1}>
       <a class="skip-link" href="#" onClick={(e) => {
         e.preventDefault();
         const el = document.querySelector<HTMLTextAreaElement>(".canvas-editor textarea");
@@ -122,15 +268,22 @@ const App: Component = () => {
         if (el) el.focus({ preventScroll: true });
       }}>Skip to Terminal</a>
       <div class="ide-main">
-        <Show when={store.sidebarVisible}>
-        <div class="sidebar-wrap" role="complementary" aria-label="Sidebar" style={{ width: `${store.sidebarWidth}px` }}>
+        <div
+          class="sidebar-wrap"
+          role="complementary"
+          aria-label="Sidebar"
+          style={{
+            width: `${store.sidebarWidth}px`,
+            display: store.sidebarVisible ? "flex" : "none",
+          }}
+        >
           <Sidebar
             onFileSelect={actions.handleFileSelect}
             workspaceRoot={store.workspaceRoot}
             onFolderOpen={(path) => actions.openWorkspace(path)}
             onChangeDirectory={actions.changeDirectory}
             onCloseDirectory={actions.closeDirectory}
-            onHideSidebar={() => setStore("sidebarVisible", false)}
+            onHideSidebar={() => updateSidebarVisible(false)}
             onPopOut={actions.popOutSidebar}
           />
           <div
@@ -156,13 +309,12 @@ const App: Component = () => {
             }}
           />
         </div>
-        </Show>
         <Show when={!store.sidebarVisible}>
           <button
             class="sidebar-show-btn"
             title="Show Sidebar"
             aria-label="Show Sidebar"
-            onClick={() => setStore("sidebarVisible", true)}
+            onClick={() => updateSidebarVisible(true, { focusSidebar: true })}
           >&raquo;</button>
         </Show>
         <div class="editor-area" role="main" aria-label="Editor">
@@ -172,6 +324,7 @@ const App: Component = () => {
               activeTab={store.activeTabId}
               groupedTabIds={groupedTabIds()}
               onSelect={actions.switchToTab}
+              onActivate={activateTab}
               onClose={actions.handleTabClose}
               onNewTerminal={actions.createTerminalTab}
               onReorder={(fromIdx, toIdx) => {
@@ -194,7 +347,7 @@ const App: Component = () => {
           />
           <div class="editor-content">
             <PanelLayout
-              layout={store.layoutMode}
+              panelCount={store.panelCount}
               tabs={store.tabs}
               activeTabId={store.activeTabId}
               renderPanel={renderPanel}
@@ -206,8 +359,7 @@ const App: Component = () => {
               }
             />
           </div>
-          <Show when={actions.activeTab()?.type !== "ai"}>
-            <StatusBar
+          <StatusBar
               line={store.cursorLine}
               col={store.cursorCol}
               totalLines={actions.activeEngine()?.lineCount() ?? 0}
@@ -222,32 +374,31 @@ const App: Component = () => {
               warningCount={actions.diagnosticCounts().warnings}
               onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
             />
-          </Show>
         </div>
       </div>
       <div class="dock-bar" role="navigation" aria-label="Dock">
         <button class="dock-btn" onClick={actions.createGitTab} aria-label="Open Git panel">Git</button>
-        <button class="dock-btn" onClick={actions.createExtensionsTab} aria-label="Open Extensions panel">Extensions</button>
-        <button class="dock-btn" onClick={actions.createSettingsTab} aria-label="Open Settings">Settings</button>
-        <button class="dock-btn" onClick={actions.createAiTab} aria-label="Open AI Agent">Models</button>
-        <button class="dock-btn" onClick={actions.createDebugTab} aria-label="Open Debugger">Debug</button>
-        <button class="dock-btn" onClick={actions.createManualTab} aria-label="Open Manual">Manual</button>
         <div class="dock-spacer" />
         <LayoutPicker
-          current={store.layoutMode}
-          onChange={(m) => setStore("layoutMode", m)}
+          current={store.panelCount}
+          onChange={(count) => applyPanelCount(count)}
         />
       </div>
+      <CommandLineSwitchboard
+        visible={commandLineVisible()}
+        onClose={closeCommandLine}
+        onSelect={handleCommandLineLayout}
+        onOpenExtensions={handleCommandLineExtensions}
+        onOpenDebug={handleCommandLineDebug}
+        onOpenSettings={handleCommandLineSettings}
+        onOpenDocs={handleCommandLineDocs}
+      />
       <CommandPalette
         visible={store.paletteVisible}
         workspaceRoot={store.workspaceRoot}
         onClose={() => { setStore("paletteVisible", false); setStore("paletteInitialQuery", ""); }}
         onFileSelect={actions.handleFileSelect}
         onGoToLine={handleGoToLine}
-        onNewTerminal={actions.createTerminalTab}
-        onOpenManual={() => actions.createManualTab()}
-        onNewAiChat={actions.createAiTab}
-        onGitGraph={actions.createGitTab}
         initialQuery={store.paletteInitialQuery}
         activeFilePath={store.activeFilePath}
         recentFiles={store.recentFiles}

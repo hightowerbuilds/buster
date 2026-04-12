@@ -126,37 +126,52 @@ const Sidebar: Component<SidebarProps> = (props) => {
               title="Hide Sidebar"
               aria-label="Hide Sidebar"
               onClick={() => props.onHideSidebar?.()}
-            >&laquo;</button>
+            >
+              <span class="sidebar-collapse-arrows" aria-hidden="true">&laquo;</span>
+              <span>In</span>
+            </button>
           </Show>
           <button
             class="btn-icon sidebar-popout-btn"
             title={props.poppedOut ? "Return to sidebar" : "Pop out to tab"}
             onClick={() => props.poppedOut ? props.onReturn?.() : props.onPopOut?.()}
-          >{props.poppedOut ? "Return" : "Pop Out"}</button>
+          >
+            <Show
+              when={props.poppedOut}
+              fallback={
+                <>
+                  <span>Out</span>
+                  <span class="sidebar-popout-arrows" aria-hidden="true">&gt;&gt;</span>
+                </>
+              }
+            >
+              <span>Return</span>
+            </Show>
+          </button>
         </div>
       </div>
       <div class="sidebar-actions-bar">
         <button
-          class="btn-icon"
+          class="sidebar-action-btn"
           title="Open Directory"
           onClick={() => props.onChangeDirectory ? props.onChangeDirectory() : openFolder()}
         >Open</button>
         <button
-          class="btn-icon"
-          title="New File"
-          onClick={() => rootPath() ? setCreatingRoot({ type: "file" }) : openFolder()}
-        >New File</button>
-        <button
-          class="btn-icon"
+          class="sidebar-action-btn"
           title="New Folder"
           onClick={() => rootPath() ? setCreatingRoot({ type: "folder" }) : openFolder()}
         >New Folder</button>
+        <button
+          class="sidebar-action-btn"
+          title="New File"
+          onClick={() => rootPath() ? setCreatingRoot({ type: "file" }) : openFolder()}
+        >New File</button>
         <Show when={rootPath()}>
           <button
-            class="btn-icon"
-            title="Close Directory"
+            class="sidebar-action-btn"
+            title="Close Folder"
             onClick={() => props.onCloseDirectory?.()}
-          >Close</button>
+          >Close Folder</button>
         </Show>
       </div>
 
@@ -164,7 +179,7 @@ const Sidebar: Component<SidebarProps> = (props) => {
         when={rootPath()}
         fallback={
           <div class="sidebar-empty">
-            <button class="btn" onClick={openFolder}>Open Folder</button>
+            <span>Select a folder to browse and create files.</span>
           </div>
         }
       >

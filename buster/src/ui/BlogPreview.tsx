@@ -1,6 +1,6 @@
 import { Component, createMemo } from "solid-js";
 import { marked } from "marked";
-import { palette } from "../lib/app-state";
+import { useBuster } from "../lib/buster-context";
 
 interface BlogPreviewProps {
   text: string;
@@ -8,6 +8,7 @@ interface BlogPreviewProps {
 }
 
 const BlogPreview: Component<BlogPreviewProps> = (props) => {
+  const { store } = useBuster();
   const html = createMemo(() => {
     try {
       return marked.parse(props.text, { async: false }) as string;
@@ -17,7 +18,7 @@ const BlogPreview: Component<BlogPreviewProps> = (props) => {
   });
 
   const style = createMemo(() => {
-    const p = palette();
+    const p = store.palette;
     return {
       "--blog-text": p.text,
       "--blog-text-dim": p.textDim,

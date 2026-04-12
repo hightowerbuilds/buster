@@ -4,9 +4,9 @@
  */
 
 import type { Tab } from "./tab-types";
-import type { LayoutMode } from "../ui/LayoutPicker";
 import type { SearchMatch, DiffHunk, AppSettings } from "./ipc";
 import type { ThemePalette } from "./theme";
+import type { PanelCount } from "./panel-count";
 
 export type LspState = "inactive" | "starting" | "active" | "error";
 
@@ -32,7 +32,6 @@ export interface BusterStoreState {
   scrollPositions: Record<string, number>;
   termPtyIds: Record<string, string>;
   terminalCounter: number;
-  aiCounter: number;
   fileTabCounter: number;
 
   // ── Cursor ──────────────────────────────────────────────
@@ -48,7 +47,7 @@ export interface BusterStoreState {
   syncing: boolean;
 
   // ── Layout ──────────────────────────────────────────────
-  layoutMode: LayoutMode;
+  panelCount: PanelCount;
   sidebarWidth: number;
   sidebarVisible: boolean;
 
@@ -69,9 +68,6 @@ export interface BusterStoreState {
   // ── Settings / theme ───────────────────────────────────
   settings: AppSettings;
   palette: ThemePalette;
-  apiKey: string;
-  apiKeyInsecure: boolean;
-
   // ── Workspace ──────────────────────────────────────────
   workspaceRoot: string | null;
   activeFilePath: string | null;

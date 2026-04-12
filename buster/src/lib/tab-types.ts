@@ -4,7 +4,6 @@ export type TabType =
   | "file"
   | "image"
   | "terminal"
-  | "ai"
   | "settings"
   | "git"
   | "extensions"

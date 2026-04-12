@@ -6,7 +6,6 @@
 import { createSignal, createEffect, createRoot, Show, type Accessor, type JSX } from "solid-js";
 import CanvasEditor from "../editor/CanvasEditor";
 import CanvasTerminal from "./CanvasTerminal";
-import AiChat from "./AiChat";
 import SettingsPanel from "./SettingsPanel";
 import GitPage from "./GitPage";
 import ExtensionsPage from "./ExtensionsPage";
@@ -39,6 +38,7 @@ export interface PanelRendererDeps {
   updateSettings: (s: AppSettings) => void;
   tabs: () => Tab[];
   activeTabId: () => string | null;
+  switchToTab: (id: string) => void;
   searchMatches: () => SearchMatch[];
   diagnosticsMap: () => Map<string, Diagnostic[]>;
   diffHunksMap: () => Record<string, DiffHunk[]>;
@@ -87,54 +87,62 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
     return element;
   }
 
+  function wrapPanel(tabId: string, content: JSX.Element): JSX.Element {
+    const syncActiveTab = () => {
+      if (deps.activeTabId() !== tabId) deps.switchToTab(tabId);
+    };
+
+    return (
+      <div
+        class="tab-panel-host"
+        data-tab-panel-id={tabId}
+        style={{ width: "100%", height: "100%" }}
+        onPointerDown={syncActiveTab}
+        onFocusIn={syncActiveTab}
+      >
+        {content}
+      </div>
+    );
+  }
+
   function createPanelElement(tab: Tab, isActive: Accessor<boolean>): JSX.Element {
     if (tab.type === "terminal") {
-      return (
+      return wrapPanel(tab.id, (
         <CanvasTerminal
           termTabId={tab.id}
           active={isActive()}
           cwd={deps.workspaceRoot() ?? undefined}
           onTermIdReady={deps.handleTermIdReady}
+          autoFocus={tab.id === deps.activeTabId()}
         />
-      );
-    }
-
-    if (tab.type === "ai") {
-      return (
-        <AiChat
-          active={isActive()}
-          workspaceRoot={deps.workspaceRoot() ?? undefined}
-          settings={deps.settings()}
-          onSettingsChange={deps.updateSettings}
-        />
-      );
+      ));
     }
 
     if (tab.type === "settings") {
-      return (
+      return wrapPanel(tab.id, (
         <SettingsPanel
           settings={deps.settings()}
           onChange={deps.updateSettings}
         />
-      );
+      ));
     }
 
     if (tab.type === "git") {
-      return (
+      return wrapPanel(tab.id, (
         <GitPage
           active={isActive()}
           workspaceRoot={deps.workspaceRoot() ?? undefined}
           onFileSelect={deps.handleFileSelect}
         />
-      );
+      ));
     }
 
     if (tab.type === "extensions") {
-      return <ExtensionsPage />;
+      return wrapPanel(tab.id, <ExtensionsPage />);
     }
 
     if (tab.type === "search-results") {
-      return (
+      return wrapPanel(tab.id, (
         <SearchResultsPanel
           workspaceRoot={deps.workspaceRoot()}
           onFileSelect={async (path, line, col) => {
@@ -143,11 +151,11 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             deps.setCursorCol(col);
           }}
         />
-      );
+      ));
     }
 
     if (tab.type === "problems") {
-      return (
+      return wrapPanel(tab.id, (
         <ProblemsPanel
           diagnosticsMap={deps.diagnosticsMap()}
           onJumpTo={async (filePath, line, col) => {
@@ -156,19 +164,19 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             deps.setCursorCol(col);
           }}
         />
-      );
+      ));
     }
 
     if (tab.type === "manual") {
-      return <ManualTab />;
+      return wrapPanel(tab.id, <ManualTab />);
     }
 
     if (tab.type === "debug") {
-      return <DebugPanel />;
+      return wrapPanel(tab.id, <DebugPanel />);
     }
 
     if (tab.type === "explorer") {
-      return (
+      return wrapPanel(tab.id, (
         <Sidebar
           onFileSelect={deps.handleFileSelect}
           workspaceRoot={deps.workspaceRoot()}
@@ -178,21 +186,21 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
           poppedOut={true}
           onReturn={() => deps.handleTabClose("explorer_tab")}
         />
-      );
+      ));
     }
 
     if (tab.type === "image" && tab.path) {
-      return (
+      return wrapPanel(tab.id, (
         <ImageViewer
           filePath={tab.path}
           fileName={tab.name}
         />
-      );
+      ));
     }
 
     if (tab.type === "surface") {
       const meta = JSON.parse(tab.path || "{}");
-      return (
+      return wrapPanel(tab.id, (
         <DisplayListSurface
           surfaceId={meta.surface_id ?? 0}
           extensionId={meta.extension_id ?? ""}
@@ -201,7 +209,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
           label={tab.name}
           isActive={isActive}
         />
-      );
+      ));
     }
 
     // File tab
@@ -229,7 +237,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
       return rel.split("/");
     };
 
-    return (
+    return wrapPanel(tab.id, (
       <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", "flex-direction": "column" }}>
         <Show when={breadcrumbs().length > 1}>
           <div class="breadcrumb-bar" aria-label="File path breadcrumbs">
@@ -255,6 +263,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             initialText={initialText}
             filePath={tab.path || null}
             active={isActive()}
+            autoFocus={tab.id === deps.activeTabId()}
             onEngineReady={(engine) => { deps.engineMap.set(tab.id, engine); }}
             onDirtyChange={(dirty) => {
               const current = deps.tabs().find(t => t.id === tab.id);
@@ -290,7 +299,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
           />
         </Show>
       </div>
-    );
+    ));
   }
 
   return { renderPanel, blogModeSet };

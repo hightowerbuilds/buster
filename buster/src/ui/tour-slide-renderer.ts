@@ -413,16 +413,16 @@ function renderLayoutsSlide(
     }
   }
 
-  // Columns
-  const colPanelW = (boxW - 8) / 3;
-  for (let c = 0; c < 3; c++) {
-    drawGBPanel(startX + 2 + c * (colPanelW + 2), layoutY, colPanelW, boxH);
-  }
+  // g2
+  const columnGap = 6;
+  const colPanelW = (boxW - columnGap) / 2;
+  drawGBPanel(startX, layoutY, colPanelW, boxH);
+  drawGBPanel(startX + colPanelW + columnGap, layoutY, colPanelW, boxH);
   ctx.font = '16px "Courier New", Courier, monospace';
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = `rgba(${gbLight[0]}, ${gbLight[1]}, ${gbLight[2]}, ${layoutAlpha * 0.8})`;
-  ctx.fillText("columns", startX + boxW / 2, layoutY + boxH + 22);
+  ctx.fillText("g2", startX + boxW / 2, layoutY + boxH + 22);
 
   // Grid
   const gridX = startX + boxW + gap;
@@ -433,7 +433,7 @@ function renderLayoutsSlide(
   drawGBPanel(gridX, layoutY + cellH + 6, cellW, cellH);
   drawGBPanel(gridX + cellW + 6, layoutY + cellH + 6, cellW, cellH);
   ctx.fillStyle = `rgba(${gbLight[0]}, ${gbLight[1]}, ${gbLight[2]}, ${layoutAlpha * 0.8})`;
-  ctx.fillText("grid", gridX + boxW / 2, layoutY + boxH + 22);
+  ctx.fillText("g4", gridX + boxW / 2, layoutY + boxH + 22);
 
   // Trio
   const trioX = startX + (boxW + gap) * 2;
@@ -444,7 +444,7 @@ function renderLayoutsSlide(
   drawGBPanel(trioX + mainW + 4, layoutY, sideW, sideH);
   drawGBPanel(trioX + mainW + 4, layoutY + sideH + 4, sideW, sideH);
   ctx.fillStyle = `rgba(${gbLight[0]}, ${gbLight[1]}, ${gbLight[2]}, ${layoutAlpha * 0.8})`;
-  ctx.fillText("trio", trioX + boxW / 2, layoutY + boxH + 22);
+  ctx.fillText("g3", trioX + boxW / 2, layoutY + boxH + 22);
 
   // Hint
   if (state.hintProgress > 0.5) {

@@ -1,14 +1,24 @@
-import { Component, For, Show, JSX, createSignal } from "solid-js";
-import type { LayoutMode } from "./LayoutPicker";
+import { Component, For, Show, JSX } from "solid-js";
+import { createStore } from "solid-js/store";
+import type { PanelCount } from "../lib/panel-count";
 import type { Tab } from "../lib/tab-types";
+import {
+  createPanelLayoutTree,
+  normalizedSplitSizes,
+  type PanelLayoutNode,
+  type PanelSplitNode,
+} from "./panel-layout-tree";
 
 interface PanelLayoutProps {
-  layout: LayoutMode;
+  panelCount: PanelCount;
   tabs: Tab[];
   activeTabId: string | null;
   renderPanel: (tab: Tab, isActive: boolean) => JSX.Element;
   welcome: JSX.Element;
 }
+
+const DIVIDER_SIZE = 4;
+const MIN_PANEL_PERCENT = 12;
 
 function Divider(props: {
   direction: "horizontal" | "vertical";
@@ -51,511 +61,137 @@ function Divider(props: {
 }
 
 const PanelLayout: Component<PanelLayoutProps> = (props) => {
-  // Flex sizes for resizable panels (stored as pixel adjustments from equal split)
-  const [gridColSplit, setGridColSplit] = createSignal(50); // percentage
-  const [gridRowSplit, setGridRowSplit] = createSignal(50);
-  const [trioSplit, setTrioSplit] = createSignal(60); // percentage for main panel
-  const [quintSplit, setQuintSplit] = createSignal(35); // left column percentage
-  const [restackSplit, setRestackSplit] = createSignal(55); // top row percentage
-  const [hqColSplit, setHqColSplit] = createSignal(33.33); // first col boundary
-  const [hqColSplit2, setHqColSplit2] = createSignal(66.66); // second col boundary
-  const [hqRowSplit, setHqRowSplit] = createSignal(50); // row boundary
+  const [splitSizes, setSplitSizes] = createStore<Record<string, number[]>>({});
 
-  /** How many tabs the current layout mode can hold. */
-  function groupSize(): number {
-    switch (props.layout) {
-      case "tabs": return 1;
-      case "columns": return 6;
-      case "grid": return 4;
-      case "trio": return 3;
-      case "quint": return 5;
-      case "restack": return 5;
-      case "hq": return 6;
-      default: return 1;
-    }
+  function activeTabId() {
+    return props.activeTabId ?? props.tabs[0]?.id ?? null;
   }
 
-  /** The tabs that form the layout group (first N). */
-  function groupTabs(): Tab[] {
-    return props.tabs.slice(0, groupSize());
+  function groupedTabs(): Tab[] {
+    return props.tabs.slice(0, props.panelCount);
   }
 
-  /** Is the active tab inside the layout group? */
   function activeInGroup(): boolean {
-    if (props.layout === "tabs") return true;
-    const group = groupTabs();
-    return group.some(t => t.id === props.activeTabId);
+    const current = activeTabId();
+    if (!current || props.panelCount === 1 || props.tabs.length === 0) return true;
+    return groupedTabs().some((tab) => tab.id === current);
   }
 
   function visibleTabs(): Tab[] {
-    const t = props.tabs;
-    if (t.length === 0) return [];
-
-    // If active tab is outside the group, show it solo
+    if (props.tabs.length === 0) return [];
     if (!activeInGroup()) {
-      const active = t.find((tab) => tab.id === props.activeTabId);
+      const active = props.tabs.find((tab) => tab.id === activeTabId());
       return active ? [active] : [];
     }
+    return props.tabs.slice(0, props.panelCount);
+  }
 
-    switch (props.layout) {
-      case "tabs": {
-        const active = t.find((tab) => tab.id === props.activeTabId);
-        return active ? [active] : [];
-      }
-      case "columns": return t.slice(0, 6);
-      case "grid": return t.slice(0, 4);
-      case "trio": return t.slice(0, 3);
-      case "quint": return t.slice(0, 5);
-      case "restack": return t.slice(0, 5);
-      case "hq": return t.slice(0, 6);
-      default: return [];
+  function effectivePanelCount(): PanelCount {
+    if (!activeInGroup()) return 1;
+    const count = visibleTabs().length;
+    if (count <= 1) return 1;
+    return Math.min(props.panelCount, count) as PanelCount;
+  }
+
+  function resizeSplit(
+    path: string,
+    split: PanelSplitNode,
+    dividerIndex: number,
+    delta: number,
+    containerSize: number,
+  ) {
+    const availableSize = Math.max(1, containerSize - DIVIDER_SIZE * (split.children.length - 1));
+    const deltaPercent = (delta / availableSize) * 100;
+    const nextSizes = (splitSizes[path] ?? normalizedSplitSizes(split)).slice();
+    const leading = nextSizes[dividerIndex]!;
+    const trailing = nextSizes[dividerIndex + 1]!;
+    const nextLeading = leading + deltaPercent;
+    const nextTrailing = trailing - deltaPercent;
+
+    if (nextLeading < MIN_PANEL_PERCENT || nextTrailing < MIN_PANEL_PERCENT) return;
+
+    nextSizes[dividerIndex] = nextLeading;
+    nextSizes[dividerIndex + 1] = nextTrailing;
+    setSplitSizes(path, nextSizes);
+  }
+
+  function renderLeaf(tab: Tab | undefined): JSX.Element {
+    if (!tab) {
+      return <div class="panel panel-frame panel-empty" />;
     }
+
+    const active = () => tab.id === activeTabId();
+
+    return (
+      <div class="panel panel-frame">
+        <div class="panel-label">{tab.name}</div>
+        <div class="panel-content">
+          {props.renderPanel(tab, active())}
+        </div>
+      </div>
+    );
   }
 
-  /** Effective layout — use "tabs" mode when active tab is outside the group. */
-  function effectiveLayout() {
-    if (!activeInGroup()) return "tabs";
-    return props.layout;
-  }
+  function renderNode(node: PanelLayoutNode, path: string): JSX.Element {
+    if (node.kind === "leaf") {
+      return renderLeaf(visibleTabs()[node.tabIndex]);
+    }
 
-  let containerRef: HTMLDivElement | undefined;
+    let splitRef: HTMLDivElement | undefined;
+    const sizes = () => splitSizes[path] ?? normalizedSplitSizes(node);
+
+    return (
+      <div
+        ref={splitRef}
+        class={`panel-split panel-split-${node.direction}`}
+      >
+        <For each={node.children}>
+          {(child, index) => (
+            <>
+              <Show when={index() > 0}>
+                <Divider
+                  direction={node.direction === "row" ? "horizontal" : "vertical"}
+                  onDrag={(delta) => {
+                    const size = node.direction === "row"
+                      ? splitRef?.clientWidth ?? 0
+                      : splitRef?.clientHeight ?? 0;
+                    if (size <= 0) return;
+                    resizeSplit(path, node, index() - 1, delta, size);
+                  }}
+                />
+              </Show>
+              <div
+                class="panel-split-child"
+                style={{ flex: `${sizes()[index()] ?? 1} 1 0` }}
+              >
+                {renderNode(child, `${path}.${index()}`)}
+              </div>
+            </>
+          )}
+        </For>
+      </div>
+    );
+  }
 
   return (
-    <div class="panel-layout" data-layout={effectiveLayout()} ref={containerRef}>
+    <div class="panel-layout" data-panel-count={effectivePanelCount()}>
       <Show when={props.tabs.length === 0}>{props.welcome}</Show>
 
-      {/* Tabs mode — render all tabs, hide inactive to preserve canvas state */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "tabs"}>
+      <Show when={props.tabs.length > 0 && effectivePanelCount() === 1}>
         <For each={props.tabs}>
           {(tab) => (
             <div
               class="panel panel-full"
-              style={{ display: tab.id === props.activeTabId ? undefined : "none" }}
+              style={{ display: tab.id === activeTabId() ? undefined : "none" }}
             >
-              {props.renderPanel(tab, tab.id === props.activeTabId)}
+              {props.renderPanel(tab, tab.id === activeTabId())}
             </div>
           )}
         </For>
       </Show>
 
-      {/* Columns mode */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "columns"}>
-        <div class="panel-columns">
-          <For each={visibleTabs()}>
-            {(tab, idx) => (
-              <>
-                {idx() > 0 && (
-                  <Divider
-                    direction="horizontal"
-                    onDrag={(delta) => {
-                      // Resize adjacent panels by adjusting flex-basis via CSS custom properties
-                      const panels = containerRef?.querySelectorAll(".panel-column") as NodeListOf<HTMLElement>;
-                      if (panels && panels[idx() - 1] && panels[idx()]) {
-                        const prev = panels[idx() - 1];
-                        const curr = panels[idx()];
-                        const prevW = prev.offsetWidth + delta;
-                        const currW = curr.offsetWidth - delta;
-                        if (prevW > 60 && currW > 60) {
-                          prev.style.flexBasis = `${prevW}px`;
-                          prev.style.flexGrow = "0";
-                          curr.style.flexBasis = `${currW}px`;
-                          curr.style.flexGrow = "0";
-                        }
-                      }
-                    }}
-                  />
-                )}
-                <div class="panel panel-column">
-                  <div class="panel-label">{tab.name}</div>
-                  <div class="panel-content">
-                    {props.renderPanel(tab, true)}
-                  </div>
-                </div>
-              </>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      {/* Grid mode */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "grid"}>
-        <div
-          class="panel-grid"
-          style={{
-            "grid-template-columns": `${gridColSplit()}fr ${100 - gridColSplit()}fr`,
-            "grid-template-rows": `${gridRowSplit()}fr ${100 - gridRowSplit()}fr`,
-          }}
-        >
-          <For each={visibleTabs()}>
-            {(tab) => (
-              <div class="panel panel-grid-cell">
-                <div class="panel-label">{tab.name}</div>
-                <div class="panel-content">
-                  {props.renderPanel(tab, true)}
-                </div>
-              </div>
-            )}
-          </For>
-        </div>
-        {/* Horizontal divider (between columns) */}
-        <div
-          class="grid-divider-h"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            const rect = containerRef?.getBoundingClientRect();
-            if (!rect) return;
-            document.body.style.userSelect = "none";
-            document.body.style.cursor = "col-resize";
-            const onMove = (ev: PointerEvent) => {
-              const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-              setGridColSplit(Math.max(20, Math.min(80, pct)));
-            };
-            const onUp = () => {
-              document.removeEventListener("pointermove", onMove);
-              document.removeEventListener("pointerup", onUp);
-              document.body.style.userSelect = "";
-              document.body.style.cursor = "";
-            };
-            document.addEventListener("pointermove", onMove);
-            document.addEventListener("pointerup", onUp);
-          }}
-          style={{
-            position: "absolute",
-            left: `${gridColSplit()}%`,
-            top: 0,
-            width: "6px",
-            height: "100%",
-            cursor: "col-resize",
-            "margin-left": "-3px",
-            "z-index": 5,
-          }}
-        />
-        {/* Vertical divider (between rows) */}
-        <div
-          class="grid-divider-v"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            const rect = containerRef?.getBoundingClientRect();
-            if (!rect) return;
-            document.body.style.userSelect = "none";
-            document.body.style.cursor = "row-resize";
-            const onMove = (ev: PointerEvent) => {
-              const pct = ((ev.clientY - rect.top) / rect.height) * 100;
-              setGridRowSplit(Math.max(20, Math.min(80, pct)));
-            };
-            const onUp = () => {
-              document.removeEventListener("pointermove", onMove);
-              document.removeEventListener("pointerup", onUp);
-              document.body.style.userSelect = "";
-              document.body.style.cursor = "";
-            };
-            document.addEventListener("pointermove", onMove);
-            document.addEventListener("pointerup", onUp);
-          }}
-          style={{
-            position: "absolute",
-            top: `${gridRowSplit()}%`,
-            left: 0,
-            height: "6px",
-            width: "100%",
-            cursor: "row-resize",
-            "margin-top": "-3px",
-            "z-index": 5,
-          }}
-        />
-      </Show>
-
-      {/* Trio mode */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "trio"}>
-        <div class="panel-trio">
-          <Show when={visibleTabs().length > 0}>
-            <div class="panel panel-trio-main" style={{ flex: trioSplit() }}>
-              <div class="panel-label">{visibleTabs()[0]?.name}</div>
-              <div class="panel-content">
-                {props.renderPanel(visibleTabs()[0], true)}
-              </div>
-            </div>
-          </Show>
-          <Divider
-            direction="horizontal"
-            onDrag={(delta) => {
-              const rect = containerRef?.getBoundingClientRect();
-              if (!rect) return;
-              const pct = trioSplit() + (delta / rect.width) * 100;
-              setTrioSplit(Math.max(25, Math.min(80, pct)));
-            }}
-          />
-          <div class="panel-trio-side" style={{ flex: 100 - trioSplit() }}>
-            <For each={visibleTabs().slice(1)}>
-              {(tab, idx) => (
-                <>
-                  {idx() > 0 && (
-                    <Divider
-                      direction="vertical"
-                      onDrag={(delta) => {
-                        const cells = containerRef?.querySelectorAll(".panel-trio-cell") as NodeListOf<HTMLElement>;
-                        if (cells && cells[idx() - 1] && cells[idx()]) {
-                          const prev = cells[idx() - 1];
-                          const curr = cells[idx()];
-                          const prevH = prev.offsetHeight + delta;
-                          const currH = curr.offsetHeight - delta;
-                          if (prevH > 40 && currH > 40) {
-                            prev.style.flexBasis = `${prevH}px`;
-                            prev.style.flexGrow = "0";
-                            curr.style.flexBasis = `${currH}px`;
-                            curr.style.flexGrow = "0";
-                          }
-                        }
-                      }}
-                    />
-                  )}
-                  <div class="panel panel-trio-cell">
-                    <div class="panel-label">{tab.name}</div>
-                    <div class="panel-content">
-                      {props.renderPanel(tab, true)}
-                    </div>
-                  </div>
-                </>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
-      {/* Quint mode: left column + right 2x2 grid */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "quint"}>
-        <div class="panel-quint">
-          <Show when={visibleTabs().length > 0}>
-            <div class="panel panel-quint-left" style={{ flex: quintSplit() }}>
-              <div class="panel-label">{visibleTabs()[0]?.name}</div>
-              <div class="panel-content">
-                {props.renderPanel(visibleTabs()[0], true)}
-              </div>
-            </div>
-          </Show>
-          <Divider
-            direction="horizontal"
-            onDrag={(delta) => {
-              const rect = containerRef?.getBoundingClientRect();
-              if (!rect) return;
-              const pct = quintSplit() + (delta / rect.width) * 100;
-              setQuintSplit(Math.max(20, Math.min(60, pct)));
-            }}
-          />
-          <div class="panel-quint-grid" style={{ flex: 100 - quintSplit() }}>
-            <For each={visibleTabs().slice(1, 5)}>
-              {(tab) => (
-                <div class="panel panel-quint-cell">
-                  <div class="panel-label">{tab.name}</div>
-                  <div class="panel-content">
-                    {props.renderPanel(tab, true)}
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
-      {/* Re-Stack mode: 3 columns left + 2 stacked panels right */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "restack"}>
-        <div class="panel-restack">
-          <div class="panel-restack-cols" style={{ flex: restackSplit() }}>
-            <For each={visibleTabs().slice(0, 3)}>
-              {(tab, idx) => (
-                <>
-                  {idx() > 0 && (
-                    <Divider
-                      direction="horizontal"
-                      onDrag={(delta) => {
-                        const cells = containerRef?.querySelectorAll(".panel-restack-col") as NodeListOf<HTMLElement>;
-                        if (cells && cells[idx() - 1] && cells[idx()]) {
-                          const prev = cells[idx() - 1];
-                          const curr = cells[idx()];
-                          const prevW = prev.offsetWidth + delta;
-                          const currW = curr.offsetWidth - delta;
-                          if (prevW > 60 && currW > 60) {
-                            prev.style.flexBasis = `${prevW}px`;
-                            prev.style.flexGrow = "0";
-                            curr.style.flexBasis = `${currW}px`;
-                            curr.style.flexGrow = "0";
-                          }
-                        }
-                      }}
-                    />
-                  )}
-                  <div class="panel panel-restack-col">
-                    <div class="panel-label">{tab.name}</div>
-                    <div class="panel-content">
-                      {props.renderPanel(tab, true)}
-                    </div>
-                  </div>
-                </>
-              )}
-            </For>
-          </div>
-          <Divider
-            direction="horizontal"
-            onDrag={(delta) => {
-              const rect = containerRef?.getBoundingClientRect();
-              if (!rect) return;
-              const pct = restackSplit() + (delta / rect.width) * 100;
-              setRestackSplit(Math.max(25, Math.min(80, pct)));
-            }}
-          />
-          <div class="panel-restack-side" style={{ flex: 100 - restackSplit() }}>
-            <For each={visibleTabs().slice(3, 5)}>
-              {(tab, idx) => (
-                <>
-                  {idx() > 0 && (
-                    <Divider
-                      direction="vertical"
-                      onDrag={(delta) => {
-                        const cells = containerRef?.querySelectorAll(".panel-restack-side-cell") as NodeListOf<HTMLElement>;
-                        if (cells && cells[idx() - 1] && cells[idx()]) {
-                          const prev = cells[idx() - 1];
-                          const curr = cells[idx()];
-                          const prevH = prev.offsetHeight + delta;
-                          const currH = curr.offsetHeight - delta;
-                          if (prevH > 40 && currH > 40) {
-                            prev.style.flexBasis = `${prevH}px`;
-                            prev.style.flexGrow = "0";
-                            curr.style.flexBasis = `${currH}px`;
-                            curr.style.flexGrow = "0";
-                          }
-                        }
-                      }}
-                    />
-                  )}
-                  <div class="panel panel-restack-side-cell">
-                    <div class="panel-label">{tab.name}</div>
-                    <div class="panel-content">
-                      {props.renderPanel(tab, true)}
-                    </div>
-                  </div>
-                </>
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
-      {/* HQ mode: 3 columns x 2 rows */}
-      <Show when={props.tabs.length > 0 && effectiveLayout() === "hq"}>
-        <div
-          class="panel-hq"
-          style={{
-            "grid-template-columns": `${hqColSplit()}fr ${hqColSplit2() - hqColSplit()}fr ${100 - hqColSplit2()}fr`,
-            "grid-template-rows": `${hqRowSplit()}fr ${100 - hqRowSplit()}fr`,
-          }}
-        >
-          <For each={visibleTabs()}>
-            {(tab) => (
-              <div class="panel panel-hq-cell">
-                <div class="panel-label">{tab.name}</div>
-                <div class="panel-content">
-                  {props.renderPanel(tab, true)}
-                </div>
-              </div>
-            )}
-          </For>
-        </div>
-        {/* Column divider 1 */}
-        <div
-          onPointerDown={(e) => {
-            e.preventDefault();
-            const rect = containerRef?.getBoundingClientRect();
-            if (!rect) return;
-            document.body.style.userSelect = "none";
-            document.body.style.cursor = "col-resize";
-            const onMove = (ev: PointerEvent) => {
-              const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-              setHqColSplit(Math.max(15, Math.min(hqColSplit2() - 10, pct)));
-            };
-            const onUp = () => {
-              document.removeEventListener("pointermove", onMove);
-              document.removeEventListener("pointerup", onUp);
-              document.body.style.userSelect = "";
-              document.body.style.cursor = "";
-            };
-            document.addEventListener("pointermove", onMove);
-            document.addEventListener("pointerup", onUp);
-          }}
-          style={{
-            position: "absolute",
-            left: `${hqColSplit()}%`,
-            top: 0,
-            width: "6px",
-            height: "100%",
-            cursor: "col-resize",
-            "margin-left": "-3px",
-            "z-index": 5,
-          }}
-        />
-        {/* Column divider 2 */}
-        <div
-          onPointerDown={(e) => {
-            e.preventDefault();
-            const rect = containerRef?.getBoundingClientRect();
-            if (!rect) return;
-            document.body.style.userSelect = "none";
-            document.body.style.cursor = "col-resize";
-            const onMove = (ev: PointerEvent) => {
-              const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-              setHqColSplit2(Math.max(hqColSplit() + 10, Math.min(85, pct)));
-            };
-            const onUp = () => {
-              document.removeEventListener("pointermove", onMove);
-              document.removeEventListener("pointerup", onUp);
-              document.body.style.userSelect = "";
-              document.body.style.cursor = "";
-            };
-            document.addEventListener("pointermove", onMove);
-            document.addEventListener("pointerup", onUp);
-          }}
-          style={{
-            position: "absolute",
-            left: `${hqColSplit2()}%`,
-            top: 0,
-            width: "6px",
-            height: "100%",
-            cursor: "col-resize",
-            "margin-left": "-3px",
-            "z-index": 5,
-          }}
-        />
-        {/* Row divider */}
-        <div
-          onPointerDown={(e) => {
-            e.preventDefault();
-            const rect = containerRef?.getBoundingClientRect();
-            if (!rect) return;
-            document.body.style.userSelect = "none";
-            document.body.style.cursor = "row-resize";
-            const onMove = (ev: PointerEvent) => {
-              const pct = ((ev.clientY - rect.top) / rect.height) * 100;
-              setHqRowSplit(Math.max(20, Math.min(80, pct)));
-            };
-            const onUp = () => {
-              document.removeEventListener("pointermove", onMove);
-              document.removeEventListener("pointerup", onUp);
-              document.body.style.userSelect = "";
-              document.body.style.cursor = "";
-            };
-            document.addEventListener("pointermove", onMove);
-            document.addEventListener("pointerup", onUp);
-          }}
-          style={{
-            position: "absolute",
-            top: `${hqRowSplit()}%`,
-            left: 0,
-            height: "6px",
-            width: "100%",
-            cursor: "row-resize",
-            "margin-top": "-3px",
-            "z-index": 5,
-          }}
-        />
+      <Show when={props.tabs.length > 0 && effectivePanelCount() > 1}>
+        {renderNode(createPanelLayoutTree(effectivePanelCount()), "root")}
       </Show>
     </div>
   );

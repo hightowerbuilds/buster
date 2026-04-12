@@ -3,7 +3,7 @@ import GitPanel from "./GitPanel";
 import GitGraph from "./GitGraph";
 import ConflictResolver from "./ConflictResolver";
 import GitHubPage from "./GitHubPage";
-import { palette } from "../lib/app-state";
+import { useBuster } from "../lib/buster-context";
 import { measureTextWidth } from "../editor/text-measure";
 
 type GitView = "status" | "graph" | "log" | "github";
@@ -90,6 +90,8 @@ import { gitLogGraph } from "../lib/ipc";
 import type { GitCommitNode } from "../lib/ipc";
 
 const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) => {
+  const { store } = useBuster();
+  const palette = () => store.palette;
   let canvasRef: HTMLCanvasElement | undefined;
   let containerRef: HTMLDivElement | undefined;
   let animId: number;

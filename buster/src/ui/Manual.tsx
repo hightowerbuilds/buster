@@ -154,11 +154,11 @@ const Manual: Component<ManualProps> = (props) => {
           <section class="manual-section">
             <h2>Layouts</h2>
             <p>
-              Seven layout modes for arranging your editor panels:
-              <strong> Tabs</strong>, <strong>Columns</strong>, <strong>Grid</strong>,
-              <strong> Trio</strong>, <strong>Quint</strong>, <strong>Restack</strong>,
-              and <strong>Focus</strong>.
-              Switch layouts from the layout picker in the dock bar.
+              Six panel counts control the workspace layout:
+              <strong> g1</strong>, <strong> g2</strong>, <strong> g3</strong>,
+              <strong> g4</strong>, <strong> g5</strong>, and <strong> g6</strong>.
+              The number matches the number of visible panels. Switch layouts from the
+              layout picker in the dock bar or press <kbd>Ctrl+`</kbd> then <kbd>1</kbd> through <kbd>6</kbd>.
             </p>
           </section>
 

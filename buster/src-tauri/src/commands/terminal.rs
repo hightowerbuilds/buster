@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use tauri::{command, AppHandle, Emitter, State};
 
 use crate::terminal::{TermScreenDelta, TerminalManager};
@@ -40,14 +41,37 @@ pub fn terminal_spawn(
 }
 
 #[command]
-pub fn set_terminal_theme(app: AppHandle, theme_name: String) -> Result<(), String> {
-    let theme = match theme_name.as_str() {
-        "catppuccin-mocha" => term_pro::TerminalTheme::catppuccin_mocha(),
-        "solarized-dark" => term_pro::TerminalTheme::solarized_dark(),
-        _ => return Err(format!("Unknown terminal theme: {}", theme_name)),
-    };
+pub fn set_terminal_theme(app: AppHandle, colors: HashMap<String, String>) -> Result<(), String> {
+    use term_pro::ThemeColor;
+
+    let mut theme = term_pro::TerminalTheme::new("app");
+    for (key, hex) in &colors {
+        let tc = match key.as_str() {
+            "background" => ThemeColor::Background,
+            "foreground" => ThemeColor::Foreground,
+            "cursor" => ThemeColor::Cursor,
+            "selection" => ThemeColor::Selection,
+            "black" => ThemeColor::Black,
+            "red" => ThemeColor::Red,
+            "green" => ThemeColor::Green,
+            "yellow" => ThemeColor::Yellow,
+            "blue" => ThemeColor::Blue,
+            "magenta" => ThemeColor::Magenta,
+            "cyan" => ThemeColor::Cyan,
+            "white" => ThemeColor::White,
+            "brightBlack" => ThemeColor::BrightBlack,
+            "brightRed" => ThemeColor::BrightRed,
+            "brightGreen" => ThemeColor::BrightGreen,
+            "brightYellow" => ThemeColor::BrightYellow,
+            "brightBlue" => ThemeColor::BrightBlue,
+            "brightMagenta" => ThemeColor::BrightMagenta,
+            "brightCyan" => ThemeColor::BrightCyan,
+            "brightWhite" => ThemeColor::BrightWhite,
+            _ => continue,
+        };
+        theme.set(tc, hex);
+    }
     crate::terminal::set_terminal_theme(theme);
-    // Notify all terminals to re-render with the new theme
     let _ = app.emit("terminal-theme-changed", ());
     Ok(())
 }
