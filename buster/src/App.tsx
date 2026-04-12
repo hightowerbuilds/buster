@@ -18,6 +18,7 @@ import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { useBuster } from "./lib/buster-context";
 import { createPanelRenderer } from "./ui/PanelRenderer";
 import type { PanelCount } from "./lib/panel-count";
+import { focusTabPanel, focusSidebarPrimary, restorePrimaryWorkspaceFocus, sidebarHasFocus } from "./lib/focus-service";
 import "./styles/ide.css";
 
 const App: Component = () => {
@@ -25,34 +26,9 @@ const App: Component = () => {
   let ideRootRef: HTMLDivElement | undefined;
   const [commandLineVisible, setCommandLineVisible] = createSignal(false);
 
-  function focusTabPanel(tabId: string) {
-    requestAnimationFrame(() => {
-      const panel = Array.from(document.querySelectorAll<HTMLElement>("[data-tab-panel-id]"))
-        .find((el) => el.dataset.tabPanelId === tabId);
-      if (!panel) return;
-
-      const target =
-        panel.querySelector<HTMLElement>('[data-tab-focus-target="true"]') ??
-        panel.querySelector<HTMLElement>('textarea:not([disabled]), input:not([disabled]), button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])');
-
-      if (target && document.activeElement !== target) {
-        target.focus({ preventScroll: true });
-      }
-    });
-  }
-
   function activateTab(tabId: string) {
     actions.switchToTab(tabId);
     focusTabPanel(tabId);
-  }
-
-  function focusSidebarPrimary() {
-    requestAnimationFrame(() => {
-      const target = document.querySelector<HTMLElement>(".sidebar button, .sidebar [tabindex]:not([tabindex='-1'])");
-      if (target && document.activeElement !== target) {
-        target.focus({ preventScroll: true });
-      }
-    });
   }
 
   function updateSidebarVisible(
@@ -63,15 +39,11 @@ const App: Component = () => {
     const nextVisible = typeof value === "function" ? value(prevVisible) : value;
     if (nextVisible === prevVisible) return;
 
-    const sidebarWrap = document.querySelector<HTMLElement>(".sidebar-wrap");
-    const activeElement = document.activeElement;
-    const sidebarHadFocus = !!activeElement && !!sidebarWrap?.contains(activeElement);
-
+    const hadFocus = sidebarHasFocus();
     setStore("sidebarVisible", nextVisible);
 
-    if (!nextVisible && sidebarHadFocus) {
-      if (store.activeTabId) focusTabPanel(store.activeTabId);
-      else requestAnimationFrame(() => ideRootRef?.focus({ preventScroll: true }));
+    if (!nextVisible && hadFocus) {
+      restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
       return;
     }
 
@@ -80,23 +52,9 @@ const App: Component = () => {
     }
   }
 
-  function restorePrimaryWorkspaceFocus() {
-    if (store.activeTabId) {
-      focusTabPanel(store.activeTabId);
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-      ideRootRef?.focus({ preventScroll: true });
-    });
-  }
-
   function applyPanelCount(count: PanelCount, options?: { restoreFocus?: boolean }) {
     setStore("panelCount", count);
-    if (options?.restoreFocus !== false) restorePrimaryWorkspaceFocus();
+    if (options?.restoreFocus !== false) restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
   }
 
   function openCommandLine() {

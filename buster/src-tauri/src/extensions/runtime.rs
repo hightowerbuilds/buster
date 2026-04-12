@@ -53,6 +53,46 @@ fn validate_write_target(path: &str, workspace_root: &str) -> Option<PathBuf> {
     Some(canonical_target)
 }
 
+/// Parse a command string with shell-word splitting.
+/// Handles double quotes, single quotes, and backslash escapes.
+/// e.g. `git commit -m "fix bug"` → ["git", "commit", "-m", "fix bug"]
+fn parse_shell_words(input: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_double = false;
+    let mut in_single = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' if !in_single => {
+                // Backslash escape: take next char literally
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+            }
+            '"' if !in_single => {
+                in_double = !in_double;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+            }
+            c if c.is_whitespace() && !in_double && !in_single => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
 /// Per-extension WASM state held inside the Store.
 pub struct ExtensionState {
     pub manifest: ExtensionManifest,
@@ -511,15 +551,16 @@ fn link_host_functions(linker: &mut Linker<ExtensionState>, _caps: &super::manif
             None => return -1,
         };
 
-        // Parse the command string into program + args
-        let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+        // Parse the command string with shell-word splitting
+        // (handles double quotes, single quotes, backslash escapes)
+        let parts = parse_shell_words(&cmd_str);
         if parts.is_empty() {
             caller.data_mut().return_buffer = b"Error: empty command".to_vec();
             return -1;
         }
 
-        let program = parts[0];
-        let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+        let program = parts[0].as_str();
+        let args: Vec<String> = parts[1..].to_vec();
 
         // Build sandbox config and execution request
         let config = SandboxConfig::new(&ws_root);

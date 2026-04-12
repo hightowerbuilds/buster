@@ -13,6 +13,43 @@ export function setGPURendering(enabled: boolean): void {
   useGPU = enabled;
 }
 
+// ── Display row memoization ──────────────────────────────────────────
+// computeDisplayRows is O(n) and called every render frame. Cache the
+// result so we only recompute when content or layout params change.
+
+let _cachedRows: DisplayRow[] = [];
+let _cachedLines: string[] | null = null;
+let _cachedCharW = 0;
+let _cachedEditorW = 0;
+let _cachedWrap = false;
+let _cachedGutterW = 0;
+let _cachedFoldedSize = 0;
+
+function getDisplayRows(
+  lines: string[], charW: number, editorW: number,
+  wordWrap: boolean, gutterW: number, foldedLines: Set<number> | undefined,
+): DisplayRow[] {
+  const foldedSize = foldedLines?.size ?? 0;
+  if (
+    lines === _cachedLines &&
+    charW === _cachedCharW &&
+    editorW === _cachedEditorW &&
+    wordWrap === _cachedWrap &&
+    gutterW === _cachedGutterW &&
+    foldedSize === _cachedFoldedSize
+  ) {
+    return _cachedRows;
+  }
+  _cachedRows = computeDisplayRows(lines, charW, editorW, wordWrap, gutterW, foldedLines);
+  _cachedLines = lines;
+  _cachedCharW = charW;
+  _cachedEditorW = editorW;
+  _cachedWrap = wordWrap;
+  _cachedGutterW = gutterW;
+  _cachedFoldedSize = foldedSize;
+  return _cachedRows;
+}
+
 /** Draw text — routes to WebGL (GPU) or Canvas 2D (CPU). */
 function monoText(
   ctx: CanvasRenderingContext2D,
@@ -136,7 +173,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   ctx.fillRect(0, 0, w, h);
 
   const lines = params.lines;
-  const displayRows = computeDisplayRows(lines, charW, w, wordWrap, gutterW, params.foldedLines.size > 0 ? params.foldedLines : undefined);
+  const displayRows = getDisplayRows(lines, charW, w, wordWrap, gutterW, params.foldedLines.size > 0 ? params.foldedLines : undefined);
 
   // Visible range in display rows
   const firstVisRow = Math.floor(params.scrollTop / lineHeight);

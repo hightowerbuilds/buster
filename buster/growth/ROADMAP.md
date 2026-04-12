@@ -29,6 +29,9 @@ Everything in the roadmap serves that loop or the canvas-first architecture that
 - [x] Canvas chrome — tab bar, dock bar, status bar, breadcrumbs, sidebar header all canvas-rendered
 - [x] buster-syntax integrated — incremental tree-sitter with persistent DocumentTree, viewport-scoped highlighting, per-line span format
 - [x] buster-lsp-manager integrated — crash recovery with auto-restart, proper URI percent-encoding
+- [x] GPU text renderer enabled — WebGL2 glyph atlas with instanced rendering, display row memoization
+- [x] Shell-word parsing for extension commands — proper quote/escape handling
+- [x] App.tsx/PanelRenderer refactored — focus service, panel registry, declarative panel definitions
 
 ---
 
@@ -68,25 +71,26 @@ Added `isWideChar()`, `colToPixel()`, `pixelToCol()`, `stringDisplayWidth()` to 
 
 `DocumentState` was already integrated for incremental text sync. New this session: crash recovery in `ensure_server()` — detects crashed servers, auto-restarts up to 3 times, re-sends `didOpen` for all tracked documents. URI handling replaced with `path_to_lsp_uri()`/`lsp_uri_to_path()` for proper percent-encoding (fixes paths with spaces/special chars). `LspClient` gains `restart_count` field.
 
-### Implement dirty-rect rendering
+### ~~Implement dirty-rect rendering / GPU text~~ (done 2026-04-11)
 
-`renderEditor()` clears and redraws the entire viewport on every frame. Canvas lets you redraw only what changed. Implement dirty rectangles, incremental line updates, or cached glyph atlases.
+Three optimizations applied:
+1. **GPU text renderer enabled** — `webgl-text.ts` (complete glyph atlas + instanced WebGL2 rendering) wired up in CanvasEditor. All text drawn in a single instanced draw call via `monoText()` → `queueText()` → `flushTextFrame()`. Falls back to Canvas 2D if WebGL2 unavailable.
+2. **Display row memoization** — `computeDisplayRows()` result cached across frames. Only recomputed when lines, charW, editorWidth, wordWrap, gutterW, or foldedLines change. Eliminates O(n) per frame for cursor blink, scroll, and overlay changes.
+3. **Rendering is already reactive** (not a persistent rAF loop) and filters to visible rows only.
 
-### Turn on the GPU text renderer
-
-`webgl-text.ts` exists but `useGPU` is never set to true. Evaluate and enable it. Monospace editors can skip the browser's text shaping pipeline entirely with pre-rasterized glyph atlases.
+Full dirty-rect (cursor-only partial redraw) deferred — the GPU batching and row caching cover the highest-impact cases. Cursor-area save/restore adds complexity for marginal gain.
 
 ### Consider OffscreenCanvas for off-main-thread rendering
 
-Move rendering to a Web Worker to keep the main thread free for input handling.
+Move rendering to a Web Worker to keep the main thread free for input handling. Lower priority now that GPU text batching is active.
 
 ---
 
 ## Tier 3: Safety and Extensions
 
-### Proper shell-word parsing for extension commands
+### ~~Proper shell-word parsing for extension commands~~ (done 2026-04-11)
 
-Both the extension runtime and any future command execution parse commands with `split_whitespace()`. Quoted args like `git commit -m "fix bug"` break. Implement a proper shell-word parser (handle double quotes, single quotes, backslash escapes).
+Added `parse_shell_words()` in `extensions/runtime.rs`. Handles double quotes, single quotes, and backslash escapes. `git commit -m "fix bug"` now correctly splits into `["git", "commit", "-m", "fix bug"]` instead of `["git", "commit", "-m", "\"fix", "bug\""]`.
 
 ### Sandbox for local model execution
 
@@ -100,11 +104,12 @@ The current DAP debugger has undefined behavior (raw pointer casting, unsafe Sen
 
 ## Tier 4: Product Polish
 
-### Refactor App.tsx and PanelRenderer.tsx
+### ~~Refactor App.tsx and PanelRenderer.tsx~~ (done 2026-04-12)
 
-Both files own too much UI policy. Move toward:
-- A real panel registry model (panel metadata, activation, rendering separated)
-- Reduced DOM query-based focus management
+Three extractions:
+1. **Focus service** (`src/lib/focus-service.ts`) — `focusTabPanel`, `focusSidebarPrimary`, `restorePrimaryWorkspaceFocus`, `sidebarHasFocus` extracted from App.tsx
+2. **Panel registry** (`src/lib/panel-registry.ts`) — `PanelDefinition` type, `PanelDeps`/`FileTabDeps` interfaces, `registerPanel`/`getPanel` API
+3. **Panel definitions** (`src/lib/panel-definitions.tsx`) — 12 non-file panel types registered declaratively. PanelRenderer's if/else chain replaced with `getPanel(tab.type)` lookup. File tab kept separate for its breadcrumb/blog/engine concerns.
 
 ### Simplify settings controls
 

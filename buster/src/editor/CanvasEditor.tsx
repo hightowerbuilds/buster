@@ -2,8 +2,10 @@ import { Component, onMount, onCleanup, createSignal, createEffect } from "solid
 import type { SearchMatch, DiffHunk, GitBlameLine } from "../lib/ipc";
 import { gitBlame } from "../lib/ipc";
 import { createEditorEngine, getCharWidth, type EditorEngine } from "./engine";
+import { FONT_FAMILY } from "./text-measure";
 import { requestHighlights, spansToLineTokens, setSyntaxPalette, syntaxOpen, syntaxClose, type LineToken } from "./ts-highlighter";
-import { renderEditor } from "./canvas-renderer";
+import { renderEditor, setGPURendering } from "./canvas-renderer";
+import { initWebGLText, disposeWebGLText } from "./webgl-text";
 import { createAutocomplete } from "./editor-autocomplete";
 import { createHover } from "./editor-hover";
 import { createSignatureHelp } from "./editor-signature";
@@ -918,6 +920,13 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       syntaxOpen(fp, engine.lines().join("\n"));
     }
 
+    // Initialize GPU text renderer (falls back to Canvas 2D if WebGL unavailable)
+    const glCanvas = initWebGLText(fontSize(), FONT_FAMILY);
+    if (glCanvas && containerRef) {
+      containerRef.appendChild(glCanvas);
+      setGPURendering(true);
+    }
+
     scheduleRender();
     if (props.autoFocus) {
       requestAnimationFrame(() => focusInput());
@@ -931,6 +940,11 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       a11y.cleanup();
       // Close document syntax tree
       if (fp) syntaxClose(fp);
+      // Clean up GPU text renderer
+      if (glCanvas) {
+        setGPURendering(false);
+        disposeWebGLText();
+      }
     });
   });
 

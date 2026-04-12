@@ -1,60 +1,24 @@
 /**
  * Panel renderer — creates and caches tab panel components.
- * Extracted from App.tsx.
+ *
+ * Uses the panel registry for non-file panel types.
+ * The file tab is handled separately due to its unique concerns
+ * (breadcrumbs, blog mode, editor engine lifecycle).
  */
 
 import { createSignal, createEffect, createRoot, Show, type Accessor, type JSX } from "solid-js";
 import CanvasEditor from "../editor/CanvasEditor";
-import CanvasTerminal from "./CanvasTerminal";
-import SettingsPanel from "./SettingsPanel";
-import GitPage from "./GitPage";
-import ExtensionsPage from "./ExtensionsPage";
-import ManualTab from "./ManualTab";
-import DebugPanel from "./DebugPanel";
-import ProblemsPanel from "./ProblemsPanel";
-import SearchResultsPanel from "./SearchResultsPanel";
-import Sidebar from "./Sidebar";
 import BlogPreview from "./BlogPreview";
-import ImageViewer from "./ImageViewer";
-import DisplayListSurface from "./DisplayListSurface";
 import CanvasBreadcrumbs from "./CanvasBreadcrumbs";
 import type { Tab } from "../lib/tab-types";
-import type { SearchMatch, DiffHunk } from "../lib/ipc";
-import type { AppSettings } from "../lib/ipc";
-import type { EditorEngine } from "../editor/engine";
-import { basename, relativeTo } from "buster-path";
+import type { PanelDeps, FileTabDeps } from "../lib/panel-registry";
+import { getPanel } from "../lib/panel-registry";
+import { relativeTo } from "buster-path";
 
-interface Diagnostic {
-  line: number;
-  col: number;
-  endLine: number;
-  endCol: number;
-  severity: number;
-  message: string;
-}
+// Ensure all panel types are registered
+import "../lib/panel-definitions";
 
-export interface PanelRendererDeps {
-  workspaceRoot: () => string | null;
-  settings: () => AppSettings;
-  updateSettings: (s: AppSettings) => void;
-  tabs: () => Tab[];
-  activeTabId: () => string | null;
-  switchToTab: (id: string) => void;
-  searchMatches: () => SearchMatch[];
-  diagnosticsMap: () => Map<string, Diagnostic[]>;
-  diffHunksMap: () => Record<string, DiffHunk[]>;
-  handleFileSelect: (path: string) => Promise<void>;
-  handleTermIdReady: (tabId: string, termId: string) => void;
-  handleTabClose: (id: string) => void;
-  openWorkspace: (path: string) => void;
-  changeDirectory: () => void;
-  closeDirectory: () => void;
-  setCursorLine: (line: number) => void;
-  setCursorCol: (col: number) => void;
-  setTabs: (fn: (prev: Tab[]) => Tab[]) => void;
-  engineMap: Map<string, EditorEngine>;
-  getFileTextForTab: (tabId: string) => string | null;
-}
+export interface PanelRendererDeps extends PanelDeps, FileTabDeps {}
 
 export function createPanelRenderer(deps: PanelRendererDeps) {
   const panelCache = new Map<string, { element: JSX.Element; dispose: () => void; setActive: (value: boolean) => void }>();
@@ -107,113 +71,17 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
   }
 
   function createPanelElement(tab: Tab, isActive: Accessor<boolean>): JSX.Element {
-    if (tab.type === "terminal") {
-      return wrapPanel(tab.id, (
-        <CanvasTerminal
-          termTabId={tab.id}
-          active={isActive()}
-          cwd={deps.workspaceRoot() ?? undefined}
-          onTermIdReady={deps.handleTermIdReady}
-          autoFocus={tab.id === deps.activeTabId()}
-        />
-      ));
+    // Check panel registry for non-file types
+    const def = getPanel(tab.type);
+    if (def) {
+      return wrapPanel(tab.id, def.render(tab, isActive, deps));
     }
 
-    if (tab.type === "settings") {
-      return wrapPanel(tab.id, (
-        <SettingsPanel
-          settings={deps.settings()}
-          onChange={deps.updateSettings}
-        />
-      ));
-    }
+    // File tab (default) — has unique breadcrumb/blog/engine concerns
+    return renderFileTab(tab, isActive);
+  }
 
-    if (tab.type === "git") {
-      return wrapPanel(tab.id, (
-        <GitPage
-          active={isActive()}
-          workspaceRoot={deps.workspaceRoot() ?? undefined}
-          onFileSelect={deps.handleFileSelect}
-        />
-      ));
-    }
-
-    if (tab.type === "extensions") {
-      return wrapPanel(tab.id, <ExtensionsPage />);
-    }
-
-    if (tab.type === "search-results") {
-      return wrapPanel(tab.id, (
-        <SearchResultsPanel
-          workspaceRoot={deps.workspaceRoot()}
-          onFileSelect={async (path, line, col) => {
-            await deps.handleFileSelect(path);
-            deps.setCursorLine(line);
-            deps.setCursorCol(col);
-          }}
-        />
-      ));
-    }
-
-    if (tab.type === "problems") {
-      return wrapPanel(tab.id, (
-        <ProblemsPanel
-          diagnosticsMap={deps.diagnosticsMap()}
-          onJumpTo={async (filePath, line, col) => {
-            await deps.handleFileSelect(filePath);
-            deps.setCursorLine(line);
-            deps.setCursorCol(col);
-          }}
-        />
-      ));
-    }
-
-    if (tab.type === "manual") {
-      return wrapPanel(tab.id, <ManualTab />);
-    }
-
-    if (tab.type === "debug") {
-      return wrapPanel(tab.id, <DebugPanel />);
-    }
-
-    if (tab.type === "explorer") {
-      return wrapPanel(tab.id, (
-        <Sidebar
-          onFileSelect={deps.handleFileSelect}
-          workspaceRoot={deps.workspaceRoot()}
-          onFolderOpen={(path) => deps.openWorkspace(path)}
-          onChangeDirectory={deps.changeDirectory}
-          onCloseDirectory={deps.closeDirectory}
-          poppedOut={true}
-          onReturn={() => deps.handleTabClose("explorer_tab")}
-        />
-      ));
-    }
-
-    if (tab.type === "image" && tab.path) {
-      return wrapPanel(tab.id, (
-        <ImageViewer
-          filePath={tab.path}
-          fileName={tab.name}
-        />
-      ));
-    }
-
-    if (tab.type === "surface") {
-      const meta = JSON.parse(tab.path || "{}");
-      return wrapPanel(tab.id, (
-        <DisplayListSurface
-          surfaceId={meta.surface_id ?? 0}
-          extensionId={meta.extension_id ?? ""}
-          initialWidth={meta.width ?? 800}
-          initialHeight={meta.height ?? 600}
-          label={tab.name}
-          isActive={isActive}
-        />
-      ));
-    }
-
-    // File tab
+  function renderFileTab(tab: Tab, isActive: Accessor<boolean>): JSX.Element {
     const existingEngine = deps.engineMap.get(tab.id);
     const initialText = existingEngine ? existingEngine.getText() : deps.getFileTextForTab(tab.id);
     if (initialText === null) return <div class="panel-empty" />;
@@ -229,7 +97,6 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
       });
     };
 
-    // Breadcrumb segments from file path relative to workspace
     const breadcrumbs = () => {
       const root = deps.workspaceRoot();
       const fp = tab.path;
