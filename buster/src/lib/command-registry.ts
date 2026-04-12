@@ -22,6 +22,10 @@ class CommandRegistry {
     return Array.from(this.commands.values()).filter(c => !c.when || c.when());
   }
 
+  getAllUnfiltered(): Command[] {
+    return Array.from(this.commands.values());
+  }
+
   search(query: string): Command[] {
     const all = this.getAll();
     if (!query) return all;

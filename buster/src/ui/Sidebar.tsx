@@ -2,6 +2,7 @@ import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
 import { listDirectory, createFile, createDirectory, moveEntry } from "../lib/ipc";
 import { TreeItem, SidebarContextMenu, type TreeNode, isDragging, getDragNode, refreshDir, setRefreshDir } from "./SidebarTree";
 import { basename } from "buster-path";
+import CanvasSidebarHeader from "./CanvasSidebarHeader";
 
 interface SidebarProps {
   onFileSelect: (path: string) => void;
@@ -113,67 +114,18 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   return (
     <div class="sidebar">
-      <div class="sidebar-header">
-        <span class="sidebar-title">
-          {rootPath()
-            ? basename(rootPath()!) || rootPath()
-            : "Explorer"}
-        </span>
-        <div class="sidebar-header-actions">
-          <Show when={!props.poppedOut}>
-            <button
-              class="btn-icon sidebar-collapse-btn"
-              title="Hide Sidebar"
-              aria-label="Hide Sidebar"
-              onClick={() => props.onHideSidebar?.()}
-            >
-              <span class="sidebar-collapse-arrows" aria-hidden="true">&laquo;</span>
-              <span>In</span>
-            </button>
-          </Show>
-          <button
-            class="btn-icon sidebar-popout-btn"
-            title={props.poppedOut ? "Return to sidebar" : "Pop out to tab"}
-            onClick={() => props.poppedOut ? props.onReturn?.() : props.onPopOut?.()}
-          >
-            <Show
-              when={props.poppedOut}
-              fallback={
-                <>
-                  <span>Out</span>
-                  <span class="sidebar-popout-arrows" aria-hidden="true">&gt;&gt;</span>
-                </>
-              }
-            >
-              <span>Return</span>
-            </Show>
-          </button>
-        </div>
-      </div>
-      <div class="sidebar-actions-bar">
-        <button
-          class="sidebar-action-btn"
-          title="Open Directory"
-          onClick={() => props.onChangeDirectory ? props.onChangeDirectory() : openFolder()}
-        >Open</button>
-        <button
-          class="sidebar-action-btn"
-          title="New Folder"
-          onClick={() => rootPath() ? setCreatingRoot({ type: "folder" }) : openFolder()}
-        >New Folder</button>
-        <button
-          class="sidebar-action-btn"
-          title="New File"
-          onClick={() => rootPath() ? setCreatingRoot({ type: "file" }) : openFolder()}
-        >New File</button>
-        <Show when={rootPath()}>
-          <button
-            class="sidebar-action-btn"
-            title="Close Folder"
-            onClick={() => props.onCloseDirectory?.()}
-          >Close Folder</button>
-        </Show>
-      </div>
+      <CanvasSidebarHeader
+        title={rootPath() ? (basename(rootPath()!) || rootPath()!) : "Explorer"}
+        hasWorkspace={!!rootPath()}
+        poppedOut={props.poppedOut}
+        onHideSidebar={props.onHideSidebar}
+        onPopOut={props.onPopOut}
+        onReturn={props.onReturn}
+        onOpen={() => props.onChangeDirectory ? props.onChangeDirectory() : openFolder()}
+        onNewFolder={() => rootPath() ? setCreatingRoot({ type: "folder" }) : openFolder()}
+        onNewFile={() => rootPath() ? setCreatingRoot({ type: "file" }) : openFolder()}
+        onCloseDirectory={rootPath() ? props.onCloseDirectory : undefined}
+      />
 
       <Show
         when={rootPath()}

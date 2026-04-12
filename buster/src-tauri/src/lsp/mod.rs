@@ -5,13 +5,13 @@ use std::sync::{mpsc, Mutex, RwLock};
 
 use client::{LspClient, LspDiagnostic};
 
-// buster-lsp-manager integration — server registry, document state, URI encoding
-// Namespaced to avoid collisions with existing types
+/// Maximum number of automatic restarts per language server before giving up.
+const MAX_RESTARTS: u32 = 3;
+
+// buster-lsp-manager integration — document state for incremental sync
 pub mod lsp_pro {
     pub use buster_lsp_manager::{
-        ServerRegistry, LanguageServerConfig, DocumentState, TextEdit,
-        Position, Range,
-        path_to_lsp_uri, lsp_uri_to_path,
+        DocumentState, TextEdit, Position, Range,
     };
 }
 
@@ -81,21 +81,53 @@ impl LspManager {
     }
 
     /// Start (or get) a language server for the given file extension and workspace root.
+    /// If the existing server has crashed, attempts an automatic restart (up to MAX_RESTARTS).
     pub async fn ensure_server(&self, ext: &str, root_path: &str) -> Result<(), String> {
         let registry = server_registry();
         let (language_id, command, args) = registry.get(ext)
             .ok_or_else(|| format!("No language server configured for .{}", ext))?;
 
-        // Scope the read lock so it's dropped before the await point
-        {
+        // Check if server exists and is healthy
+        let prev_restart_count = {
             let clients = self.clients.read().map_err(|e| e.to_string())?;
-            if clients.contains_key(*language_id) {
-                return Ok(()); // Already running
+            if let Some(client) = clients.get(*language_id) {
+                if !client.crashed.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Ok(()); // Healthy and running
+                }
+                // Crashed — check restart limit
+                let count = client.restart_count;
+                if count >= MAX_RESTARTS {
+                    return Err(format!("LSP {} has crashed {} times, not restarting", language_id, count));
+                }
+                Some(count)
+            } else {
+                None
             }
+        };
+
+        // Remove crashed client if present
+        if prev_restart_count.is_some() {
+            let mut clients = self.clients.write().map_err(|e| e.to_string())?;
+            clients.remove(*language_id);
+            eprintln!("[lsp] {} crashed, restarting ({}/{})", language_id,
+                prev_restart_count.unwrap() + 1, MAX_RESTARTS);
         }
 
         let args_ref: Vec<&str> = args.iter().map(|s| *s).collect();
-        let client = LspClient::start(command, &args_ref, root_path, language_id, self.diag_tx.clone()).await?;
+        let mut client = LspClient::start(command, &args_ref, root_path, language_id, self.diag_tx.clone()).await?;
+        client.restart_count = prev_restart_count.map(|c| c + 1).unwrap_or(0);
+
+        // Re-send didOpen for all tracked documents belonging to this language
+        if prev_restart_count.is_some() {
+            if let Ok(docs) = self.documents.lock() {
+                for (uri, doc_state) in docs.iter() {
+                    if doc_state.language_id == *language_id {
+                        let _ = client.did_open(uri, &doc_state.language_id, doc_state.content());
+                    }
+                }
+            }
+            eprintln!("[lsp] {} restarted successfully", language_id);
+        }
 
         let mut clients = self.clients.write().map_err(|e| e.to_string())?;
         clients.insert(language_id.to_string(), client);
@@ -103,6 +135,8 @@ impl LspManager {
     }
 
     /// Get a reference to a client by language ID.
+    /// If the server has crashed, removes it and returns an error.
+    /// The next `ensure_server` call will attempt a restart.
     pub fn get_client<F, R>(&self, language_id: &str, f: F) -> Result<R, String>
     where
         F: FnOnce(&LspClient) -> Result<R, String>,
@@ -112,8 +146,7 @@ impl LspManager {
             .ok_or_else(|| format!("No LSP client for {}", language_id))?;
         if client.crashed.load(std::sync::atomic::Ordering::SeqCst) {
             drop(clients);
-            let mut wclients = self.clients.write().map_err(|e| e.to_string())?;
-            wclients.remove(language_id);
+            // Don't remove here — let ensure_server handle restart
             return Err(format!("LSP {} has crashed", language_id));
         }
         f(client)

@@ -243,6 +243,9 @@ pub fn run() {
             commands::terminal::set_terminal_theme,
             // Syntax highlighting
             commands::syntax::highlight_code,
+            commands::syntax::syntax_open,
+            commands::syntax::syntax_close,
+            commands::syntax::syntax_edit,
             commands::syntax::syntax_languages,
             // Debugger
             commands::debugger::debug_toggle_breakpoint,

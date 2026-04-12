@@ -24,6 +24,11 @@ Everything in the roadmap serves that loop or the canvas-first architecture that
 - [x] Command palette wired to command registry (no more hardcoded duplicate command list)
 - [x] Copy/paste fixed for Tauri dev window (native clipboard events)
 - [x] AI blocklist/sandbox inconsistency resolved (AI removed; extensions use sandbox directly)
+- [x] CJK text rendering — display-width-aware cursor, selection, wrapping, overlays
+- [x] Static manual replaced with generated content from command registry
+- [x] Canvas chrome — tab bar, dock bar, status bar, breadcrumbs, sidebar header all canvas-rendered
+- [x] buster-syntax integrated — incremental tree-sitter with persistent DocumentTree, viewport-scoped highlighting, per-line span format
+- [x] buster-lsp-manager integrated — crash recovery with auto-restart, proper URI percent-encoding
 
 ---
 
@@ -31,16 +36,15 @@ Everything in the roadmap serves that loop or the canvas-first architecture that
 
 The editor and terminal already prove the thesis. The shell needs to catch up. The README says "every character on screen is drawn on Canvas" — make that true.
 
-### Move passive chrome to canvas rendering
+### ~~Move passive chrome to canvas rendering~~ (done 2026-04-11)
 
-Priority order:
-1. Tab bar
-2. Dock bar
-3. Status bar
-4. Breadcrumbs
-5. Sidebar header and action strip
+All 5 chrome elements migrated from DOM to canvas via a shared `CanvasChrome` foundation component (`src/ui/canvas-chrome.tsx`). Each strip is one `<canvas>` element with immediate-mode hit regions for interactivity.
 
-`CanvasSurface` and `DisplayListSurface` are the right bridge from "canvas editor" to "canvas application shell." The website already renders its navbar, sections, and footer on canvas — use the same approach.
+1. **Tab bar** — `CanvasTabBar.tsx`: drag-and-drop reorder (DOM ghost), horizontal scroll, keyboard nav, per-type icon/color styling
+2. **Dock bar** — `CanvasDockBar.tsx`: absorbs LayoutPicker, Git button + 6 layout preview thumbnails with static-noise hover effect
+3. **Status bar** — `CanvasStatusBar.tsx`: clickable git branch/sync/diagnostics, LSP status, cursor position
+4. **Breadcrumbs** — `CanvasBreadcrumbs.tsx`: path segments with separators, last-segment highlighting
+5. **Sidebar header + actions** — `CanvasSidebarHeader.tsx`: workspace name, In/Out buttons, Open/New Folder/New File/Close Folder action buttons
 
 ### ~~Simplify panel layout to counts, not names~~ (already done)
 
@@ -56,13 +60,13 @@ These are the technical debts that will bite under real-world use.
 
 Added `isWideChar()`, `colToPixel()`, `pixelToCol()`, `stringDisplayWidth()` to text-measure.ts. Updated engine.ts (wrapping + mouse click mapping) and canvas-renderer.ts (~30 locations: cursor, selection, text segments, overlays, diagnostics, signature help, code actions) to use display-width-aware positioning instead of `col * charW`.
 
-### Integrate buster-syntax (incremental tree-sitter)
+### ~~Integrate buster-syntax (incremental tree-sitter)~~ (done 2026-04-11)
 
-The current syntax module does a full reparse on every highlight request. `buster-syntax` implements persistent tree-sitter trees with viewport-scoped highlighting. Integrate it.
+`TreeSitterProvider` implements `ParseProvider` by wrapping existing tree-sitter-highlight, mapping `HIGHLIGHT_NAMES` indices to `TokenKind`. `SyntaxService` now manages persistent `DocumentTree` per open file via `open_document`/`close_document`/`edit_document`. New Tauri commands: `syntax_open`, `syntax_close`, `syntax_edit`. `highlight_code` now accepts viewport range and returns per-line `HighlightSpan{line, start_col, end_col, kind}`. Frontend `spansToLineTokens()` simplified — no more whole-file byte-offset-to-line conversion. Falls back to stateless parse if `syntax_open` wasn't called.
 
-### Integrate buster-lsp-manager (incremental sync)
+### ~~Integrate buster-lsp-manager (incremental sync)~~ (done 2026-04-11)
 
-The current LSP client falls back to full-document sync. `buster-lsp-manager` implements incremental text sync, crash recovery, and `didClose`. Integrate it.
+`DocumentState` was already integrated for incremental text sync. New this session: crash recovery in `ensure_server()` — detects crashed servers, auto-restarts up to 3 times, re-sends `didOpen` for all tracked documents. URI handling replaced with `path_to_lsp_uri()`/`lsp_uri_to_path()` for proper percent-encoding (fixes paths with spaces/special chars). `LspClient` gains `restart_count` field.
 
 ### Implement dirty-rect rendering
 
@@ -106,9 +110,9 @@ Both files own too much UI policy. Move toward:
 
 Settings checkboxes use a polling loop to redraw a tiny canvas control. Simplify until the main shell is stable.
 
-### Replace static manual with generated content
+### ~~Replace static manual with generated content~~ (done 2026-04-11)
 
-The manual is already stale. Replace it with centrally defined shortcut/help content derived from the command registry.
+ManualTab.tsx now derives keyboard shortcut tables from the command registry via `registry.getAllUnfiltered()`. Commands are grouped by category, tab-number shortcuts collapsed into one row, and stale content removed (AI Agent, Remote Dev). Editor built-in shortcuts (undo, copy/paste, cursor movement, etc.) kept as a small static table since they're handled by the editor keydown handler, not the registry.
 
 ### Rework the onboarding tour
 

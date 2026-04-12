@@ -17,6 +17,7 @@ import Sidebar from "./Sidebar";
 import BlogPreview from "./BlogPreview";
 import ImageViewer from "./ImageViewer";
 import DisplayListSurface from "./DisplayListSurface";
+import CanvasBreadcrumbs from "./CanvasBreadcrumbs";
 import type { Tab } from "../lib/tab-types";
 import type { SearchMatch, DiffHunk } from "../lib/ipc";
 import type { AppSettings } from "../lib/ipc";
@@ -240,14 +241,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
     return wrapPanel(tab.id, (
       <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", "flex-direction": "column" }}>
         <Show when={breadcrumbs().length > 1}>
-          <div class="breadcrumb-bar" aria-label="File path breadcrumbs">
-            {breadcrumbs().map((seg, i) => (
-              <>
-                {i > 0 && <span class="breadcrumb-sep">/</span>}
-                <span class={`breadcrumb-seg${i === breadcrumbs().length - 1 ? " breadcrumb-active" : ""}`}>{seg}</span>
-              </>
-            ))}
-          </div>
+          <CanvasBreadcrumbs segments={breadcrumbs()} />
         </Show>
         {isMd && (
           <button

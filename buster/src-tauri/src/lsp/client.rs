@@ -19,6 +19,8 @@ pub struct LspClient {
     pub language: String,
     pub root_uri: String,
     pub crashed: Arc<AtomicBool>,
+    /// Number of times this server has been restarted after crashes.
+    pub restart_count: u32,
 }
 
 /// Diagnostic from the language server
@@ -58,7 +60,8 @@ impl LspClient {
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        let root_uri = format!("file://{}", root_path);
+        let root_uri = buster_lsp_manager::path_to_lsp_uri(std::path::Path::new(root_path))
+            .unwrap_or_else(|_| format!("file://{}", root_path));
 
         let crashed = Arc::new(AtomicBool::new(false));
         let crashed_flag = crashed.clone();
@@ -79,6 +82,7 @@ impl LspClient {
             language: language.to_string(),
             root_uri: root_uri.clone(),
             crashed,
+            restart_count: 0,
         };
 
         // Send initialize
@@ -207,7 +211,9 @@ impl LspClient {
 
     fn parse_diagnostics(params: &Value) -> (String, Vec<LspDiagnostic>) {
         let uri = params.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-        let file_path = uri.strip_prefix("file://").unwrap_or(uri).to_string();
+        let file_path = buster_lsp_manager::lsp_uri_to_path(uri)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| uri.strip_prefix("file://").unwrap_or(uri).to_string());
 
         let mut result = Vec::new();
         if let Some(diags) = params.get("diagnostics").and_then(|v| v.as_array()) {

@@ -1,12 +1,13 @@
 import { Component, Show, createSignal, onCleanup } from "solid-js";
 import Sidebar from "./ui/Sidebar";
-import TabBar from "./ui/TabBar";
-import StatusBar from "./ui/StatusBar";
+import CanvasTabBar from "./ui/CanvasTabBar";
+import CanvasStatusBar from "./ui/CanvasStatusBar";
 import FindReplace from "./ui/FindReplace";
 import CommandPalette from "./ui/CommandPalette";
 import CommandLineSwitchboard from "./ui/CommandLineSwitchboard";
 import PanelLayout from "./ui/PanelLayout";
-import LayoutPicker, { PRIMARY_LAYOUT_OPTIONS } from "./ui/LayoutPicker";
+import { PRIMARY_LAYOUT_OPTIONS } from "./ui/LayoutPicker";
+import CanvasDockBar from "./ui/CanvasDockBar";
 import WelcomeCanvas from "./ui/WelcomeCanvas";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
@@ -319,7 +320,7 @@ const App: Component = () => {
         </Show>
         <div class="editor-area" role="main" aria-label="Editor">
           <div class="editor-toolbar">
-            <TabBar
+            <CanvasTabBar
               tabs={store.tabs}
               activeTab={store.activeTabId}
               groupedTabIds={groupedTabIds()}
@@ -359,7 +360,7 @@ const App: Component = () => {
               }
             />
           </div>
-          <StatusBar
+          <CanvasStatusBar
               line={store.cursorLine}
               col={store.cursorCol}
               totalLines={actions.activeEngine()?.lineCount() ?? 0}
@@ -376,14 +377,11 @@ const App: Component = () => {
             />
         </div>
       </div>
-      <div class="dock-bar" role="navigation" aria-label="Dock">
-        <button class="dock-btn" onClick={actions.createGitTab} aria-label="Open Git panel">Git</button>
-        <div class="dock-spacer" />
-        <LayoutPicker
-          current={store.panelCount}
-          onChange={(count) => applyPanelCount(count)}
-        />
-      </div>
+      <CanvasDockBar
+        currentLayout={store.panelCount}
+        onLayoutChange={(count) => applyPanelCount(count)}
+        onGit={actions.createGitTab}
+      />
       <CommandLineSwitchboard
         visible={commandLineVisible()}
         onClose={closeCommandLine}

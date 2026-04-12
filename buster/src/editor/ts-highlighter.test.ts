@@ -1,9 +1,9 @@
 /**
- * Tests for the syntax highlighter's byte-to-char-offset conversion.
+ * Tests for the syntax highlighter's per-line span conversion.
  *
- * spansToLineTokens is the bridge between tree-sitter (byte offsets)
- * and the canvas renderer (char offsets per line). Getting this wrong
- * causes misaligned highlighting.
+ * spansToLineTokens converts buster-syntax HighlightSpans (per-line,
+ * byte-offset columns, TokenKind) into LineTokens (char offsets, CSS colors)
+ * for the canvas renderer.
  */
 
 import { describe, it, expect } from "vitest";
@@ -15,7 +15,7 @@ describe("spansToLineTokens", () => {
   it("maps a single span on a single line", () => {
     const lines = ["hello world"];
     const spans: HighlightSpan[] = [
-      { start_byte: 0, end_byte: 5, highlight_type: "keyword" },
+      { line: 0, start_col: 0, end_col: 5, kind: "Keyword" },
     ];
     const result = spansToLineTokens(spans, lines);
     expect(result).toHaveLength(1);
@@ -27,9 +27,9 @@ describe("spansToLineTokens", () => {
   it("maps multiple spans on a single line", () => {
     const lines = ["let x = 5;"];
     const spans: HighlightSpan[] = [
-      { start_byte: 0, end_byte: 3, highlight_type: "keyword" },    // "let"
-      { start_byte: 4, end_byte: 5, highlight_type: "variable" },   // "x"
-      { start_byte: 8, end_byte: 9, highlight_type: "number" },     // "5"
+      { line: 0, start_col: 0, end_col: 3, kind: "Keyword" },    // "let"
+      { line: 0, start_col: 4, end_col: 5, kind: "Variable" },   // "x"
+      { line: 0, start_col: 8, end_col: 9, kind: "Number" },     // "5"
     ];
     const result = spansToLineTokens(spans, lines);
     expect(result[0]).toHaveLength(3);
@@ -38,12 +38,11 @@ describe("spansToLineTokens", () => {
     expect(result[0][2]).toMatchObject({ start: 8, end: 9 });
   });
 
-  it("maps spans across multiple lines", () => {
+  it("maps spans on different lines", () => {
     const lines = ["aaa", "bbb"];
-    // Byte layout: "aaa\nbbb" -> aaa at 0-3, \n at 3, bbb at 4-7
     const spans: HighlightSpan[] = [
-      { start_byte: 0, end_byte: 3, highlight_type: "keyword" },   // "aaa"
-      { start_byte: 4, end_byte: 7, highlight_type: "string" },    // "bbb"
+      { line: 0, start_col: 0, end_col: 3, kind: "Keyword" },
+      { line: 1, start_col: 0, end_col: 3, kind: "String" },
     ];
     const result = spansToLineTokens(spans, lines);
     expect(result[0]).toHaveLength(1);
@@ -54,9 +53,8 @@ describe("spansToLineTokens", () => {
 
   it("handles empty lines", () => {
     const lines = ["aaa", "", "bbb"];
-    // Byte layout: "aaa\n\nbbb" -> aaa at 0-3, \n at 3, \n at 4, bbb at 5-8
     const spans: HighlightSpan[] = [
-      { start_byte: 5, end_byte: 8, highlight_type: "keyword" },
+      { line: 2, start_col: 0, end_col: 3, kind: "Keyword" },
     ];
     const result = spansToLineTokens(spans, lines);
     expect(result[0]).toHaveLength(0);
@@ -83,25 +81,32 @@ describe("spansToLineTokens", () => {
     // "café" -> bytes: c(1) a(1) f(1) é(2) = 5 bytes but 4 chars
     const lines = ["café"];
     const spans: HighlightSpan[] = [
-      { start_byte: 0, end_byte: 5, highlight_type: "string" },
+      { line: 0, start_col: 0, end_col: 5, kind: "String" },
     ];
     const result = spansToLineTokens(spans, lines);
     expect(result[0]).toHaveLength(1);
-    // Should cover all 4 chars
+    // Should cover all 4 chars (byte-to-char conversion)
     expect(result[0][0].start).toBe(0);
     expect(result[0][0].end).toBe(4);
   });
 
-  it("handles span that crosses a line boundary", () => {
-    const lines = ["aa", "bb"];
-    // Byte layout: "aa\nbb" -> span covers bytes 1-4 which is "a\nb"
+  it("skips spans with out-of-range line numbers", () => {
+    const lines = ["hello"];
     const spans: HighlightSpan[] = [
-      { start_byte: 1, end_byte: 4, highlight_type: "comment" },
+      { line: 5, start_col: 0, end_col: 3, kind: "Keyword" },
     ];
     const result = spansToLineTokens(spans, lines);
-    // Should appear on both lines
-    expect(result[0].length).toBeGreaterThanOrEqual(1);
-    expect(result[1].length).toBeGreaterThanOrEqual(1);
+    expect(result[0]).toHaveLength(0);
+  });
+
+  it("assigns correct colors based on kind", () => {
+    const lines = ["let x = 42;"];
+    const spans: HighlightSpan[] = [
+      { line: 0, start_col: 0, end_col: 3, kind: "Keyword" },
+    ];
+    const result = spansToLineTokens(spans, lines);
+    expect(result[0][0].color).toBeTruthy();
+    expect(typeof result[0][0].color).toBe("string");
   });
 });
 
@@ -113,15 +118,11 @@ describe("perf: spansToLineTokens", () => {
     for (let i = 0; i < 500; i++) {
       lines.push("const x = someFunction(arg1, arg2);");
     }
-    // Generate realistic spans
+    // Generate realistic per-line spans
     const spans: HighlightSpan[] = [];
-    let byteOffset = 0;
     for (let i = 0; i < 500; i++) {
-      const lineBytes = new TextEncoder().encode(lines[i]).length;
-      // Two spans per line
-      spans.push({ start_byte: byteOffset, end_byte: byteOffset + 5, highlight_type: "keyword" });
-      spans.push({ start_byte: byteOffset + 6, end_byte: byteOffset + 7, highlight_type: "variable" });
-      byteOffset += lineBytes + 1; // +1 for \n
+      spans.push({ line: i, start_col: 0, end_col: 5, kind: "Keyword" });
+      spans.push({ line: i, start_col: 6, end_col: 7, kind: "Variable" });
     }
 
     const start = performance.now();

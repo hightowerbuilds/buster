@@ -1,8 +1,11 @@
 use tauri::{command, State};
 use tokio::time::{timeout, Duration};
 
+use std::path::Path;
+
 use crate::lsp::LspManager;
 use crate::lsp::language_id_for_ext;
+use buster_lsp_manager::{path_to_lsp_uri, lsp_uri_to_path};
 
 const LSP_TIMEOUT_SECS: u64 = 10;
 
@@ -61,7 +64,14 @@ fn ext_from_path(path: &str) -> Option<String> {
 }
 
 fn uri_from_path(path: &str) -> String {
-    format!("file://{}", path)
+    path_to_lsp_uri(Path::new(path))
+        .unwrap_or_else(|_| format!("file://{}", path))
+}
+
+fn path_from_uri(uri: &str) -> String {
+    lsp_uri_to_path(uri)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| uri.strip_prefix("file://").unwrap_or(uri).to_string())
 }
 
 /// Start the LSP server for a file and send didOpen.
@@ -324,7 +334,7 @@ pub async fn lsp_definition(
         let range = loc.get("range")?;
         let start = range.get("start")?;
         Some(LspLocation {
-            file_path: uri.strip_prefix("file://").unwrap_or(uri).to_string(),
+            file_path: path_from_uri(uri),
             line: start.get("line")?.as_u64()? as u32,
             col: start.get("character")?.as_u64()? as u32,
         })

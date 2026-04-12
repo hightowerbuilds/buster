@@ -1,12 +1,65 @@
 /**
- * ManualTab — scrollable reference tab for the Buster IDE.
- * Renders as a tab panel (like Settings or Git).
- * Includes all keyboard shortcuts from the former Legend tab.
+ * ManualTab — generated reference tab for the Buster IDE.
+ * Keyboard shortcuts are derived from the command registry so they
+ * stay in sync automatically when commands are added or rebound.
  */
 
-import { Component } from "solid-js";
+import { Component, For, createMemo } from "solid-js";
+import { registry } from "../lib/command-registry";
+
+/** Display order for command categories. */
+const CATEGORY_ORDER = ["File", "Editor", "View", "Terminal", "Tabs", "Git", "Help"];
+
+/** Convert internal keybinding notation ("Mod+S") to display format ("Cmd+S"). */
+function formatKeybinding(binding: string): string {
+  return binding.replace(/Mod\+/g, "Cmd+");
+}
+
+/** Tab-number commands (Mod+1 through Mod+9) get collapsed into one row. */
+const TAB_NUMBER_RE = /^tabs\.\d+$/;
 
 const ManualTab: Component = () => {
+  const commandsByCategory = createMemo(() => {
+    const all = registry.getAllUnfiltered();
+    const groups = new Map<string, Array<{ label: string; keybinding: string }>>();
+
+    let hasTabNumbers = false;
+
+    for (const cmd of all) {
+      if (!cmd.keybinding) continue;
+
+      // Collapse tabs.1–9 into one summary entry
+      if (TAB_NUMBER_RE.test(cmd.id)) {
+        if (!hasTabNumbers) {
+          hasTabNumbers = true;
+          const cat = "Tabs";
+          if (!groups.has(cat)) groups.set(cat, []);
+          groups.get(cat)!.push({ label: "Go to Tab 1–9", keybinding: "Cmd+1 – Cmd+9" });
+        }
+        continue;
+      }
+
+      const cat = cmd.category ?? "Other";
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat)!.push({
+        label: cmd.label,
+        keybinding: formatKeybinding(cmd.keybinding),
+      });
+    }
+
+    const ordered: Array<{ category: string; commands: Array<{ label: string; keybinding: string }> }> = [];
+    for (const cat of CATEGORY_ORDER) {
+      const cmds = groups.get(cat);
+      if (cmds && cmds.length > 0) ordered.push({ category: cat, commands: cmds });
+    }
+    for (const [cat, cmds] of groups) {
+      if (!CATEGORY_ORDER.includes(cat) && cmds.length > 0) {
+        ordered.push({ category: cat, commands: cmds });
+      }
+    }
+    return ordered;
+  });
+
   return (
     <div class="manual-tab">
       <div class="manual-tab-header">
@@ -19,8 +72,7 @@ const ManualTab: Component = () => {
           <h2>Getting Started</h2>
           <p>
             Buster is a canvas-rendered IDE built with Tauri, Rust, and SolidJS.
-            Everything you see — the editor, terminal, sidebar, and this manual — renders
-            directly on HTML Canvas for maximum performance.
+            Every character on screen is drawn on HTML Canvas for maximum performance.
           </p>
           <p>
             Open a project folder with <kbd>Cmd+O</kbd> or click a recent folder on the welcome screen.
@@ -28,38 +80,31 @@ const ManualTab: Component = () => {
           </p>
         </section>
 
-        {/* ── Keyboard Shortcuts (from Legend) ────────────── */}
-        <section class="manual-section">
-          <h2>Keyboard Shortcuts — File</h2>
-          <table class="manual-table">
-            <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
-            <tbody>
-              <tr><td><kbd>Cmd+S</kbd></td><td>Save file</td></tr>
-              <tr><td><kbd>Cmd+O</kbd></td><td>Open folder</td></tr>
-              <tr><td><kbd>Cmd+W</kbd></td><td>Close tab / close window</td></tr>
-              <tr><td><kbd>Cmd+T</kbd></td><td>New terminal</td></tr>
-            </tbody>
-          </table>
-        </section>
+        {/* ── Generated shortcut tables ────────────────── */}
+        <For each={commandsByCategory()}>
+          {(group) => (
+            <section class="manual-section">
+              <h2>Keyboard Shortcuts — {group.category}</h2>
+              <table class="manual-table">
+                <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+                <tbody>
+                  <For each={group.commands}>
+                    {(cmd) => (
+                      <tr>
+                        <td><kbd>{cmd.keybinding}</kbd></td>
+                        <td>{cmd.label}</td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </section>
+          )}
+        </For>
 
+        {/* ── Editor built-in shortcuts (handled by the editor, not the command registry) */}
         <section class="manual-section">
-          <h2>Keyboard Shortcuts — Navigation</h2>
-          <table class="manual-table">
-            <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
-            <tbody>
-              <tr><td><kbd>Cmd+P</kbd></td><td>Open file picker</td></tr>
-              <tr><td><kbd>Cmd+Shift+P</kbd></td><td>Command palette</td></tr>
-              <tr><td><kbd>Cmd+Shift+O</kbd></td><td>Go to symbol (@)</td></tr>
-              <tr><td><kbd>Ctrl+G</kbd></td><td>Go to line (:)</td></tr>
-              <tr><td><kbd>Cmd+P</kbd> then <code>#</code></td><td>Search file contents</td></tr>
-              <tr><td><kbd>Cmd+P</kbd> then <code>?</code></td><td>Ask AI a question</td></tr>
-              <tr><td><kbd>Cmd+F</kbd></td><td>Find in file</td></tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section class="manual-section">
-          <h2>Keyboard Shortcuts — Editor</h2>
+          <h2>Editor Built-ins</h2>
           <table class="manual-table">
             <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
             <tbody>
@@ -76,40 +121,28 @@ const ManualTab: Component = () => {
               <tr><td><kbd>Alt+Up/Down</kbd></td><td>Move line up/down</td></tr>
               <tr><td><kbd>Cmd+J</kbd></td><td>Join lines</td></tr>
               <tr><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td><td>Indent / Outdent</td></tr>
-              <tr><td><kbd>Tab</kbd></td><td>Accept ghost text / Insert tab</td></tr>
               <tr><td><kbd>Ctrl+Space</kbd></td><td>Trigger autocomplete</td></tr>
               <tr><td><kbd>F12</kbd></td><td>Go to definition</td></tr>
               <tr><td><kbd>Cmd+.</kbd></td><td>Code actions</td></tr>
               <tr><td><kbd>F2</kbd></td><td>Rename symbol</td></tr>
               <tr><td><kbd>Shift+F12</kbd></td><td>Find references</td></tr>
-              <tr><td><kbd>F8</kbd> / <kbd>Shift+F8</kbd></td><td>Next / Previous diagnostic</td></tr>
             </tbody>
           </table>
         </section>
 
+        {/* ── Quick Open & Command Palette ──────────────── */}
         <section class="manual-section">
-          <h2>Keyboard Shortcuts — Git & View</h2>
+          <h2>Quick Open & Command Palette</h2>
           <table class="manual-table">
-            <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+            <thead><tr><th>Mode</th><th>Trigger</th><th>What it does</th></tr></thead>
             <tbody>
-              <tr><td><kbd>Cmd+Shift+B</kbd></td><td>Toggle blame view</td></tr>
-              <tr><td><kbd>Cmd+=</kbd></td><td>Zoom in</td></tr>
-              <tr><td><kbd>Cmd+-</kbd></td><td>Zoom out</td></tr>
-              <tr><td><kbd>Cmd+0</kbd></td><td>Reset zoom</td></tr>
-              <tr><td><kbd>Cmd+,</kbd></td><td>Open settings</td></tr>
-              <tr><td><kbd>Cmd+L</kbd></td><td>Open AI agent</td></tr>
-              <tr><td><kbd>Ctrl+`</kbd></td><td>New terminal</td></tr>
+              <tr><td>File search</td><td><kbd>Cmd+P</kbd></td><td>Fuzzy find any file in the project</td></tr>
+              <tr><td>Commands</td><td><kbd>Cmd+Shift+P</kbd> or type <code>&gt;</code></td><td>Run any registered command</td></tr>
+              <tr><td>Go to line</td><td>Type <code>:</code></td><td>Jump to a line number</td></tr>
+              <tr><td>Go to symbol</td><td>Type <code>@</code></td><td>Jump to a symbol in the file</td></tr>
+              <tr><td>Workspace search</td><td>Type <code>#</code></td><td>Search across all files</td></tr>
             </tbody>
           </table>
-        </section>
-
-        {/* ── LSP & Intelligence ────────────────────────── */}
-        <section class="manual-section">
-          <h2>Language Intelligence (LSP)</h2>
-          <p>
-            Buster automatically starts language servers when you open a supported file.
-            Supports 20 languages including Rust, TypeScript, Python, Go, C/C++, Java, Ruby, PHP, Lua, Bash, YAML, TOML, CSS, SCSS, and HTML.
-          </p>
         </section>
 
         {/* ── Terminal ──────────────────────────────────── */}
@@ -118,7 +151,8 @@ const ManualTab: Component = () => {
           <p>
             Full canvas-rendered terminal with real PTY support. Runs NeoVim, htop, tmux —
             anything your system terminal can run. Supports mouse reporting, bracketed paste,
-            256-color palette, and 10,000-line scrollback.
+            256-color palette, and 10,000-line scrollback. Terminal theme follows the app palette
+            automatically.
           </p>
         </section>
 
@@ -128,17 +162,26 @@ const ManualTab: Component = () => {
           <p>
             32 built-in git commands with no terminal required. Visual commit graph with colored
             lanes, blame overlay, diff gutters, staging, and conflict detection.
-            Open the Git panel from the dock.
+            Open the Git panel with <kbd>Cmd+Shift+G</kbd>.
           </p>
         </section>
 
-        {/* ── AI Agent ──────────────────────────────────── */}
+        {/* ── Language Intelligence ────────────────────── */}
         <section class="manual-section">
-          <h2>AI Agent</h2>
+          <h2>Language Intelligence (LSP)</h2>
           <p>
-            Integrated Claude AI that can read your files, write code, search the codebase,
-            and run commands — all with your approval. Supports Sonnet, Opus, and Haiku models.
-            Set your API key in Settings, then open the Models tab from the dock.
+            Buster automatically starts language servers when you open a supported file.
+            Supports 20 languages including Rust, TypeScript, Python, Go, C/C++, Java, Ruby, PHP, Lua, Bash, YAML, TOML, CSS, SCSS, and HTML.
+          </p>
+        </section>
+
+        {/* ── Syntax Highlighting ───────────────────────── */}
+        <section class="manual-section">
+          <h2>Syntax Highlighting</h2>
+          <p>
+            21 languages highlighted via Tree-sitter with native Rust parsing.
+            Additional grammars can be loaded at runtime from <code>~/.buster/grammars/</code>.
+            VS Code themes can be imported from Settings.
           </p>
         </section>
 
@@ -158,65 +201,29 @@ const ManualTab: Component = () => {
           <h2>Layouts</h2>
           <p>
             Six panel counts control the workspace layout:
-            <strong> g1</strong>, <strong> g2</strong>, <strong> g3</strong>,
-            <strong> g4</strong>, <strong> g5</strong>, and <strong> g6</strong>.
+            <strong> 1</strong> through <strong>6</strong>.
             The number matches the number of visible panels. Switch layouts from the
-            layout picker in the dock bar or press <kbd>Ctrl+`</kbd> then <kbd>1</kbd> through <kbd>6</kbd>.
+            layout picker in the dock bar.
           </p>
-        </section>
-
-        {/* ── Syntax Highlighting ───────────────────────── */}
-        <section class="manual-section">
-          <h2>Syntax Highlighting</h2>
-          <p>
-            21 languages highlighted via Tree-sitter with native Rust parsing.
-            Additional grammars can be loaded at runtime from <code>~/.buster/grammars/</code>.
-            VS Code themes can be imported from Settings.
-          </p>
-        </section>
-
-        {/* ── Quick Open & Command Palette ──────────────── */}
-        <section class="manual-section">
-          <h2>Quick Open & Command Palette</h2>
-          <table class="manual-table">
-            <thead><tr><th>Mode</th><th>Trigger</th><th>What it does</th></tr></thead>
-            <tbody>
-              <tr><td>File search</td><td><kbd>Cmd+P</kbd></td><td>Fuzzy find any file in the project</td></tr>
-              <tr><td>Commands</td><td><kbd>Cmd+Shift+P</kbd> or type <code>&gt;</code></td><td>Run any command</td></tr>
-              <tr><td>Go to line</td><td>Type <code>:</code></td><td>Jump to a line number</td></tr>
-              <tr><td>Go to symbol</td><td>Type <code>@</code></td><td>Jump to a symbol in the file</td></tr>
-              <tr><td>Workspace search</td><td>Type <code>#</code></td><td>Search across all files</td></tr>
-              <tr><td>AI prompt</td><td>Type <code>?</code></td><td>Ask the AI agent a question</td></tr>
-            </tbody>
-          </table>
         </section>
 
         {/* ── Settings & Theming ────────────────────────── */}
         <section class="manual-section">
           <h2>Settings & Theming</h2>
           <p>
-            Open Settings from the dock. Customize keyboard shortcuts by clicking any binding
+            Open Settings with <kbd>Cmd+,</kbd>. Customize keyboard shortcuts by clicking any binding
             to rebind it. Import VS Code <code>.json</code> theme files to change the color scheme.
-            The default theme is Catppuccin Mocha.
+            The default dark theme is Catppuccin Mocha; the default light theme is a warm beige palette.
           </p>
         </section>
 
         {/* ── Debugger ──────────────────────────────────── */}
         <section class="manual-section">
-          <h2>Debugger</h2>
+          <h2>Debugger (Experimental)</h2>
           <p>
             DAP-based debugger with support for CodeLLDB (Rust/C/C++), debugpy (Python),
             Delve (Go), and JavaScript Debug. Set breakpoints by clicking the editor gutter.
             Conditional breakpoints and variable inspection with lazy child expansion.
-          </p>
-        </section>
-
-        {/* ── Remote Development ────────────────────────── */}
-        <section class="manual-section">
-          <h2>Remote Development</h2>
-          <p>
-            SSH remote support with agent and key file authentication.
-            Connect to remote hosts, browse files via SFTP, and execute commands over SSH.
           </p>
         </section>
       </div>

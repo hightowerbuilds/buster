@@ -2,7 +2,7 @@ import { Component, onMount, onCleanup, createSignal, createEffect } from "solid
 import type { SearchMatch, DiffHunk, GitBlameLine } from "../lib/ipc";
 import { gitBlame } from "../lib/ipc";
 import { createEditorEngine, getCharWidth, type EditorEngine } from "./engine";
-import { requestHighlights, spansToLineTokens, setSyntaxPalette, type LineToken } from "./ts-highlighter";
+import { requestHighlights, spansToLineTokens, setSyntaxPalette, syntaxOpen, syntaxClose, type LineToken } from "./ts-highlighter";
 import { renderEditor } from "./canvas-renderer";
 import { createAutocomplete } from "./editor-autocomplete";
 import { createHover } from "./editor-hover";
@@ -128,25 +128,29 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // ── Syntax highlights ───────────────────────────────────────────
 
   let cachedLineTokens: LineToken[][] = [];
-  let cachedLinesRef: string[] | null = null;
+  let highlightDirty = true;
   let highlightPending = false;
 
   function refreshHighlights() {
     const ls = engine.lines();
     const fp = engine.filePath();
-    if (!fp || highlightPending) return;
-    if (ls === cachedLinesRef) return;
+    if (!fp || highlightPending || !highlightDirty) return;
+
+    // Compute visible viewport for scoped highlighting
+    const lh = lineHeight();
+    const startLine = Math.max(0, Math.floor(scrollTop() / lh) - 5);
+    const endLine = Math.min(ls.length - 1, Math.ceil((scrollTop() + canvasHeight()) / lh) + 5);
 
     highlightPending = true;
+    highlightDirty = false;
     const source = ls.join("\n");
-    requestHighlights(source, fp).then((spans) => {
+    requestHighlights(fp, source, startLine, endLine).then((spans) => {
       cachedLineTokens = spansToLineTokens(spans, ls);
-      cachedLinesRef = ls;
       highlightPending = false;
     }).catch(() => { highlightPending = false; });
   }
 
-  function clearHighlightCache() { cachedLinesRef = null; }
+  function clearHighlightCache() { highlightDirty = true; }
 
   // ── Layout helpers ──────────────────────────────────────────────
 
@@ -908,6 +912,12 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef) resizeObserver.observe(containerRef);
 
+    // Open document for incremental syntax highlighting
+    const fp = props.filePath;
+    if (fp) {
+      syntaxOpen(fp, engine.lines().join("\n"));
+    }
+
     scheduleRender();
     if (props.autoFocus) {
       requestAnimationFrame(() => focusInput());
@@ -919,6 +929,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       a11y.cleanup();
+      // Close document syntax tree
+      if (fp) syntaxClose(fp);
     });
   });
 
