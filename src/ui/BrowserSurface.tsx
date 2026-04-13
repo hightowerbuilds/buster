@@ -147,6 +147,9 @@ const BrowserSurface: Component<BrowserSurfaceProps> = (props) => {
     canvasRef.addEventListener("keydown", handleKeyDown);
     canvasRef.tabIndex = 0;
 
+    // Auto-focus the canvas so keyboard events work immediately
+    requestAnimationFrame(() => canvasRef?.focus());
+
     // ── Devtools polling ──────────────────────────────────────────
     pollInterval = setInterval(() => {
       browserModulePoll().catch(() => {});
