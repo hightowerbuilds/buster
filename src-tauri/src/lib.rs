@@ -62,11 +62,18 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let close_tab = MenuItem::with_id(
+                app,
+                "close_tab",
+                "Close Tab",
+                true,
+                Some("CmdOrCtrl+W"),
+            )?;
             let file_menu = Submenu::with_items(app, "File", true, &[
                 &change_dir,
                 &close_dir,
                 &PredefinedMenuItem::separator(app)?,
-                &PredefinedMenuItem::close_window(app, Some("Close Window"))?,
+                &close_tab,
             ])?;
 
             // Use PredefinedMenuItems so macOS registers native selectors (undo:, cut:, copy:, paste:, selectAll:).
@@ -103,6 +110,9 @@ pub fn run() {
                     }
                     "close_directory" => {
                         let _ = app_handle.emit("menu-close-directory", ());
+                    }
+                    "close_tab" => {
+                        let _ = app_handle.emit("menu-close-tab", ());
                     }
                     "undo" => {
                         let _ = app_handle.emit("menu-undo", ());

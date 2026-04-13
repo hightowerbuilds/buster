@@ -12,7 +12,8 @@ export type TabType =
   | "problems"
   | "search-results"
   | "surface"
-  | "browser";
+  | "browser"
+  | "console";
 
 const IMAGE_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif", "tiff", "tif",

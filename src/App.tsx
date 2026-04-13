@@ -95,6 +95,11 @@ const App: Component = () => {
     closeCommandLine();
   }
 
+  function handleCommandLineConsole() {
+    actions.createConsoleTab();
+    closeCommandLine();
+  }
+
   function handleCommandLineSettings() {
     actions.createSettingsTab();
     closeCommandLine();
@@ -344,6 +349,7 @@ const App: Component = () => {
               errorCount={actions.diagnosticCounts().errors}
               warningCount={actions.diagnosticCounts().warnings}
               onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
+              onLspClick={actions.restartLsp}
               vimMode={store.vimMode}
             />
         </div>
@@ -361,6 +367,7 @@ const App: Component = () => {
         onOpenDebug={handleCommandLineDebug}
         onOpenGit={handleCommandLineGit}
         onOpenBrowser={handleCommandLineBrowser}
+        onOpenConsole={handleCommandLineConsole}
         onOpenSettings={handleCommandLineSettings}
       />
       <CommandPalette

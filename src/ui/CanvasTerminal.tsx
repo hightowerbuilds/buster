@@ -5,6 +5,7 @@ import CanvasSurface from "./CanvasSurface";
 import { useBuster } from "../lib/buster-context";
 import { FONT_FAMILY, getCharWidth, measureTextWidth } from "../editor/text-measure";
 import { showToast } from "./CanvasToasts";
+import { showError } from "../lib/notify";
 
 interface TermCell {
   ch: string;
@@ -467,7 +468,9 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       if (ptyId) {
         try {
           await invoke("terminal_resize", { termId: ptyId, rows, cols });
-        } catch {}
+        } catch (e) {
+          console.warn("Terminal resize failed:", e);
+        }
       }
     }
     needsRedraw = true;
@@ -819,7 +822,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       });
       props.onTermIdReady(props.termTabId, ptyId);
     } catch (err) {
-      console.error("Failed to spawn terminal:", err);
+      showError("Failed to spawn terminal", err);
     }
 
     resizeObs = new ResizeObserver(() => {

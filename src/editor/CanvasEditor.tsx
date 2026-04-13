@@ -19,6 +19,7 @@ import { clipboardWrite } from "../lib/clipboard";
 import { basename, extname } from "buster-path";
 import { lspDidChange, lspDidChangeIncremental } from "../lib/ipc";
 import { useBuster } from "../lib/buster-context";
+import { showError } from "../lib/notify";
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -314,9 +315,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
                 debugGetBreakpoints(props.filePath!).then(bps => {
                   setBreakpointSet(new Set(bps.map(bp => bp.line)));
                   scheduleRender();
-                }).catch(() => {});
+                }).catch(() => showError("Failed to refresh breakpoints"));
               });
-            }).catch(() => {});
+            }).catch(() => showError("Failed to toggle breakpoint"));
           });
           focusInput();
           return;
@@ -585,7 +586,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
               engine.endUndoGroup();
               clearHighlightCache();
             }
-          }).catch(() => {});
+          }).catch(() => showError("Rename failed"));
         });
       }
       return;
@@ -605,7 +606,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
             }).join("\n");
             hover.showImmediate(`${locations.length} references:\n${text}`, c.line, c.col);
           }
-        }).catch(() => {});
+        }).catch(() => showError("Find references failed"));
       });
       return;
     }

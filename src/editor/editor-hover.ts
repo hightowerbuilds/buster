@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { lspHover, lspDefinition } from "../lib/ipc";
+import { showError } from "../lib/notify";
 
 export interface HoverDeps {
   filePath: () => string | null;
@@ -56,7 +57,9 @@ export function createHover(deps: HoverDeps) {
           deps.onGoToFile?.(loc.file_path, loc.line, loc.col);
         }
       }
-    } catch {}
+    } catch {
+      showError("Go to definition failed");
+    }
   }
 
   function showImmediate(text: string, line: number, col: number) {

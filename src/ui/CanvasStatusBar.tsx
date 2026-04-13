@@ -25,6 +25,7 @@ interface CanvasStatusBarProps {
   errorCount?: number;
   warningCount?: number;
   onDiagnosticsClick?: () => void;
+  onLspClick?: () => void;
   vimMode?: string | null;
 }
 
@@ -40,6 +41,7 @@ const LSP_LABELS: Record<LspState, string> = {
   starting: "LSP Starting...",
   active: "LSP",
   error: "LSP Error",
+  crashed: "LSP Crashed — Restart",
 };
 
 // ── Component ────────────────────────────────────────────────────────
@@ -173,12 +175,33 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     // LSP status
     const lspLabel = getLspLabel(props.lspState, props.lspLanguages);
     if (lspLabel) {
-      const lspColor = props.lspState === "error" ? errorColor
+      const lspClickable = props.lspState === "error" || props.lspState === "crashed";
+      const lspColor = (props.lspState === "error" || props.lspState === "crashed") ? errorColor
         : props.lspState === "starting" ? warningColor
         : textOnAccent;
+      const lspW = ctx.measureText(lspLabel).width;
+      const lspHovered = hovered === "lsp";
+
+      if (lspHovered && lspClickable) {
+        ctx.fillStyle = textOnAccent;
+        ctx.globalAlpha = 0.15;
+        ctx.fillRect(rx - lspW - 3, 2, lspW + 6, h - 4);
+        ctx.globalAlpha = 1;
+      }
+
       ctx.fillStyle = lspColor;
       ctx.fillText(lspLabel, rx, cy);
-      rx -= ctx.measureText(lspLabel).width + ITEM_GAP;
+
+      if (lspClickable && props.onLspClick) {
+        regions.push({
+          id: "lsp",
+          x: rx - lspW - 3, y: 0, w: lspW + 6, h,
+          cursor: "pointer",
+          onClick: () => props.onLspClick?.(),
+        });
+      }
+
+      rx -= lspW + ITEM_GAP;
     }
 
     // Diagnostics

@@ -3,6 +3,7 @@ import { gitStatus, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitPush, gi
 import type { GitStatusResult, GitRemote } from "../lib/ipc";
 import DiffView from "./DiffView";
 import { showToast } from "./CanvasToasts";
+import { showError, showSuccess } from "../lib/notify";
 
 interface GitPanelProps {
   workspaceRoot: string | null;
@@ -44,7 +45,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
       setStatus(result);
     } catch (e) {
       setStatus(null);
-      showToast("Git status failed: " + String(e), "error");
+      showError("Git status failed", e);
     }
     refreshAheadBehind();
     refreshStashes();
@@ -60,7 +61,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     } catch (e) {
       setAhead(0);
       setBehind(0);
-      showToast("Failed to check ahead/behind: " + String(e), "error");
+      showError("Failed to check ahead/behind", e);
     }
   }
 
@@ -70,7 +71,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
       setStashes(await gitStashList(props.workspaceRoot));
     } catch (e) {
       setStashes([]);
-      showToast("Failed to list stashes: " + String(e), "error");
+      showError("Failed to list stashes", e);
     }
   }
 
@@ -91,8 +92,8 @@ const GitPanel: Component<GitPanelProps> = (props) => {
       setNewRemoteUrl("");
       setAddingRemote(false);
       await refreshRemotes();
-      showToast("Remote added", "success");
-    } catch (e) { showToast("Failed to add remote: " + String(e), "error"); }
+      showSuccess("Remote added");
+    } catch (e) { showError("Failed to add remote", e); }
   }
 
   async function handleRemoveRemote(name: string) {
@@ -102,8 +103,8 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitRemoteRemove(props.workspaceRoot, name);
       await refreshRemotes();
-      showToast("Remote removed", "success");
-    } catch (e) { showToast("Failed to remove remote: " + String(e), "error"); }
+      showSuccess("Remote removed");
+    } catch (e) { showError("Failed to remove remote", e); }
   }
 
   async function handleFetchRemote(name: string) {
@@ -111,8 +112,8 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitFetch(props.workspaceRoot, name);
       refreshAheadBehind();
-      showToast(`Fetched ${name}`, "success");
-    } catch (e) { showToast("Fetch failed: " + String(e), "error"); }
+      showSuccess(`Fetched ${name}`);
+    } catch (e) { showError("Fetch failed", e); }
   }
 
   // Refresh when workspace changes
@@ -128,7 +129,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitStage(props.workspaceRoot, path);
       await refresh();
-    } catch (e) { showToast("Stage failed: " + String(e), "error"); }
+    } catch (e) { showError("Stage failed", e); }
   }
 
   async function handleUnstage(path: string) {
@@ -136,7 +137,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitUnstage(props.workspaceRoot, path);
       await refresh();
-    } catch (e) { showToast("Unstage failed: " + String(e), "error"); }
+    } catch (e) { showError("Unstage failed", e); }
   }
 
   async function handleCommit() {
@@ -156,7 +157,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
       setTimeout(() => setCommitResult(null), 2000);
     } catch (e) {
       setCommitResult("error");
-      showToast("Commit failed: " + String(e), "error");
+      showError("Commit failed", e);
     }
     setLoading(false);
   }
@@ -167,7 +168,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitPush(props.workspaceRoot);
       await refreshAheadBehind();
-    } catch (e) { showToast("Push failed: " + String(e), "error"); }
+    } catch (e) { showError("Push failed", e); }
     setSyncing(false);
   }
 
@@ -177,7 +178,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitPull(props.workspaceRoot);
       await refresh();
-    } catch (e) { showToast("Pull failed: " + String(e), "error"); }
+    } catch (e) { showError("Pull failed", e); }
     setSyncing(false);
   }
 
@@ -187,7 +188,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitFetch(props.workspaceRoot);
       await refreshAheadBehind();
-    } catch (e) { showToast("Fetch failed: " + String(e), "error"); }
+    } catch (e) { showError("Fetch failed", e); }
     setSyncing(false);
   }
 
@@ -196,7 +197,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitStashSave(props.workspaceRoot, undefined, true);
       await refresh();
-    } catch (e) { showToast("Stash save failed: " + String(e), "error"); }
+    } catch (e) { showError("Stash save failed", e); }
   }
 
   async function handleStashPop(index: number) {
@@ -204,7 +205,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitStashPop(props.workspaceRoot, index);
       await refresh();
-    } catch (e) { showToast("Stash pop failed: " + String(e), "error"); }
+    } catch (e) { showError("Stash pop failed", e); }
   }
 
   async function handleStashDrop(index: number) {
@@ -212,7 +213,7 @@ const GitPanel: Component<GitPanelProps> = (props) => {
     try {
       await gitStashDrop(props.workspaceRoot, index);
       await refreshStashes();
-    } catch (e) { showToast("Stash drop failed: " + String(e), "error"); }
+    } catch (e) { showError("Stash drop failed", e); }
   }
 
   function handleKeyDown(e: KeyboardEvent) {

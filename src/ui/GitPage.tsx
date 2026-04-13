@@ -75,6 +75,7 @@ const GitPage: Component<GitPageProps> = (props) => {
 // Simple log view — canvas-rendered git log
 import { gitLogGraph } from "../lib/ipc";
 import type { GitCommitNode } from "../lib/ipc";
+import { showError } from "../lib/notify";
 
 const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) => {
   const { store } = useBuster();
@@ -98,7 +99,9 @@ const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) =
       const data = await gitLogGraph(props.workspaceRoot, 200);
       setCommits(data);
       scheduleRedraw();
-    } catch {}
+    } catch {
+      showError("Failed to load git log");
+    }
   }
 
   function scheduleRender() {

@@ -2,6 +2,7 @@ import { Component, createSignal, For, Show, onMount } from "solid-js";
 import { listExtensions, loadExtension, unloadExtension, type ExtensionInfo } from "../lib/extension-host";
 import { extInstall, extUninstall, extCall } from "../lib/ipc";
 import { showToast } from "./CanvasToasts";
+import { showError } from "../lib/notify";
 
 const CAPABILITY_LABELS: Record<string, string> = {
   network: "Open gateway connections",
@@ -24,7 +25,9 @@ const ExtensionsPage: Component = () => {
   async function refresh() {
     try {
       setExtensions(await listExtensions());
-    } catch {}
+    } catch {
+      showError("Failed to load extensions");
+    }
     setLoaded(true);
   }
 
@@ -41,7 +44,7 @@ const ExtensionsPage: Component = () => {
       }
       await refresh();
     } catch (e) {
-      showToast(`Failed: ${String(e)}`, "error");
+      showError("Extension toggle failed", e);
     }
   }
 
@@ -54,7 +57,7 @@ const ExtensionsPage: Component = () => {
       }
       await extCall(ext.id, commandId);
     } catch (e) {
-      showToast(`Launch failed: ${String(e)}`, "error");
+      showError("Extension launch failed", e);
     }
   }
 
@@ -67,7 +70,7 @@ const ExtensionsPage: Component = () => {
       showToast(`Installed ${info.name}`, "success");
       await refresh();
     } catch (e) {
-      showToast(`Install failed: ${String(e)}`, "error");
+      showError("Extension install failed", e);
     }
   }
 
@@ -78,7 +81,7 @@ const ExtensionsPage: Component = () => {
       showToast("Extension uninstalled", "success");
       await refresh();
     } catch (e) {
-      showToast(`Uninstall failed: ${String(e)}`, "error");
+      showError("Extension uninstall failed", e);
     }
   }
 

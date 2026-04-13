@@ -92,7 +92,9 @@ const BrowserSurface: Component<BrowserSurfaceProps> = (props) => {
             canvasRef.style.width = `${currentWidth}px`;
             canvasRef.style.height = `${currentHeight}px`;
           }
-        } catch {}
+        } catch {
+          console.error("Failed to parse browser resize:", payload.content.slice(0, 200));
+        }
       }
     });
 
@@ -103,7 +105,9 @@ const BrowserSurface: Component<BrowserSurfaceProps> = (props) => {
           try {
             const commands: DrawCommand[] = JSON.parse(content);
             paint(commands);
-          } catch {}
+          } catch {
+            console.error("Failed to parse buffered browser display list");
+          }
         }
       })
       .catch(() => {});

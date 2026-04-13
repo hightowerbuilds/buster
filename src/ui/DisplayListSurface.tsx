@@ -82,7 +82,9 @@ const DisplayListSurface: Component<DisplayListSurfaceProps> = (props) => {
             canvasRef.style.width = `${currentWidth}px`;
             canvasRef.style.height = `${currentHeight}px`;
           }
-        } catch {}
+        } catch {
+          console.error("Failed to parse surface resize:", payload.content.slice(0, 200));
+        }
       }
     });
 
@@ -92,7 +94,9 @@ const DisplayListSurface: Component<DisplayListSurfaceProps> = (props) => {
         try {
           const commands: DrawCommand[] = JSON.parse(content);
           paint(commands);
-        } catch {}
+        } catch {
+          console.error("Failed to parse buffered display list");
+        }
       }
     }).catch(() => {});
 

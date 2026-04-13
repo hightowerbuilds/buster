@@ -15,6 +15,7 @@ import type { DirtyCloseResult } from "../ui/DirtyCloseDialog";
 import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
 import type { SessionSnapshot } from "./session";
 import { showToast } from "../ui/CanvasToasts";
+import { showError, showSuccess, showInfo, logWarn } from "./notify";
 import { setupDebugEventListener } from "./debug-events";
 
 import {
@@ -190,7 +191,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
   function updateSettings(newSettings: AppSettings) {
     setStore("settings", newSettings);
-    saveSettingsIpc(newSettings).catch(() => showToast("Failed to save settings", "error"));
+    saveSettingsIpc(newSettings).catch(() => showError("Failed to save settings"));
     document.documentElement.style.fontSize = `${newSettings.ui_zoom}%`;
     rebuildPalette(newSettings);
   }
@@ -322,20 +323,53 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       switchToTab(tabId);
       addRecentFile(filePath, fileName);
 
-      watchFile(filePath).catch(() => showToast("File watcher failed — external changes may be missed", "error"));
+      watchFile(filePath).catch(() => showError("File watcher failed — external changes may be missed"));
       fetchDiffHunks(tabId, filePath);
 
       if (store.workspaceRoot) {
-        setStore("lspState", "starting");
-        lspStart(filePath, store.workspaceRoot)
-          .then(() => {
-            setStore("lspState", "active");
-            lspStatus().then(langs => setStore("lspLanguages", langs)).catch(() => {});
-          })
-          .catch(() => { showToast("Language server failed to start", "error"); setStore("lspState", "error"); });
+        attemptLspStart(filePath, store.workspaceRoot);
       }
     } catch {
-      showToast("Failed to open file", "error");
+      showError("Failed to open file");
+    }
+  }
+
+  // ── LSP lifecycle with crash recovery ────────────────────
+
+  let lspFailCount = 0;
+  const LSP_MAX_RETRIES = 3;
+  const LSP_BACKOFF_BASE = 2000; // 2s, 4s, 8s
+
+  function attemptLspStart(filePath: string, workspaceRoot: string) {
+    if (store.lspState === "crashed") return; // user must manually restart
+    setStore("lspState", "starting");
+    lspStart(filePath, workspaceRoot)
+      .then(() => {
+        lspFailCount = 0;
+        setStore("lspState", "active");
+        lspStatus().then(langs => setStore("lspLanguages", langs)).catch(() => {});
+      })
+      .catch(() => {
+        lspFailCount++;
+        if (lspFailCount >= LSP_MAX_RETRIES) {
+          setStore("lspState", "crashed");
+          showError(`Language server crashed after ${LSP_MAX_RETRIES} attempts — click LSP in status bar to restart`);
+        } else {
+          const delay = LSP_BACKOFF_BASE * Math.pow(2, lspFailCount - 1);
+          logWarn(`LSP failed (attempt ${lspFailCount}/${LSP_MAX_RETRIES}), retrying in ${delay / 1000}s`);
+          setStore("lspState", "error");
+          setTimeout(() => attemptLspStart(filePath, workspaceRoot), delay);
+        }
+      });
+  }
+
+  function restartLsp() {
+    lspFailCount = 0;
+    setStore("lspState", "inactive");
+    // Find the first open file tab to trigger LSP start
+    const fileTab = store.tabs.find(t => t.type === "file" && t.path);
+    if (fileTab && store.workspaceRoot) {
+      attemptLspStart(fileTab.path, store.workspaceRoot);
     }
   }
 
@@ -362,12 +396,13 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   function createExtensionsTab() { openSingletonTab("extensions", "extensions_tab", "Extensions"); }
   function createDebugTab() { openSingletonTab("debug", "debug_tab", "Debug"); }
   function createProblemsTab() { openSingletonTab("problems", "problems_tab", "Problems"); }
+  function createConsoleTab() { openSingletonTab("console", "console_tab", "Console"); }
   async function createBrowserTab() {
     try {
       await browserModuleLaunch();
       // Tab creation happens via surface-event listener (intercepts __builtin_browser)
     } catch (e) {
-      showToast("Failed to launch browser: " + String(e), "error");
+      showError("Failed to launch browser", e);
     }
   }
   function popOutSidebar() {
@@ -432,7 +467,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       if (engine) {
         engine.loadText(extChangeDiskContent);
         setStore("tabs", store.tabs.map(t => t.id === tabId ? { ...t, dirty: false } : t));
-        showToast("Loaded from disk", "info");
+        showInfo("Loaded from disk");
       }
     }
   }
@@ -472,7 +507,9 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
         if (meta.extension_id) {
           extUnload(meta.extension_id).catch(() => {});
         }
-      } catch {}
+      } catch {
+        console.warn("Failed to parse surface tab metadata");
+      }
     }
 
     if (tab.type === "file") {
@@ -532,8 +569,8 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       lspDidSave(tab.path).catch(e => console.warn("LSP didSave failed:", e));
       setStore("tabs", store.tabs.map(t => t.id === tab.id ? { ...t, dirty: false } : t));
       fetchDiffHunks(tab.id, tab.path);
-      showToast("Saved", "success");
-    } catch { showToast("Failed to save", "error"); }
+      showSuccess("Saved");
+    } catch { showError("Failed to save"); }
   }
 
   async function handleSync() {
@@ -551,11 +588,13 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
         try {
           const { content } = await loadFileContent(tab.path);
           if (content !== engine.getText()) engine.loadText(content);
-        } catch {}
+        } catch {
+          showError(`Failed to sync ${tab.name}`);
+        }
         fetchDiffHunks(tab.id, tab.path);
       }
-      showToast("Synced", "success");
-    } catch { showToast("Sync failed", "error"); }
+      showSuccess("Synced");
+    } catch { showError("Sync failed"); }
     finally { setStore("syncing", false); }
   }
 
@@ -691,7 +730,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   import("./ipc").then(({ setRunningFlag }) => {
     setRunningFlag().then(wasDirty => {
       if (wasDirty) {
-        showToast("Recovered unsaved changes from last session", "info");
+        showInfo("Recovered unsaved changes from last session");
       }
     }).catch(() => {});
   });
@@ -765,6 +804,11 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     openExtensions: createExtensionsTab,
     openDebug: createDebugTab,
     openSettings: createSettingsTab,
+    closeTabOrWindow: () => {
+      const id = store.activeTabId;
+      if (id) handleTabClose(id);
+      else closeApp();
+    },
   })
     .then(handles => menuListeners.push(...handles));
 
@@ -859,6 +903,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     createDebugTab,
     createProblemsTab,
     createBrowserTab,
+    createConsoleTab,
     popOutSidebar,
     handleTermIdReady,
     handleTermTitleChange,
@@ -875,6 +920,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     addRecentFile,
     jumpToDiagnostic,
     diagnosticCounts,
+    restartLsp,
     fetchDiffHunks,
     buildSnapshot,
     saveSessionNow,

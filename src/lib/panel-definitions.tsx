@@ -20,6 +20,7 @@ import Sidebar from "../ui/Sidebar";
 import ImageViewer from "../ui/ImageViewer";
 import DisplayListSurface from "../ui/DisplayListSurface";
 import BrowserSurface from "../ui/BrowserSurface";
+import ConsolePanel from "../ui/ConsolePanel";
 
 // ── Terminal ─────────────────────────────────────────────────────────
 
@@ -161,4 +162,10 @@ registerPanel("browser", {
       />
     );
   },
+});
+
+// ── Buster Console ──────────────────────────────────────────────────
+
+registerPanel("console", {
+  render: (_tab, isActive) => <ConsolePanel active={isActive()} />,
 });

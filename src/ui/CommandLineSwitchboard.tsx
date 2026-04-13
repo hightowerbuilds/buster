@@ -11,6 +11,7 @@ interface CommandLineSwitchboardProps {
   onOpenSettings: () => void;
   onOpenGit: () => void;
   onOpenBrowser: () => void;
+  onOpenConsole: () => void;
 }
 
 type CommandOption =
@@ -51,6 +52,12 @@ type CommandOption =
       description: string;
       action: "browser";
     }
+  | {
+      key: string;
+      label: string;
+      description: string;
+      action: "console";
+    }
 const COMMAND_OPTIONS: CommandOption[] = [
   ...PRIMARY_LAYOUT_OPTIONS.map((layout) => ({
     key: layout.label.slice(1),
@@ -82,6 +89,12 @@ const COMMAND_OPTIONS: CommandOption[] = [
     label: "brw",
     description: "Browser",
     action: "browser" as const,
+  },
+  {
+    key: "l",
+    label: "log",
+    description: "Console",
+    action: "console" as const,
   },
   {
     key: "s",
@@ -132,7 +145,7 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
   }
 
   function handleInput(e: InputEvent & { currentTarget: HTMLInputElement; target: Element }) {
-    const key = e.currentTarget.value.toLowerCase().replace(/[^1-6edgbs]/g, "").slice(-1);
+    const key = e.currentTarget.value.toLowerCase().replace(/[^1-6edgbls]/g, "").slice(-1);
     e.currentTarget.value = key;
     if (!key) return;
 
@@ -144,6 +157,7 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
     else if (option.action === "debug") props.onOpenDebug();
     else if (option.action === "git") props.onOpenGit();
     else if (option.action === "browser") props.onOpenBrowser();
+    else if (option.action === "console") props.onOpenConsole();
     else if (option.action === "settings") props.onOpenSettings();
   }
 
@@ -166,12 +180,12 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
               autocapitalize="off"
               spellcheck={false}
               aria-label="Command line input"
-              placeholder="1-6 / E / D / G / B / S"
+              placeholder="1-6 / E / D / G / B / L / S"
               onKeyDown={handleKeyDown}
               onInput={handleInput}
             />
           </div>
-          <div class="command-line-caption">Press 1-6 for panel layouts, E for Extensions, D for Debug, G for Git, B for Browser, or S for Settings.</div>
+          <div class="command-line-caption">Press 1-6 for panel layouts, E for Extensions, D for Debug, G for Git, B for Browser, L for Console, or S for Settings.</div>
           <div class="command-line-options" role="list">
             <For each={COMMAND_OPTIONS}>
               {(option) => (

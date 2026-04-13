@@ -9,7 +9,7 @@ import type { DebugSessionState } from "./debug-events";
 import type { ThemePalette } from "./theme";
 import type { PanelCount } from "./panel-count";
 
-export type LspState = "inactive" | "starting" | "active" | "error";
+export type LspState = "inactive" | "starting" | "active" | "error" | "crashed";
 
 export interface RecentFile {
   path: string;
