@@ -21,6 +21,7 @@ interface CanvasTabBarProps {
   onSelect: (id: string) => void;
   onActivate?: (id: string) => void;
   onClose: (id: string) => void;
+  onRename?: (id: string, name: string) => void;
   onNewTerminal: () => void;
   onReorder?: (fromIdx: number, toIdx: number) => void;
 }
@@ -57,6 +58,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
   const [dragFromIdx, setDragFromIdx] = createSignal<number | null>(null);
   const [dropIdx, setDropIdx] = createSignal<number | null>(null);
   const [ghostStyle, setGhostStyle] = createSignal<{ left: number; top: number; name: string } | null>(null);
+  const [editingTab, setEditingTab] = createSignal<{ id: string; x: number; w: number } | null>(null);
 
   // Cached tab x-positions for drag drop-target detection
   let tabRects: Array<{ x: number; w: number }> = [];
@@ -185,15 +187,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
 
       if (isDrag) ctx.globalAlpha = 1;
 
-      // Close hit region (on top so it wins hit test)
-      regions.push({
-        id: `close-${i}`,
-        x: closeX - 2, y: 0, w: CLOSE_W + 4, h,
-        cursor: "pointer",
-        onClick: (e) => { e.stopPropagation(); props.onClose(tab.id); },
-      });
-
-      // Tab hit region
+      // Tab hit region (pushed first — lower priority in reverse hit test)
       regions.push({
         id: `tab-${i}`,
         x: Math.max(0, x), y: 0,
@@ -202,6 +196,15 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
         cursor: "pointer",
         onClick: () => (props.onActivate ?? props.onSelect)(tab.id),
         onPointerDown: (e) => startDrag(i, e),
+        onDblClick: () => startInlineRename(tab),
+      });
+
+      // Close hit region (pushed after tab — wins in reverse hit test)
+      regions.push({
+        id: `close-${i}`,
+        x: closeX - 2, y: 0, w: CLOSE_W + 4, h,
+        cursor: "pointer",
+        onClick: (e) => { e.stopPropagation(); props.onClose(tab.id); },
       });
 
       x += tabW;
@@ -234,6 +237,34 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
 
     return regions;
   };
+
+  // ── Inline rename ──────────────────────────────────────────────────
+
+  function startInlineRename(tab: Tab) {
+    if (!props.onRename) return;
+    const idx = props.tabs.findIndex(t => t.id === tab.id);
+    if (idx < 0) return;
+    const rect = tabRects[idx];
+    if (!rect) return;
+    // Position the input over the tab name area (skip icon)
+    const nameX = rect.x - scrollX() + PAD + 20; // rough icon+gap offset
+    const nameW = rect.w - PAD * 2 - 20 - CLOSE_W;
+    setEditingTab({ id: tab.id, x: nameX, w: Math.max(60, nameW) });
+  }
+
+  function commitRename(newName: string) {
+    const editing = editingTab();
+    if (!editing) return;
+    const trimmed = newName.trim();
+    if (trimmed) {
+      props.onRename?.(editing.id, trimmed);
+    }
+    setEditingTab(null);
+  }
+
+  function cancelRename() {
+    setEditingTab(null);
+  }
 
   // ── Scroll ─────────────────────────────────────────────────────────
 
@@ -329,7 +360,44 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
         tabIndex={0}
-      />
+      >
+        <Show when={editingTab()}>
+          {(editing) => {
+            const tab = props.tabs.find(t => t.id === editing().id);
+            return (
+              <input
+                ref={(el) => {
+                  requestAnimationFrame(() => { el.focus(); el.select(); });
+                }}
+                type="text"
+                value={tab?.name ?? ""}
+                style={{
+                  position: "absolute",
+                  left: `${editing().x}px`,
+                  top: "6px",
+                  width: `${editing().w}px`,
+                  height: `${BAR_H - 12}px`,
+                  background: "var(--editor-bg, #1e1e2e)",
+                  color: "var(--text, #cdd6f4)",
+                  border: "1px solid var(--accent, #89b4fa)",
+                  "border-radius": "2px",
+                  "font-size": "13px",
+                  "font-family": "'Courier New', Courier, monospace",
+                  padding: "0 4px",
+                  outline: "none",
+                  "z-index": "10",
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); commitRename(e.currentTarget.value); }
+                  else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                  e.stopPropagation();
+                }}
+                onBlur={(e) => commitRename(e.currentTarget.value)}
+              />
+            );
+          }}
+        </Show>
+      </CanvasChrome>
       <Show when={ghostStyle()}>
         {(gs) => (
           <div

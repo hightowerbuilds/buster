@@ -22,6 +22,7 @@ export interface HitRegion {
   h: number;
   cursor?: string;
   onClick?: (e: MouseEvent) => void;
+  onDblClick?: (e: MouseEvent) => void;
   onPointerDown?: (e: PointerEvent) => void;
 }
 
@@ -134,6 +135,11 @@ const CanvasChrome: Component<CanvasChromeProps> = (props) => {
     region?.onClick?.(e);
   }
 
+  function handleDblClick(e: MouseEvent) {
+    const region = hitTest(e.clientX, e.clientY);
+    region?.onDblClick?.(e);
+  }
+
   function handlePointerDown(e: PointerEvent) {
     const region = hitTest(e.clientX, e.clientY);
     region?.onPointerDown?.(e);
@@ -155,6 +161,7 @@ const CanvasChrome: Component<CanvasChromeProps> = (props) => {
       style={{ height: `${props.height}px`, overflow: "hidden", position: "relative", ...props.style }}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
+      onDblClick={handleDblClick}
       onPointerDown={handlePointerDown}
       onMouseLeave={handleMouseLeave}
       onWheel={props.onWheel}

@@ -282,6 +282,10 @@ const App: Component = () => {
               onSelect={actions.switchToTab}
               onActivate={activateTab}
               onClose={actions.handleTabClose}
+              onRename={(tabId, name) => {
+                const idx = store.tabs.findIndex(t => t.id === tabId);
+                if (idx >= 0) setStore("tabs", idx, "name", name);
+              }}
               onNewTerminal={actions.createTerminalTab}
               onReorder={(fromIdx, toIdx) => {
                 const t = [...store.tabs];
