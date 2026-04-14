@@ -17,21 +17,23 @@ jobs:
         with:
           node-version: 20
 
+      - uses: oven-sh/setup-bun@v2
+
       - name: Build buster-path
         working-directory: packages/buster-path
-        run: npm install && npm run build
+        run: bun install && bun run build
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: bunx tsc --noEmit
 
       - name: Run tests
-        run: npm run test
+        run: bun run test
 
       - name: Build
-        run: npm run build
+        run: bun run build
 
   backend:
     name: Backend (Rust)

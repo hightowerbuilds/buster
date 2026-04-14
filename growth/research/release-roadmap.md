@@ -23,15 +23,15 @@
 - [x] Extensions: show loading state during WASM load/init
 
 ## 3. Distribution Pipeline
-- [ ] Set up GitHub Actions release workflow (trigger on version tag)
-- [ ] Configure Tauri bundler for macOS (DMG, app bundle)
-- [ ] Configure Tauri bundler for Windows (NSIS installer)
-- [ ] Configure Tauri bundler for Linux (deb, AppImage)
+- [x] Set up GitHub Actions release workflow (trigger on version tag)
+- [x] Configure Tauri bundler for macOS (DMG, app bundle)
+- [x] Configure Tauri bundler for Windows (NSIS installer)
+- [x] Configure Tauri bundler for Linux (deb, AppImage)
 - [ ] Obtain Apple Developer certificate for code signing
-- [ ] Set up macOS notarization in CI
+- [x] Set up macOS notarization in CI
 - [ ] Obtain Windows code signing certificate (or use Azure SignTool)
-- [ ] Configure Tauri Update API (auto-updater endpoint)
-- [ ] Set up release hosting (GitHub Releases or S3)
+- [x] Configure Tauri Update API (auto-updater endpoint)
+- [x] Set up release hosting (GitHub Releases or S3)
 - [ ] Add changelog generation (git-cliff or manual CHANGELOG.md)
 - [ ] Test full install/update cycle on each platform
 
