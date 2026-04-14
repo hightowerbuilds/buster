@@ -14,7 +14,6 @@ import type { EditorEngine } from "../editor/engine";
 import type { DirtyCloseResult } from "../ui/DirtyCloseDialog";
 import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
 import type { SessionSnapshot } from "./session";
-import { showToast } from "../ui/CanvasToasts";
 import { showError, showSuccess, showInfo, logWarn } from "./notify";
 import { setupDebugEventListener } from "./debug-events";
 
@@ -82,6 +81,7 @@ const INITIAL_STATE: BusterStoreState = {
   tourActive: false,
   branchPickerVisible: false,
   syncing: false,
+  fileLoading: false,
 
   panelCount: 1 as PanelCount,
   sidebarWidth: 220,
@@ -312,6 +312,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       return;
     }
 
+    setStore("fileLoading", true);
     try {
       const { content, fileName, filePath } = await loadFileContent(path);
       setStore("fileTabCounter", c => c + 1);
@@ -332,6 +333,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     } catch {
       showError("Failed to open file");
     }
+    setStore("fileLoading", false);
   }
 
   // ── LSP lifecycle with crash recovery ────────────────────

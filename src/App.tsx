@@ -350,6 +350,7 @@ const App: Component = () => {
               warningCount={actions.diagnosticCounts().warnings}
               onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
               onLspClick={actions.restartLsp}
+              fileLoading={store.fileLoading}
               vimMode={store.vimMode}
             />
         </div>

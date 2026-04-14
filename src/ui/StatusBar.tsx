@@ -22,6 +22,7 @@ const LSP_LABELS: Record<LspState, string> = {
   starting: "LSP Starting...",
   active: "LSP",
   error: "LSP Error",
+  crashed: "LSP Crashed",
 };
 
 const StatusBar: Component<StatusBarProps> = (props) => {

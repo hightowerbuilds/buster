@@ -46,6 +46,7 @@ export interface BusterStoreState {
   tourActive: boolean;
   branchPickerVisible: boolean;
   syncing: boolean;
+  fileLoading: boolean;
 
   // ── Layout ──────────────────────────────────────────────
   panelCount: PanelCount;

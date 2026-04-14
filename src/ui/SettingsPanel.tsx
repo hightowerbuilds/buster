@@ -3,7 +3,7 @@ import type { AppSettings } from "../lib/ipc";
 import { useBuster } from "../lib/buster-context";
 import { DEFAULT_KEYBINDINGS } from "../lib/app-commands";
 import { importVSCodeTheme, type ThemeEffects } from "../lib/theme";
-import { showError } from "../lib/notify";
+import { showError, showSuccess } from "../lib/notify";
 import { BLOG_THEMES } from "../lib/blog-themes";
 
 interface SettingsPanelProps {
@@ -209,6 +209,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                           };
                           importVSCodeTheme(json, fx);
                           update("theme_mode", "imported");
+                          showSuccess("Theme imported");
                         } catch {
                           showError("Invalid theme file");
                         }

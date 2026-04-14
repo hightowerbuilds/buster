@@ -223,6 +223,30 @@ html, body, #root {
   100% { transform: translateX(0); }
 }
 
+/* ── Spinner utility ─────────────────────────────────────────── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.spinner-sm {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+
 /* Accessibility: live region for screen reader announcements */
 #a11y-live-region {
   position: absolute;

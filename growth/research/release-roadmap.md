@@ -14,13 +14,13 @@
 - [x] Add fallback states for unrecoverable errors (e.g. LSP crash loop)
 
 ## 2. Loading States
-- [ ] Add spinner/progress component for canvas-rendered panels
-- [ ] Git: show progress during push, pull, fetch, clone
-- [ ] LSP: show "starting..." indicator in status bar during init
-- [ ] File I/O: show loading state when opening large files
-- [ ] Settings: show feedback during theme import
-- [ ] Search: show "searching..." state during workspace search
-- [ ] Extensions: show loading state during WASM load/init
+- [x] Add spinner/progress component for canvas-rendered panels
+- [x] Git: show progress during push, pull, fetch, clone
+- [x] LSP: show "starting..." indicator in status bar during init
+- [x] File I/O: show loading state when opening large files
+- [x] Settings: show feedback during theme import
+- [x] Search: show "searching..." state during workspace search
+- [x] Extensions: show loading state during WASM load/init
 
 ## 3. Distribution Pipeline
 - [ ] Set up GitHub Actions release workflow (trigger on version tag)

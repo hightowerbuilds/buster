@@ -40,6 +40,7 @@ export interface BusterActions {
   createDebugTab(): void;
   createProblemsTab(): void;
   createBrowserTab(): void;
+  createConsoleTab(): void;
   popOutSidebar(): void;
   handleTermIdReady(tabId: string, ptyId: string): void;
   handleTermTitleChange(tabId: string, title: string): void;
@@ -62,6 +63,9 @@ export interface BusterActions {
   // Settings
   updateSettings(s: AppSettings): void;
   addRecentFile(path: string, name: string): void;
+
+  // LSP
+  restartLsp(): void;
 
   // Diagnostics
   jumpToDiagnostic(direction: 1 | -1): Promise<void>;

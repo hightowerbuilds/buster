@@ -181,6 +181,15 @@
 .git-ahead { color: var(--accent); }
 .git-behind { color: var(--text-muted); }
 
+.git-syncing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
 /* Commit actions row (amend checkbox + button) */
 .git-commit-section {
   display: flex;

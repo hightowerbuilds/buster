@@ -75,6 +75,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
   const [symbols, setSymbols] = createSignal<LspDocumentSymbol[]>([]);
   const [filteredSymbols, setFilteredSymbols] = createSignal<LspDocumentSymbol[]>([]);
   const [filteredCommands, setFilteredCommands] = createSignal<Command[]>([]);
+  const [searching, setSearching] = createSignal(false);
   let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let paletteRef: HTMLDivElement | undefined;
 
@@ -134,9 +135,11 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
         if (!searchQuery) {
           setSearchResults([]);
+          setSearching(false);
           return;
         }
 
+        setSearching(true);
         searchDebounceTimer = setTimeout(async () => {
           if (props.workspaceRoot) {
             try {
@@ -146,6 +149,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
               setSearchResults([]);
             }
           }
+          setSearching(false);
         }, 300);
         return;
       }
@@ -262,6 +266,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       setIsSearchMode(false);
       setIsLineMode(false);
       setSearchResults([]);
+      setSearching(false);
       setIsSymbolMode(false);
       setSymbols([]);
       setFilteredSymbols([]);
@@ -317,7 +322,10 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
                 );
               }}
             </For>
-            <Show when={searchResults().length === 0 && query().slice(1).trim()}>
+            <Show when={searching()}>
+              <div class="palette-empty"><span class="spinner spinner-sm" style={{ "margin-right": "8px" }} /> Searching...</div>
+            </Show>
+            <Show when={!searching() && searchResults().length === 0 && query().slice(1).trim()}>
               <div class="palette-empty">No matches found</div>
             </Show>
           </Show>

@@ -5,7 +5,7 @@
  * sync button, diagnostics (clickable), LSP status, cursor position, filename.
  */
 
-import { Component } from "solid-js";
+import { Component, createSignal, createEffect, onCleanup } from "solid-js";
 import CanvasChrome, { CHROME_FONT, type HitRegion, type PaintFn } from "./canvas-chrome";
 import type { LspState } from "../lib/store-types";
 
@@ -27,6 +27,7 @@ interface CanvasStatusBarProps {
   onDiagnosticsClick?: () => void;
   onLspClick?: () => void;
   vimMode?: string | null;
+  fileLoading?: boolean;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -47,6 +48,24 @@ const LSP_LABELS: Record<LspState, string> = {
 // ── Component ────────────────────────────────────────────────────────
 
 const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
+  // Animated dots for loading states (ticks every 400ms while loading)
+  const [dotPhase, setDotPhase] = createSignal(0);
+  let dotTimer: ReturnType<typeof setInterval> | undefined;
+
+  createEffect(() => {
+    const needsAnim = props.lspState === "starting" || props.fileLoading || props.syncing;
+    if (needsAnim && !dotTimer) {
+      dotTimer = setInterval(() => setDotPhase(p => (p + 1) % 4), 400);
+    } else if (!needsAnim && dotTimer) {
+      clearInterval(dotTimer);
+      dotTimer = undefined;
+      setDotPhase(0);
+    }
+  });
+  onCleanup(() => { if (dotTimer) clearInterval(dotTimer); });
+
+  const dots = () => ".".repeat(dotPhase() || 0);
+
   const paint: PaintFn = (ctx, w, h, hovered) => {
     // We don't use useBuster here — palette comes via CSS variable mapping
     // Actually, we need the accent color for the background. Let's read from DOM.
@@ -121,7 +140,7 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
 
     // Sync button
     if (props.onSync) {
-      const syncText = props.syncing ? "Syncing..." : "Sync";
+      const syncText = props.syncing ? `Syncing${dots()}` : "Sync";
       const syncW = ctx.measureText(syncText).width;
       const syncHovered = hovered === "sync";
       const syncBtnW = syncW + 8;
@@ -152,6 +171,16 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
       x += syncBtnW + ITEM_GAP;
     }
 
+    // File loading indicator
+    if (props.fileLoading) {
+      const loadText = `Loading${dots()}`;
+      ctx.fillStyle = textOnAccent;
+      ctx.globalAlpha = 0.7;
+      ctx.fillText(loadText, x, cy);
+      ctx.globalAlpha = 1;
+      x += ctx.measureText(loadText).width + ITEM_GAP;
+    }
+
     // ── Right side (draw from right edge) ────────────────────────────
     ctx.textAlign = "right";
     let rx = w - PAD;
@@ -173,7 +202,7 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     rx -= ctx.measureText(cursorText).width + ITEM_GAP;
 
     // LSP status
-    const lspLabel = getLspLabel(props.lspState, props.lspLanguages);
+    const lspLabel = getLspLabel(props.lspState, props.lspLanguages, dots());
     if (lspLabel) {
       const lspClickable = props.lspState === "error" || props.lspState === "crashed";
       const lspColor = (props.lspState === "error" || props.lspState === "crashed") ? errorColor
@@ -265,10 +294,11 @@ export default CanvasStatusBar;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function getLspLabel(state?: LspState, languages?: string[]): string {
+function getLspLabel(state?: LspState, languages?: string[], animDots?: string): string {
   const s = state ?? "inactive";
   if (s === "active" && languages?.length) {
     return `LSP: ${languages.join(", ")}`;
   }
+  if (s === "starting") return `LSP Starting${animDots ?? "..."}`;
   return LSP_LABELS[s];
 }

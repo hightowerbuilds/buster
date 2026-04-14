@@ -2,7 +2,6 @@ import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
 import { gitStatus, gitStage, gitUnstage, gitCommit, gitCommitAmend, gitPush, gitPull, gitFetch, gitAheadBehind, gitStashSave, gitStashPop, gitStashList, gitStashDrop, gitRemoteList, gitRemoteAdd, gitRemoteRemove } from "../lib/ipc";
 import type { GitStatusResult, GitRemote } from "../lib/ipc";
 import DiffView from "./DiffView";
-import { showToast } from "./CanvasToasts";
 import { showError, showSuccess } from "../lib/notify";
 
 interface GitPanelProps {
@@ -235,6 +234,9 @@ const GitPanel: Component<GitPanelProps> = (props) => {
         <button class="git-sync-btn" onClick={handleFetch} disabled={syncing()} title="Fetch">Fetch</button>
         <button class="git-sync-btn" onClick={handlePull} disabled={syncing()} title="Pull">Pull</button>
         <button class="git-sync-btn" onClick={handlePush} disabled={syncing()} title="Push">Push</button>
+        <Show when={syncing()}>
+          <span class="git-syncing-indicator"><span class="spinner spinner-sm" /> Syncing</span>
+        </Show>
         <Show when={ahead() > 0 || behind() > 0}>
           <span class="git-ahead-behind">
             <Show when={ahead() > 0}><span class="git-ahead">{ahead()}&uarr;</span></Show>

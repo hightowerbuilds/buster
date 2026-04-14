@@ -1,8 +1,7 @@
 import { Component, createSignal, For, Show, onMount } from "solid-js";
 import { listExtensions, loadExtension, unloadExtension, type ExtensionInfo } from "../lib/extension-host";
 import { extInstall, extUninstall, extCall } from "../lib/ipc";
-import { showToast } from "./CanvasToasts";
-import { showError } from "../lib/notify";
+import { showError, showSuccess, showInfo } from "../lib/notify";
 
 const CAPABILITY_LABELS: Record<string, string> = {
   network: "Open gateway connections",
@@ -20,6 +19,8 @@ const CAPABILITY_LABELS: Record<string, string> = {
 const ExtensionsPage: Component = () => {
   const [extensions, setExtensions] = createSignal<ExtensionInfo[]>([]);
   const [loaded, setLoaded] = createSignal(false);
+  const [toggling, setToggling] = createSignal<string | null>(null);
+  const [installing, setInstalling] = createSignal(false);
   const [confirmUninstall, setConfirmUninstall] = createSignal<string | null>(null);
 
   async function refresh() {
@@ -34,18 +35,20 @@ const ExtensionsPage: Component = () => {
   onMount(refresh);
 
   async function handleToggle(ext: ExtensionInfo) {
+    setToggling(ext.id);
     try {
       if (ext.active) {
         await unloadExtension(ext.id);
-        showToast(`Disabled ${ext.name}`, "info");
+        showInfo(`Disabled ${ext.name}`);
       } else {
         await loadExtension(ext.id);
-        showToast(`Enabled ${ext.name}`, "success");
+        showSuccess(`Enabled ${ext.name}`);
       }
       await refresh();
     } catch (e) {
       showError("Extension toggle failed", e);
     }
+    setToggling(null);
   }
 
   async function handleLaunch(ext: ExtensionInfo, commandId: string) {
@@ -66,19 +69,21 @@ const ExtensionsPage: Component = () => {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({ directory: true, title: "Select extension folder" });
       if (!selected) return;
+      setInstalling(true);
       const info = await extInstall(selected as string);
-      showToast(`Installed ${info.name}`, "success");
+      showSuccess(`Installed ${info.name}`);
       await refresh();
     } catch (e) {
       showError("Extension install failed", e);
     }
+    setInstalling(false);
   }
 
   async function handleUninstall(id: string) {
     setConfirmUninstall(null);
     try {
       await extUninstall(id);
-      showToast("Extension uninstalled", "success");
+      showSuccess("Extension uninstalled");
       await refresh();
     } catch (e) {
       showError("Extension uninstall failed", e);
@@ -89,9 +94,14 @@ const ExtensionsPage: Component = () => {
     <div class="ext-page">
       <div class="ext-header">
         <span class="ext-title">Extensions</span>
-        <button class="ext-install-btn" onClick={handleInstall}>Install from folder</button>
+        <button class="ext-install-btn" onClick={handleInstall} disabled={installing()}>
+          {installing() ? <><span class="spinner spinner-sm" /> Installing...</> : "Install from folder"}
+        </button>
       </div>
       <div class="ext-body">
+        <Show when={!loaded()}>
+          <div class="ext-empty"><span class="spinner" style={{ "margin-right": "8px" }} /> Loading extensions...</div>
+        </Show>
         <Show when={loaded() && extensions().length === 0}>
           <div class="ext-empty">
             No extensions installed. Click "Install from folder" or place extensions in <code>~/.buster/extensions/</code>.
@@ -124,8 +134,9 @@ const ExtensionsPage: Component = () => {
                     <button
                       class={`ext-toggle-btn ${ext.active ? "ext-toggle-active" : ""}`}
                       onClick={() => handleToggle(ext)}
+                      disabled={toggling() === ext.id}
                     >
-                      {ext.active ? "Disable" : "Enable"}
+                      {toggling() === ext.id ? <><span class="spinner spinner-sm" /></> : ext.active ? "Disable" : "Enable"}
                     </button>
                   </Show>
                 </div>
