@@ -3,7 +3,7 @@
  * Opens as a tab panel like Settings, Git, or Manual.
  */
 
-import { Component, createSignal, createEffect, For, Show, onCleanup } from "solid-js";
+import { Component, createSignal, For, Show, onCleanup } from "solid-js";
 import {
   debugState, debugLaunch, debugContinue, debugStepOver, debugStepInto,
   debugStepOut, debugPause, debugStop, debugStackTrace, debugVariables,

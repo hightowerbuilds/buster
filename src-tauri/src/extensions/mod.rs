@@ -80,12 +80,6 @@ impl ExtensionManager {
         self.shared_surface_manager.clone()
     }
 
-    /// Set the workspace root (called when user opens a folder).
-    #[allow(dead_code)]
-    pub async fn set_workspace_root(&self, root: Option<String>) {
-        *self.workspace_root.lock().await = root;
-    }
-
     /// Scan the extensions directory and discover available extensions.
     /// Extensions live in ~/.buster/extensions/<id>/extension.toml
     pub async fn scan(&self) -> Result<(), String> {

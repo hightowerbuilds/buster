@@ -43,7 +43,6 @@ export interface BusterStoreState {
   findVisible: boolean;
   paletteVisible: boolean;
   paletteInitialQuery: string;
-  tourActive: boolean;
   branchPickerVisible: boolean;
   syncing: boolean;
   fileLoading: boolean;

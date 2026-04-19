@@ -127,10 +127,7 @@ const App: Component = () => {
     createBrowserTab: actions.createBrowserTab,
     setSidebarVisible: (v: boolean | ((prev: boolean) => boolean)) =>
       updateSidebarVisible(v),
-    setTourActive: (v: boolean | ((prev: boolean) => boolean)) =>
-      setStore("tourActive", typeof v === "function" ? v(store.tourActive) : v),
     jumpToDiagnostic: actions.jumpToDiagnostic,
-    tourActive: () => store.tourActive,
     findVisible: () => store.findVisible,
     paletteVisible: () => store.paletteVisible,
     settings: () => store.settings,

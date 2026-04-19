@@ -71,7 +71,6 @@ const INITIAL_STATE: BusterStoreState = {
   findVisible: false,
   paletteVisible: false,
   paletteInitialQuery: "",
-  tourActive: false,
   branchPickerVisible: false,
   syncing: false,
   fileLoading: false,

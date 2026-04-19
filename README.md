@@ -38,7 +38,7 @@ This starts the app with hot-reload for the frontend. Rust changes trigger an au
 
 ### Getting started
 
-Open Buster. The welcome screen shows an ASCII particle animation. Open the command palette (**Cmd+Shift+P**) and run "Start Guided Tour", or open a folder from the sidebar to start editing.
+Open Buster. The welcome screen shows an ASCII particle animation. Open a folder from the sidebar to start editing, or use the command palette (**Cmd+Shift+P**) to browse actions.
 
 ### Keyboard shortcuts
 
@@ -86,14 +86,12 @@ Open Buster. The welcome screen shows an ASCII particle animation. Open the comm
 
 **Extensions** — WASM-sandboxed extensions with capability-based permissions. Extensions can render custom UI surfaces via display list commands, control embedded browser webviews, and connect via WebSocket or HTTP SSE gateways to external services. Three working Rust extensions exist: an embedded browser with devtools, a pixel art editor, and a prompt stacker.
 
-**Guided Tour** — A canvas-animated tutorial that teaches every feature including git integration. Each step assembles as ASCII particle text.
-
 ## Architecture
 
 ```
 src/                          Frontend (TypeScript + SolidJS)
   editor/                     Canvas editor, engine, Tree-sitter bridge, LSP features
-  ui/                         Sidebar, tabs, terminal, git, debugger, command palette, tour
+  ui/                         Sidebar, tabs, terminal, git, debugger, command palette
   lib/                        IPC bridge, TanStack Query, commands, menu handlers, session
 
 src-tauri/src/                Backend (Rust)

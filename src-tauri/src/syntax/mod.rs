@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
@@ -73,15 +72,6 @@ fn highlight_index_to_token_kind(idx: usize) -> TokenKind {
         26 => TokenKind::Parameter,     // variable.parameter
         _  => TokenKind::Plain,
     }
-}
-
-// ── Legacy HighlightSpan (old byte-offset format, kept for backward compat) ──
-
-#[derive(Debug, Clone, Serialize)]
-pub struct HighlightSpan {
-    pub start_byte: usize,
-    pub end_byte: usize,
-    pub highlight_type: String,
 }
 
 // ── TreeSitterProvider ───────────────────────────────────────────────
@@ -660,54 +650,6 @@ impl SyntaxService {
         langs.sort();
         langs.dedup();
         langs
-    }
-
-    /// Legacy highlight method (byte-offset format).
-    /// Kept for backward compatibility during migration.
-    pub fn highlight(&self, source: &str, extension: &str) -> Vec<HighlightSpan> {
-        let config = {
-            let configs = self.configs.read().unwrap_or_else(|e| e.into_inner());
-            match configs.get(extension) {
-                Some(c) => Arc::clone(c),
-                None => return Vec::new(),
-            }
-        };
-
-        let mut highlighter = Highlighter::new();
-        let source_bytes = source.as_bytes();
-
-        let events = match highlighter.highlight(&config, source_bytes, None, |_| None) {
-            Ok(events) => events,
-            Err(_) => return Vec::new(),
-        };
-
-        let mut spans = Vec::new();
-        let mut current_highlight: Option<usize> = None;
-
-        for event in events {
-            match event {
-                Ok(HighlightEvent::Source { start, end }) => {
-                    if let Some(idx) = current_highlight {
-                        if idx < HIGHLIGHT_NAMES.len() {
-                            spans.push(HighlightSpan {
-                                start_byte: start,
-                                end_byte: end,
-                                highlight_type: HIGHLIGHT_NAMES[idx].to_string(),
-                            });
-                        }
-                    }
-                }
-                Ok(HighlightEvent::HighlightStart(highlight)) => {
-                    current_highlight = Some(highlight.0);
-                }
-                Ok(HighlightEvent::HighlightEnd) => {
-                    current_highlight = None;
-                }
-                Err(_) => break,
-            }
-        }
-
-        spans
     }
 
     pub fn get_extension(file_path: &str) -> String {

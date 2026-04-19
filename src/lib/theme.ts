@@ -469,7 +469,6 @@ export function importVSCodeTheme(json: VSCodeThemeJSON, fx: ThemeEffects): Them
   const warning = c["editorWarning.foreground"] ?? CATPPUCCIN.warning;
   const info = c["editorInfo.foreground"] ?? CATPPUCCIN.info;
   const sidebarBg = c["sideBar.background"] ?? editorBg;
-  const activityBg = c["activityBar.background"] ?? sidebarBg;
 
   // Build syntax map from tokenColors
   const syntax: Record<string, string> = { ...CATPPUCCIN.syntax };

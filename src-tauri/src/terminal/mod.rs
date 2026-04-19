@@ -5,11 +5,10 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-// buster-terminal-pro integration — runtime themes, CJK width, scrollback, sixel, crash recovery
+// buster-terminal-pro integration — runtime themes, CJK width, sixel, crash recovery
 pub mod term_pro {
     pub use buster_terminal_pro::{
-        TerminalTheme, ThemeColor, ScrollbackBuffer, ScrollbackConfig,
-        TerminalSearch, HyperlinkParser, PtyMonitor, SixelParser, SixelImage,
+        TerminalTheme, ThemeColor, PtyMonitor, SixelParser, SixelImage,
     };
 }
 
@@ -283,7 +282,6 @@ pub struct PtyInstance {
     writer: Box<dyn Write + Send>,
     _master: Box<dyn MasterPty + Send>,
     parser: Arc<Mutex<vt100::Parser>>,
-    monitor: Arc<term_pro::PtyMonitor>,
 }
 
 pub struct TerminalManager {
@@ -355,7 +353,6 @@ impl TerminalManager {
             writer,
             _master: pair.master,
             parser: parser.clone(),
-            monitor: monitor.clone(),
         }));
 
         self.instances

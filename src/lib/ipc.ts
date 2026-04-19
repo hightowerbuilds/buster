@@ -169,9 +169,6 @@ export const gitDiffFile = (workspaceRoot: string, path: string) =>
 export const gitDiffStaged = (workspaceRoot: string, path: string) =>
   invoke<string>("git_diff_staged", { workspaceRoot, path });
 
-export const gitShowFile = (workspaceRoot: string, path: string) =>
-  invoke<string>("git_show_file", { workspaceRoot, path });
-
 export interface GitCommitNode {
   hash: string;
   short_hash: string;
@@ -431,22 +428,6 @@ export interface ExtensionInfo {
   active: boolean;
 }
 
-export interface GatewayEvent {
-  connection_id: number;
-  extension_id: string;
-  kind: "connected" | "text" | "tool_call" | "tool_result" | "done" | "error" | "disconnected";
-  content: string;
-  tool_name: string | null;
-}
-
-export interface GatewayConfig {
-  protocol: "websocket" | "http-sse";
-  url: string;
-  auth_token?: string;
-  auth_header?: string;
-  headers?: Record<string, string>;
-}
-
 export const extList = () =>
   invoke<ExtensionInfo[]>("ext_list");
 
@@ -455,15 +436,6 @@ export const extLoad = (extensionId: string) =>
 
 export const extUnload = (extensionId: string) =>
   invoke<void>("ext_unload", { extensionId });
-
-export const extGatewayConnect = (extensionId: string, config: GatewayConfig) =>
-  invoke<number>("ext_gateway_connect", { extensionId, config });
-
-export const extGatewaySend = (connectionId: number, message: string) =>
-  invoke<void>("ext_gateway_send", { connectionId, message });
-
-export const extGatewayDisconnect = (connectionId: number) =>
-  invoke<void>("ext_gateway_disconnect", { connectionId });
 
 export const extCall = (extensionId: string, method: string, params?: string) =>
   invoke<string>("ext_call", { extensionId, method, params });
@@ -506,8 +478,6 @@ export const evaluateKeymap = () => invoke<string>("evaluate_keymap");
 // ── Built-in Browser Module ──────────────────────────────────────────
 
 export const browserModuleLaunch = () => invoke<string>("browser_module_launch");
-export const browserModuleNavigate = (url: string) => invoke<string>("browser_module_navigate", { url });
-export const browserModuleRefresh = () => invoke<string>("browser_module_refresh");
 export const browserModulePoll = () => invoke<string>("browser_module_poll");
 export const browserModuleOnClick = (x: number, y: number, button: number) => invoke<string>("browser_module_on_click", { x, y, button });
 export const browserModuleOnKey = (key: string, code: string, shift: boolean, ctrl: boolean, alt: boolean) => invoke<string>("browser_module_on_key", { key, code, shift, ctrl, alt });

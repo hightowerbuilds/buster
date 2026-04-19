@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tauri::{command, AppHandle, Manager, State};
+use tauri::{command, AppHandle, State};
 use tokio::sync::Mutex;
 
 use crate::browser::BrowserManager;

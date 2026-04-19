@@ -74,9 +74,7 @@ export interface CommandDeps {
   createGitTab: () => void;
   createBrowserTab: () => void;
   setSidebarVisible: Setter<boolean>;
-  setTourActive: Setter<boolean>;
   jumpToDiagnostic: (direction: 1 | -1) => void;
-  tourActive: Accessor<boolean>;
   findVisible: Accessor<boolean>;
   paletteVisible: Accessor<boolean>;
   settings: Accessor<import("./ipc").AppSettings>;
@@ -192,7 +190,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
         },
       };
     }),
-    { id: "tour.start", label: "Start Guided Tour", category: "Help", execute: () => deps.setTourActive(true) },
   ];
 }
 
@@ -270,8 +267,7 @@ export function buildHotkeyDefinitions(
   defs.push({
     hotkey: "Escape",
     callback: () => {
-      if (deps.tourActive()) deps.setTourActive(false);
-      else if (deps.findVisible()) deps.setFindVisible(false);
+      if (deps.findVisible()) deps.setFindVisible(false);
       else if (deps.paletteVisible()) deps.setPaletteVisible(false);
     },
     options: { preventDefault: false },

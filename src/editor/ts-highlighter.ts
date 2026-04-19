@@ -78,30 +78,6 @@ export async function syntaxClose(filePath: string): Promise<void> {
   }
 }
 
-export async function syntaxEdit(
-  filePath: string,
-  startByte: number,
-  oldEndByte: number,
-  newEndByte: number,
-  startRow: number,
-  startCol: number,
-  oldEndRow: number,
-  oldEndCol: number,
-  newEndRow: number,
-  newEndCol: number,
-  newText: string,
-): Promise<void> {
-  try {
-    await invoke<void>("syntax_edit", {
-      filePath, startByte, oldEndByte, newEndByte,
-      startRow, startCol, oldEndRow, oldEndCol, newEndRow, newEndCol,
-      newText,
-    });
-  } catch (err) {
-    console.error("syntax_edit error:", err);
-  }
-}
-
 // ── IPC: highlight request ───────────────────────────────────────────
 
 let cachedSpans: HighlightSpan[] = [];

@@ -1171,7 +1171,7 @@ function drawMinimap(
   w: number,
   h: number,
   _gutterW: number,
-  charW: number,
+  _charW: number,
 ) {
   const totalRows = displayRows.length;
   if (totalRows === 0) return;

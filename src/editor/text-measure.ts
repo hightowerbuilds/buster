@@ -1,16 +1,11 @@
 /**
  * Text measurement utilities for the canvas editor, powered by Pretext.
  *
- * Pretext uses a two-phase approach:
- *   prepare(text, font) — segments text, measures via canvas, caches widths.
- *   layout(prepared, maxWidth, lineHeight) — pure arithmetic, ~0.0002ms per call.
- *
- * For monospace character width we still cache per-fontSize since the editor
+ * Monospace character width is cached per-fontSize since the editor
  * relies on uniform charW for cursor positioning and gutter math.
  */
 
-import { prepareWithSegments, layoutWithLines, clearCache as pretextClearCache } from "@chenglou/pretext";
-import type { PreparedText, PreparedTextWithSegments, LayoutLinesResult } from "@chenglou/pretext";
+import { prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 
 const FONT_FAMILY = "JetBrains Mono, Menlo, Monaco, Consolas, monospace";
 
@@ -47,33 +42,10 @@ export function measureTextWidth(text: string, font: string): number {
   return result.lines.length > 0 ? result.lines[0].width : 0;
 }
 
-/**
- * Prepare text for word-wrap layout using Pretext.
- * Returns a PreparedTextWithSegments handle that can be passed to
- * layoutWrappedLines() for pure-arithmetic line breaking.
- */
-export function prepareForLayout(text: string, font: string): PreparedTextWithSegments {
-  return prepareWithSegments(text, font);
-}
-
-/**
- * Compute word-wrapped lines from a Pretext prepared handle.
- * Pure arithmetic — no canvas calls. Safe to call on every resize.
- */
-export function layoutWrappedLines(prepared: PreparedTextWithSegments, maxWidth: number, lineHeight: number): LayoutLinesResult {
-  return layoutWithLines(prepared, maxWidth, lineHeight);
-}
-
 /** Extract a numeric line height from a CSS font string. */
 function parseLineHeight(font: string): number {
   const match = font.match(/(\d+(?:\.\d+)?)px/);
   return match ? parseFloat(match[1]) : 14;
-}
-
-/** Clear all Pretext internal caches. */
-export function clearMeasurementCache(): void {
-  charWidthCache.clear();
-  pretextClearCache();
 }
 
 // ─── CJK / wide-character support ───────────────────────────────────
@@ -139,4 +111,3 @@ export function pixelToCol(text: string, pixelX: number, charW: number): number 
 }
 
 export { FONT_FAMILY };
-export type { PreparedText, PreparedTextWithSegments, LayoutLinesResult };

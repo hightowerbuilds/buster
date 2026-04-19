@@ -1,6 +1,6 @@
 import { Component, createEffect, on, onMount, onCleanup } from "solid-js";
 import { useBuster } from "../lib/buster-context";
-import { logEntries, logRevision, clearLog, type LogEntry } from "../lib/notify";
+import { logEntries, logRevision, clearLog } from "../lib/notify";
 import { measureTextWidth } from "../editor/text-measure";
 
 const ROW_H = 22;

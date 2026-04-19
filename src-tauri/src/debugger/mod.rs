@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 // Types are namespaced to avoid collisions with locally defined StackFrame/Variable
 pub mod dap_integration {
     pub use buster_dap::{
-        AdapterRegistry, BreakpointStore, EventChannel, DebugEvent,
+        AdapterRegistry, EventChannel, DebugEvent,
     };
 }
 
@@ -20,8 +20,6 @@ pub struct DebugManager {
     session: Mutex<Option<DebugSession>>,
     /// Breakpoints per file path (legacy — being migrated to BreakpointStore)
     breakpoints: RwLock<HashMap<String, Vec<SourceBreakpoint>>>,
-    /// buster-dap: persistent breakpoint store (serializable)
-    pub bp_store: Mutex<dap_integration::BreakpointStore>,
     /// buster-dap: adapter registry
     pub adapter_registry: dap_integration::AdapterRegistry,
     /// buster-dap: event channel for safe DAP event forwarding
@@ -72,7 +70,6 @@ impl DebugManager {
         DebugManager {
             session: Mutex::new(None),
             breakpoints: RwLock::new(HashMap::new()),
-            bp_store: Mutex::new(dap_integration::BreakpointStore::new()),
             adapter_registry: dap_integration::AdapterRegistry::with_defaults(),
             events: dap_integration::EventChannel::new(),
         }
@@ -102,7 +99,7 @@ impl DebugManager {
         bps.get(file_path).cloned().unwrap_or_default()
     }
 
-    /// Get all breakpoints across all files.
+    /// Get all breakpoints across all files. (Test-only — no runtime callers.)
     #[allow(dead_code)]
     pub fn all_breakpoints(&self) -> HashMap<String, Vec<SourceBreakpoint>> {
         let bps = self.breakpoints.read().unwrap_or_else(|e| e.into_inner());

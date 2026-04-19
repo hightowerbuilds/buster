@@ -1249,7 +1249,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
         if (PAIRS[ch]) {
           // Opening bracket — search forward
-          const close = ch;
           const open = PAIRS[ch];
           let depth = 1;
           let sl = c.line;

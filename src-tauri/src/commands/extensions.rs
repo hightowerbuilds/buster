@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::fs;
 use std::path::Path;
-use tauri::{command, AppHandle, Emitter, Manager, State};
+use tauri::{command, AppHandle, Emitter, State};
 
 use crate::extensions::gateway::GatewayConfig;
 use crate::extensions::{ExtensionInfo, ExtensionManager, save_enabled_state};

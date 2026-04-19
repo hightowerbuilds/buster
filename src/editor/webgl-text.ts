@@ -30,7 +30,7 @@ export class GlyphAtlas {
   private rowHeight = 0;
   private _dirty = false;
 
-  constructor(private fontSize: number, private fontFamily: string) {
+  constructor(fontSize: number, fontFamily: string) {
     this.canvas = new OffscreenCanvas(ATLAS_SIZE, ATLAS_SIZE);
     this.ctx = this.canvas.getContext("2d")!;
     this.ctx.textBaseline = "top";
@@ -364,15 +364,6 @@ export function beginTextFrame(fontSize: number, fontFamily: string): void {
     currentFontFamily = fontFamily;
   }
   glRenderer.begin();
-}
-
-/** Queue a character for GPU rendering. Returns true if queued, false if WebGL not available. */
-export function queueChar(char: string, x: number, y: number, color: string): boolean {
-  if (!glRenderer || !atlas) return false;
-  const glyph = atlas.getGlyph(char, color);
-  if (glyph.w === 0) return false;
-  glRenderer.addChar(x, y, glyph, ATLAS_SIZE);
-  return true;
 }
 
 /** Queue a text string for GPU rendering. */
