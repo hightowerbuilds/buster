@@ -79,38 +79,6 @@ html, body, #root {
   cursor: text;
 }
 
-
-/* Buttons */
-.btn {
-  background: var(--accent);
-  color: var(--bg-crust);
-  border: none;
-  padding: 8px 16px;
-  border-radius: 0;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: normal;
-}
-
-.btn:hover {
-  opacity: 0.9;
-}
-
-.btn-small {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  padding: 2px 8px;
-  border-radius: 0;
-  cursor: pointer;
-  font-size: 11px;
-}
-
-.btn-small:hover {
-  background: var(--bg-surface0);
-  color: var(--text);
-}
-
 /* Dock Bar — full-width bottom navigation */
 .dock-bar {
   display: flex;
@@ -122,29 +90,6 @@ html, body, #root {
   padding: 0 4px;
   margin-bottom: 12px;
   gap: 2px;
-}
-
-.dock-btn {
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: 16px;
-  padding: 6px 14px;
-  cursor: pointer;
-  border-radius: 0;
-  transition: color 0.1s, background 0.1s, border-color 0.1s;
-  white-space: nowrap;
-}
-
-.dock-btn:hover {
-  color: var(--text);
-  background: var(--bg-surface0);
-  border-color: var(--border);
-}
-
-.dock-spacer {
-  flex: 1;
 }
 
 /* Scrollbar */
@@ -283,15 +228,3 @@ html, body, #root {
   white-space: nowrap;
 }
 
-.breadcrumb-sep {
-  color: var(--text-muted);
-  margin: 0 4px;
-}
-
-.breadcrumb-seg {
-  color: var(--text-dim);
-}
-
-.breadcrumb-active {
-  color: var(--text-main);
-}

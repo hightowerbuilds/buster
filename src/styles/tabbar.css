@@ -57,14 +57,6 @@
   color: var(--green);
 }
 
-.tab-ai .tab-icon {
-  color: var(--accent2);
-}
-
-.tab-ai.tab-active {
-  border-bottom-color: var(--accent2);
-}
-
 .tab-name {
   font-size: 16px;
   overflow: hidden;

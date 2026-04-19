@@ -79,13 +79,6 @@
   color: var(--text-muted);
 }
 
-.settings-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 8px 16px;
-}
-
-
 /* Canvas checkbox */
 .settings-checkbox {
   flex-shrink: 0;

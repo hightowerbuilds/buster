@@ -115,34 +115,3 @@
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
-
-.palette-ai-response {
-  padding: 8px 16px;
-  max-height: 340px;
-  overflow-y: auto;
-}
-
-.palette-ai-text {
-  font-size: 13px;
-  font-family: "Courier New", Courier, monospace;
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.palette-keybinding {
-  margin-left: auto;
-  padding: 2px 6px;
-  background: var(--bg-surface1);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font-size: 11px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-.palette-cmd-category {
-  color: var(--text-muted);
-}

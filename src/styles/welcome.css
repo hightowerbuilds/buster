@@ -19,9 +19,3 @@
 .welcome p {
   font-size: 14px;
 }
-
-.welcome-hint {
-  margin-top: 16px;
-  font-size: 12px;
-  color: var(--bg-surface2);
-}
