@@ -99,9 +99,10 @@ const CanvasChrome: Component<CanvasChromeProps> = (props) => {
     canvasRef.style.width = `${w}px`;
     canvasRef.style.height = `${h}px`;
 
-    const ctx = canvasRef.getContext("2d")!;
+    const ctx = canvasRef.getContext("2d", { alpha: false })!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
+    ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, w, h);
 
     regions = props.paint(ctx, w, h, hovered());

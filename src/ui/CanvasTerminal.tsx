@@ -283,8 +283,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       for (let col = 0; col < rowCells.length; col++) {
         const cell = rowCells[col];
         if (cell.width === 0) continue; // Skip continuation cells
-        const x = col * cw;
-        const y = row * ch;
+        const x = Math.round(col * cw);
+        const y = Math.round(row * ch);
         const cellW = cell.width === 2 ? cw * 2 : cw;
 
         // Background (skip default terminal bg for performance)
@@ -339,8 +339,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
         if (cell.width === 0) continue;
         if (cell.ch === " " || cell.ch === "") continue;
 
-        const x = col * cw;
-        const y = row * ch;
+        const x = Math.round(col * cw);
+        const y = Math.round(row * ch);
         const cellW = cell.width === 2 ? cw * 2 : cw;
 
         // Font style
@@ -381,13 +381,14 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
 
     // Cursor (only when focused and showing live view)
     if (isFocused && scrollOffset === 0) {
-      const cx = cursorCol * cw;
-      const cy = cursorRow * ch;
+      const cx = Math.round(cursorCol * cw);
+      const cy = Math.round(cursorRow * ch);
+      const cursorCell = cells[cursorRow]?.[cursorCol];
+      const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
       ctx.fillStyle = p.cursor;
-      ctx.fillRect(cx, cy, cw, ch);
+      ctx.fillRect(cx, cy, cursorW, ch);
 
       // Redraw the character under the cursor in inverted color
-      const cursorCell = cells[cursorRow]?.[cursorCol];
       if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
         ctx.font = baseFont;
         ctx.fillStyle = p.editorBg;
@@ -516,11 +517,16 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       return;
     }
 
+    e.preventDefault(); // Suppress native text selection
     scrollOffset = 0;
     selStart = pos;
     selEnd = pos;
     isSelecting = true;
     needsRedraw = true; scheduleTermRender();
+
+    // Use document-level listeners so selection continues outside the terminal
+    document.addEventListener("mousemove", handleDocMouseMove);
+    document.addEventListener("mouseup", handleDocMouseUp);
   }
 
   function handleMouseMove(e: MouseEvent) {
@@ -533,12 +539,19 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       }
       return;
     }
+    // Selection moves are handled by document-level listener
+  }
+
+  function handleDocMouseMove(e: MouseEvent) {
     if (!isSelecting) return;
     selEnd = mouseToCell(e);
     needsRedraw = true; scheduleTermRender();
   }
 
-  function handleMouseUp(e: MouseEvent) {
+  function handleDocMouseUp(e: MouseEvent) {
+    document.removeEventListener("mousemove", handleDocMouseMove);
+    document.removeEventListener("mouseup", handleDocMouseUp);
+
     if (mouseMode !== "none") {
       const pos = mouseToCell(e);
       if (mouseMode !== "press") {
@@ -554,6 +567,17 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     }
     needsRedraw = true; scheduleTermRender();
     hiddenInput?.focus();
+  }
+
+  function handleMouseUp(e: MouseEvent) {
+    // Primary mouseup handling is on document (handleDocMouseUp)
+    // This handles mouse-mode forwarding when no selection is active
+    if (mouseMode !== "none" && !isSelecting) {
+      const pos = mouseToCell(e);
+      if (mouseMode !== "press") {
+        sendMouseEvent(0, pos.row, pos.col, true);
+      }
+    }
   }
 
   function handlePaste(e: ClipboardEvent) {
@@ -608,14 +632,33 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       return;
     }
 
+    // Cmd+Z: readline undo (undo edits on current command line)
+    if (e.metaKey && e.key === "z") {
+      e.preventDefault();
+      invoke("terminal_write", { termId: ptyId, data: "\x1f" }).catch(() => {});
+      return;
+    }
+
     // Cmd+C: copy selection (Ctrl+C goes to terminal as interrupt)
     if (e.metaKey && e.key === "c") {
       const text = getSelectedText();
       if (text) {
         e.preventDefault();
-        navigator.clipboard.writeText(text).catch((e) => console.warn("Terminal IPC error:", e));
+        navigator.clipboard.writeText(text).catch(() => {});
         return;
       }
+    }
+
+    // Cmd+V: paste from clipboard
+    if (e.metaKey && e.key === "v") {
+      e.preventDefault();
+      navigator.clipboard.readText().then(text => {
+        if (text && ptyId) {
+          const data = bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text;
+          invoke("terminal_write", { termId: ptyId, data }).catch(() => {});
+        }
+      }).catch(() => {});
+      return;
     }
 
     // Cmd+A: select all visible content
@@ -660,12 +703,18 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       case "PageDown": data = "\x1b[6~"; break;
     }
 
-    // Ctrl+key combinations
-    if (e.ctrlKey && e.key.length === 1) {
-      const code = e.key.toLowerCase().charCodeAt(0) - 96;
+    // Ctrl+key combinations — use e.code (physical key) so Ctrl+Shift+C !== Ctrl+C
+    if (e.ctrlKey && !e.altKey && !e.metaKey && e.code.startsWith("Key")) {
+      const letter = e.code.charCodeAt(3); // "KeyA" → 65
+      const code = letter - 64; // A=1, B=2, ... Z=26
       if (code > 0 && code < 27) {
         data = String.fromCharCode(code);
       }
+    }
+
+    // Alt+key combinations — send ESC prefix (meta convention for readline word nav etc.)
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
+      data = "\x1b" + e.key;
     }
 
     if (data) {
@@ -832,6 +881,9 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
         cwd: props.cwd || null,
       });
       props.onTermIdReady(props.termTabId, ptyId);
+      // The initial delta from Rust fires during spawn (before ptyId is set),
+      // so it gets dropped by the listener filter. Request a full resync now.
+      await invoke("terminal_resync", { termId: ptyId });
     } catch (err) {
       showError("Failed to spawn terminal", err);
     }
@@ -848,6 +900,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     onCleanup(() => {
       cancelAnimationFrame(animId);
       clearTimeout(resizeTimer);
+      document.removeEventListener("mousemove", handleDocMouseMove);
+      document.removeEventListener("mouseup", handleDocMouseUp);
       if (unlisten) unlisten();
       if (unlistenSixel) unlistenSixel();
       if (unlistenRestart) unlistenRestart();

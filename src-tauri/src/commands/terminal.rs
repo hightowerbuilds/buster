@@ -103,6 +103,20 @@ pub fn terminal_resize(
 }
 
 #[command]
+pub fn terminal_resync(
+    app: AppHandle,
+    state: State<'_, TerminalManager>,
+    term_id: String,
+) -> Result<(), String> {
+    let delta = state.resync(&term_id)?;
+    let _ = app.emit("terminal-screen", TermScreenEvent {
+        term_id,
+        delta,
+    });
+    Ok(())
+}
+
+#[command]
 pub fn terminal_kill(
     state: State<'_, TerminalManager>,
     term_id: String,

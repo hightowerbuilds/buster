@@ -320,7 +320,12 @@ impl TerminalManager {
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
         let mut cmd = CommandBuilder::new(&shell);
-        cmd.arg("-l");
+        // Login shell on macOS (needed for path_helper env), interactive elsewhere
+        if cfg!(target_os = "macos") {
+            cmd.arg("-l");
+        }
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
         if let Some(ref dir) = cwd {
             cmd.cwd(dir);
         }
@@ -435,7 +440,11 @@ impl TerminalManager {
                                 let shell = std::env::var("SHELL")
                                     .unwrap_or_else(|_| "/bin/zsh".to_string());
                                 let mut cmd = CommandBuilder::new(&shell);
-                                cmd.arg("-l");
+                                if cfg!(target_os = "macos") {
+                                    cmd.arg("-l");
+                                }
+                                cmd.env("TERM", "xterm-256color");
+                                cmd.env("COLORTERM", "truecolor");
                                 if let Some(ref dir) = cwd_for_reader {
                                     cmd.cwd(dir);
                                 }
@@ -591,6 +600,31 @@ impl TerminalManager {
         // Also resize the vt100 parser
         inst.parser.lock().unwrap_or_else(|e| e.into_inner()).set_size(rows, cols);
         Ok(())
+    }
+
+    pub fn resync(&self, term_id: &str) -> Result<TermScreenDelta, String> {
+        let instances = self.instances.lock().map_err(|e| e.to_string())?;
+        let instance = instances.get(term_id).ok_or("Terminal not found")?;
+        let inst = instance.lock().map_err(|e| e.to_string())?;
+        let p = inst.parser.lock().unwrap_or_else(|e| e.into_inner());
+        let screen = extract_screen(&p);
+        Ok(TermScreenDelta {
+            rows: screen.rows,
+            cols: screen.cols,
+            cursor_row: screen.cursor_row,
+            cursor_col: screen.cursor_col,
+            changed_rows: screen.cells.into_iter().enumerate().map(|(i, cells)| ChangedRow {
+                index: i as u16,
+                cells,
+            }).collect(),
+            full: true,
+            mouse_mode: "none".to_string(),
+            mouse_encoding: "default".to_string(),
+            bracketed_paste: p.screen().bracketed_paste(),
+            title: None,
+            bell: false,
+            alt_screen: p.screen().alternate_screen(),
+        })
     }
 
     pub fn kill(&self, term_id: &str) -> Result<(), String> {

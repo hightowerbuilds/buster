@@ -5,4 +5,6 @@
   position: relative;
   background: var(--bg-base);
   cursor: text;
+  user-select: none;
+  -webkit-user-select: none;
 }

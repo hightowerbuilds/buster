@@ -24,7 +24,7 @@ export function getCharWidth(fontSize: number = 14): number {
   const font = `${fontSize}px ${FONT_FAMILY}`;
   const seg = prepareWithSegments("M", font);
   const lines = layoutWithLines(seg, Infinity, fontSize);
-  w = lines.lines.length > 0 ? lines.lines[0].width : fontSize * 0.6;
+  w = lines.lines.length > 0 ? Math.floor(lines.lines[0].width) : Math.floor(fontSize * 0.6);
   charWidthCache.set(fontSize, w);
   return w;
 }

@@ -250,6 +250,7 @@ pub fn run() {
             commands::terminal::terminal_write,
             commands::terminal::terminal_resize,
             commands::terminal::terminal_kill,
+            commands::terminal::terminal_resync,
             commands::terminal::set_terminal_theme,
             // Syntax highlighting
             commands::syntax::highlight_code,
