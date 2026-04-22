@@ -282,6 +282,8 @@ pub struct PtyInstance {
     writer: Box<dyn Write + Send>,
     _master: Box<dyn MasterPty + Send>,
     parser: Arc<Mutex<vt100::Parser>>,
+    /// PID of the shell process — used to kill the entire process group on close.
+    child_pid: Option<u32>,
 }
 
 pub struct TerminalManager {
@@ -330,10 +332,11 @@ impl TerminalManager {
             cmd.cwd(dir);
         }
 
-        let _child = pair
+        let child = pair
             .slave
             .spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn shell: {}", e))?;
+        let child_pid = child.process_id();
 
         let mut reader = pair
             .master
@@ -358,6 +361,7 @@ impl TerminalManager {
             writer,
             _master: pair.master,
             parser: parser.clone(),
+            child_pid,
         }));
 
         self.instances
@@ -629,7 +633,17 @@ impl TerminalManager {
 
     pub fn kill(&self, term_id: &str) -> Result<(), String> {
         let mut instances = self.instances.lock().map_err(|e| e.to_string())?;
-        instances.remove(term_id);
+        if let Some(instance) = instances.remove(term_id) {
+            let inst = instance.lock().unwrap_or_else(|e| e.into_inner());
+            // Kill the entire process group so child processes (dev servers etc.) also die
+            if let Some(pid) = inst.child_pid {
+                #[cfg(unix)]
+                {
+                    // Negative PID sends the signal to the entire process group
+                    unsafe { libc::kill(-(pid as i32), libc::SIGHUP); }
+                }
+            }
+        }
         Ok(())
     }
 }

@@ -1262,13 +1262,11 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
           isFocused = true;
           needsRedraw = true;
           scheduleTermRender();
-          if (ptyId) invoke("terminal_write", { termId: ptyId, data: "\x1b[I" }).catch((e) => console.warn("Terminal IPC error:", e));
         },
         onBlur: () => {
           isFocused = false;
           needsRedraw = true;
           scheduleTermRender();
-          if (ptyId) invoke("terminal_write", { termId: ptyId, data: "\x1b[O" }).catch((e) => console.warn("Terminal IPC error:", e));
         },
         autocomplete: "off",
         autocapitalize: "off",

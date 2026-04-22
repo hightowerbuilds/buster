@@ -94,6 +94,10 @@ base64 = "0.22"
 # Shell word parsing (security: replaces custom parser)
 shlex = "1"
 
+# Process group kill on terminal close (Unix only)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Buster supporting libraries
 buster-sandbox = { path = "crates/sandbox" }
 buster-lsp-manager = { path = "crates/lsp-manager" }
