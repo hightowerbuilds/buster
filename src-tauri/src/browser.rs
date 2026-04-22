@@ -126,6 +126,8 @@ impl BrowserManager {
             .get_webview(browser_id)
             .ok_or("Browser view not found")?;
 
+        let _ = webview.show();
+
         // Restore to saved position
         let (x, y, w, h) = {
             let instances = self.instances.lock().map_err(|e| e.to_string())?;
@@ -155,6 +157,7 @@ impl BrowserManager {
         webview
             .set_position(tauri::LogicalPosition::new(-10000.0_f64, -10000.0_f64))
             .map_err(|e| format!("Hide failed: {}", e))?;
+        let _ = webview.hide();
         if let Ok(mut instances) = self.instances.lock() {
             if let Some(inst) = instances.get_mut(browser_id) {
                 inst.visible = false;

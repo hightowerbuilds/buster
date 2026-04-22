@@ -7,6 +7,7 @@ import { FONT_FAMILY, getCharWidth, measureTextWidth } from "../editor/text-meas
 import { showToast } from "./CanvasToasts";
 import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "./ContextMenu";
+import { TerminalGLContext, type FontVariant } from "./terminal-webgl";
 
 interface TermCell {
   ch: string;
@@ -112,6 +113,10 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   let searchCaseSensitive = false;
   let searchMatches: { row: number; col: number; len: number }[] = [];
   let searchMatchIdx = -1;
+
+  // WebGL renderer (null = Canvas 2D fallback)
+  let gpuCtx: TerminalGLContext | null = null;
+  let sixelOverlay: HTMLCanvasElement | null = null;
 
   const termA11y = createTerminalA11y();
 
@@ -266,29 +271,230 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
 
   function render() {
     renderScheduled = false;
-    if (!canvasRef || !containerRef) return;
+    if (!containerRef) return;
     if (!needsRedraw) return;
-    // Skip rendering when hidden — canvas retains its last frame
     if (!props.active) return;
     needsRedraw = false;
 
-    const dpr = window.devicePixelRatio || 1;
     const w = containerRef.clientWidth;
     const h = containerRef.clientHeight;
-    // Guard against zero dimensions (display: none transition)
     if (w === 0 || h === 0) return;
 
-    // Only resize backing store when dimensions change
+    if (gpuCtx?.isActive()) {
+      renderWebGL(w, h);
+    } else if (canvasRef) {
+      renderCanvas2D(w, h);
+    }
+  }
+
+  // ── WebGL render path ─────────────────────────────────────
+
+  function renderWebGL(w: number, h: number) {
+    const gpu = gpuCtx!;
+    const p = palette();
+    const fs = fontSize();
+    const cw = charWidth;
+    const ch = charHeight;
+
+    gpu.beginFrame(w, h, p.editorBg, fs, FONT_FAMILY);
+
+    if (cells.length === 0) return;
+    const visibleRows = getVisibleRows();
+
+    // Pass 1: cell backgrounds (skip default bg)
+    for (let row = 0; row < visibleRows.length; row++) {
+      const rowCells = visibleRows[row];
+      if (!rowCells) continue;
+      for (let col = 0; col < rowCells.length; col++) {
+        const cell = rowCells[col];
+        if (cell.width === 0) continue;
+        const isDefaultBg = cell.bg[0] === 30 && cell.bg[1] === 30 && cell.bg[2] === 46;
+        if (isDefaultBg) continue;
+        const x = Math.round(col * cw);
+        const y = Math.round(row * ch);
+        const cellW = cell.width === 2 ? cw * 2 : cw;
+        gpu.addBg(x, y, cellW + 1, ch, cell.bg[0], cell.bg[1], cell.bg[2]);
+      }
+    }
+    gpu.flushQuads();
+
+    // Pass 2: selection highlight
+    const sel = normalizedSelection();
+    if (sel) {
+      for (let row = sel.start.row; row <= Math.min(sel.end.row, visibleRows.length - 1); row++) {
+        const cs = row === sel.start.row ? sel.start.col : 0;
+        const ce = row === sel.end.row ? sel.end.col : (visibleRows[row]?.length ?? termCols) - 1;
+        gpu.addOverlayCss(cs * cw, row * ch, (ce - cs + 1) * cw, ch, p.selection);
+      }
+    }
+
+    // Search match highlights
+    if (searchVisible && searchMatches.length > 0) {
+      const sb = scrollback();
+      const totalRows = sb.length + (cells.length || termRows);
+      const visibleCount = cells.length || termRows;
+      const viewStart = totalRows - visibleCount - scrollOffset;
+      for (let mi = 0; mi < searchMatches.length; mi++) {
+        const m = searchMatches[mi];
+        const displayRow = m.row - viewStart;
+        if (displayRow < 0 || displayRow >= visibleCount) continue;
+        if (mi === searchMatchIdx) {
+          gpu.addOverlay(m.col * cw, displayRow * ch, m.len * cw, ch, 250 / 255, 179 / 255, 135 / 255, 0.4);
+        } else {
+          gpu.addOverlay(m.col * cw, displayRow * ch, m.len * cw, ch, 137 / 255, 180 / 255, 250 / 255, 0.25);
+        }
+      }
+    }
+    gpu.flushQuads();
+
+    // Pass 3: text glyphs
+    for (let row = 0; row < visibleRows.length; row++) {
+      const rowCells = visibleRows[row];
+      if (!rowCells) continue;
+      for (let col = 0; col < rowCells.length; col++) {
+        const cell = rowCells[col];
+        if (cell.width === 0) continue;
+        if (cell.ch === " " || cell.ch === "") continue;
+        const x = Math.round(col * cw);
+        const y = Math.round(row * ch);
+        const variant: FontVariant = ((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0)) as FontVariant;
+        const alpha = cell.faint ? 0.5 : 1.0;
+        gpu.addChar(cell.ch, variant, x, y, cell.fg[0], cell.fg[1], cell.fg[2], alpha);
+      }
+    }
+    gpu.flushText();
+
+    // Pass 4: decorations (underline, strikethrough as thin quads)
+    for (let row = 0; row < visibleRows.length; row++) {
+      const rowCells = visibleRows[row];
+      if (!rowCells) continue;
+      for (let col = 0; col < rowCells.length; col++) {
+        const cell = rowCells[col];
+        if (cell.width === 0) continue;
+        if (!cell.underline && !cell.strikethrough) continue;
+        const x = Math.round(col * cw);
+        const y = Math.round(row * ch);
+        const cellW = cell.width === 2 ? cw * 2 : cw;
+        const alpha = cell.faint ? 0.5 : 1.0;
+        if (cell.underline) {
+          gpu.addOverlay(x, y + ch - 1, cellW, 1, cell.fg[0] / 255, cell.fg[1] / 255, cell.fg[2] / 255, alpha);
+        }
+        if (cell.strikethrough) {
+          gpu.addOverlay(x, Math.round(y + ch / 2), cellW, 1, cell.fg[0] / 255, cell.fg[1] / 255, cell.fg[2] / 255, alpha);
+        }
+      }
+    }
+    gpu.flushQuads();
+
+    // Pass 5: cursor
+    if (isFocused && scrollOffset === 0) {
+      const cx = Math.round(cursorCol * cw);
+      const cy = Math.round(cursorRow * ch);
+      const cursorCell = cells[cursorRow]?.[cursorCol];
+      const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
+      gpu.addOverlayCss(cx, cy, cursorW, ch, p.cursor);
+      gpu.flushQuads();
+      if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
+        gpu.addCharHex(cursorCell.ch, 0, cx, cy, p.editorBg);
+        gpu.flushText();
+      }
+    }
+
+    // Pass 6: scroll indicator
+    if (scrollOffset > 0) {
+      const label = `\u2191 ${scrollOffset} lines`;
+      const tw = label.length * cw;
+      gpu.addOverlayCss(w - tw - 16, 4, tw + 12, fs + 4, p.surface1);
+      gpu.flushQuads();
+      for (let i = 0; i < label.length; i++) {
+        gpu.addCharHex(label[i], 0, w - tw - 10 + i * cw, 6, p.text);
+      }
+      gpu.flushText();
+    }
+
+    // Pass 7: bell flash
+    if (bellFlashUntil > 0) {
+      const remaining = bellFlashUntil - performance.now();
+      if (remaining > 0) {
+        gpu.addOverlay(0, 0, w, h, 205 / 255, 214 / 255, 244 / 255, 0.08);
+        gpu.flushQuads();
+        needsRedraw = true;
+        scheduleTermRender();
+      } else {
+        bellFlashUntil = 0;
+      }
+    }
+
+    // Sixel images: draw on a 2D overlay canvas
+    renderSixelOverlay(w, h);
+  }
+
+  function renderSixelOverlay(w: number, h: number) {
+    if (sixelImages.length === 0) {
+      // Hide overlay if no sixel images
+      if (sixelOverlay) sixelOverlay.style.display = "none";
+      return;
+    }
+    // Lazily create the sixel overlay canvas
+    if (!sixelOverlay && containerRef) {
+      sixelOverlay = document.createElement("canvas");
+      sixelOverlay.style.position = "absolute";
+      sixelOverlay.style.top = "0";
+      sixelOverlay.style.left = "0";
+      sixelOverlay.style.width = "100%";
+      sixelOverlay.style.height = "100%";
+      sixelOverlay.style.pointerEvents = "none";
+      containerRef.appendChild(sixelOverlay);
+    }
+    if (!sixelOverlay) return;
+    sixelOverlay.style.display = "block";
+
+    const dpr = window.devicePixelRatio || 1;
     const targetW = Math.round(w * dpr);
     const targetH = Math.round(h * dpr);
-    if (canvasRef.width !== targetW || canvasRef.height !== targetH) {
-      canvasRef.width = targetW;
-      canvasRef.height = targetH;
+    if (sixelOverlay.width !== targetW || sixelOverlay.height !== targetH) {
+      sixelOverlay.width = targetW;
+      sixelOverlay.height = targetH;
     }
-    const ctx = canvasRef.getContext("2d", { alpha: false })!;
+    const ctx = sixelOverlay.getContext("2d", { alpha: true })!;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const cw = charWidth;
+    const ch = charHeight;
+    for (const img of sixelImages) {
+      if (img.width === 0 || img.height === 0) continue;
+      const cacheKey = `${img.row},${img.col},${img.width},${img.height}`;
+      let imgData = sixelBitmapCache.get(cacheKey);
+      if (!imgData) {
+        imgData = new ImageData(img.width, img.height);
+        const src = img.pixels;
+        const dst = imgData.data;
+        const len = Math.min(src.length, dst.length);
+        for (let i = 0; i < len; i++) dst[i] = src[i];
+        sixelBitmapCache.set(cacheKey, imgData);
+        if (sixelBitmapCache.size > MAX_SIXEL_CACHE) {
+          const first = sixelBitmapCache.keys().next().value!;
+          sixelBitmapCache.delete(first);
+        }
+      }
+      ctx.putImageData(imgData, img.col * cw, img.row * ch);
+    }
+  }
+
+  // ── Canvas 2D fallback render path ────────────��───────────
+
+  function renderCanvas2D(w: number, h: number) {
+    const dpr = window.devicePixelRatio || 1;
+    const targetW = Math.round(w * dpr);
+    const targetH = Math.round(h * dpr);
+    if (canvasRef!.width !== targetW || canvasRef!.height !== targetH) {
+      canvasRef!.width = targetW;
+      canvasRef!.height = targetH;
+    }
+    const ctx = canvasRef!.getContext("2d", { alpha: false })!;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Background (theme-aware)
     const p = palette();
     ctx.fillStyle = p.editorBg;
     ctx.fillRect(0, 0, w, h);
@@ -299,19 +505,16 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     const ch = charHeight;
     const visibleRows = getVisibleRows();
 
-    // Draw cell backgrounds
+    // Cell backgrounds
     for (let row = 0; row < visibleRows.length; row++) {
       const rowCells = visibleRows[row];
       if (!rowCells) continue;
-
       for (let col = 0; col < rowCells.length; col++) {
         const cell = rowCells[col];
-        if (cell.width === 0) continue; // Skip continuation cells
+        if (cell.width === 0) continue;
         const x = Math.round(col * cw);
         const y = Math.round(row * ch);
         const cellW = cell.width === 2 ? cw * 2 : cw;
-
-        // Background (skip default terminal bg for performance)
         const isDefaultBg = cell.bg[0] === 30 && cell.bg[1] === 30 && cell.bg[2] === 46;
         if (!isDefaultBg) {
           ctx.fillStyle = `rgb(${cell.bg[0]}, ${cell.bg[1]}, ${cell.bg[2]})`;
@@ -337,7 +540,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       const totalRows = sb.length + (cells.length || termRows);
       const visibleCount = cells.length || termRows;
       const viewStart = totalRows - visibleCount - scrollOffset;
-
       for (let mi = 0; mi < searchMatches.length; mi++) {
         const m = searchMatches[mi];
         const displayRow = m.row - viewStart;
@@ -348,39 +550,29 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       }
     }
 
-    // Draw text — direct fillText (browser's internal glyph cache handles caching)
+    // Text
     const fs = fontSize();
     const baseFont = `${fs}px ${FONT_FAMILY}`;
     ctx.textBaseline = "top";
-
     for (let row = 0; row < visibleRows.length; row++) {
       const rowCells = visibleRows[row];
       if (!rowCells) continue;
-
       for (let col = 0; col < rowCells.length; col++) {
         const cell = rowCells[col];
-        // Skip wide-char continuation cells (rendered by the wide char itself)
         if (cell.width === 0) continue;
         if (cell.ch === " " || cell.ch === "") continue;
-
         const x = Math.round(col * cw);
         const y = Math.round(row * ch);
         const cellW = cell.width === 2 ? cw * 2 : cw;
-
-        // Font style
         const weight = cell.bold ? "bold " : "";
         const style = cell.italic ? "italic " : "";
         const cellFont = (weight || style) ? `${style}${weight}${fs}px ${FONT_FAMILY}` : baseFont;
-
-        // Faint: reduce opacity to 50%
         const fgColor = cell.faint
           ? `rgba(${cell.fg[0]}, ${cell.fg[1]}, ${cell.fg[2]}, 0.5)`
           : `rgb(${cell.fg[0]}, ${cell.fg[1]}, ${cell.fg[2]})`;
         ctx.font = cellFont;
         ctx.fillStyle = fgColor;
         ctx.fillText(cell.ch, x, y);
-
-        // Underline
         if (cell.underline) {
           ctx.strokeStyle = fgColor;
           ctx.lineWidth = 1;
@@ -389,8 +581,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
           ctx.lineTo(x + cellW, y + ch - 1);
           ctx.stroke();
         }
-
-        // Strikethrough
         if (cell.strikethrough) {
           ctx.strokeStyle = fgColor;
           ctx.lineWidth = 1;
@@ -403,7 +593,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       }
     }
 
-    // Cursor (only when focused and showing live view)
+    // Cursor
     if (isFocused && scrollOffset === 0) {
       const cx = Math.round(cursorCol * cw);
       const cy = Math.round(cursorRow * ch);
@@ -411,8 +601,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
       ctx.fillStyle = p.cursor;
       ctx.fillRect(cx, cy, cursorW, ch);
-
-      // Redraw the character under the cursor in inverted color
       if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
         ctx.font = baseFont;
         ctx.fillStyle = p.editorBg;
@@ -420,10 +608,9 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       }
     }
 
-    // Draw sixel images on the canvas
+    // Sixel images
     for (const img of sixelImages) {
       if (img.width === 0 || img.height === 0) continue;
-
       const cacheKey = `${img.row},${img.col},${img.width},${img.height}`;
       let imgData = sixelBitmapCache.get(cacheKey);
       if (!imgData) {
@@ -431,25 +618,19 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
         const src = img.pixels;
         const dst = imgData.data;
         const len = Math.min(src.length, dst.length);
-        for (let i = 0; i < len; i++) {
-          dst[i] = src[i];
-        }
+        for (let i = 0; i < len; i++) dst[i] = src[i];
         sixelBitmapCache.set(cacheKey, imgData);
-        // Evict oldest entries if cache exceeds limit
         if (sixelBitmapCache.size > MAX_SIXEL_CACHE) {
           const first = sixelBitmapCache.keys().next().value!;
           sixelBitmapCache.delete(first);
         }
       }
-
-      const sx = img.col * cw;
-      const sy = img.row * ch;
-      ctx.putImageData(imgData, sx, sy);
+      ctx.putImageData(imgData, img.col * cw, img.row * ch);
     }
 
     // Scroll indicator
     if (scrollOffset > 0) {
-      const label = `↑ ${scrollOffset} lines`;
+      const label = `\u2191 ${scrollOffset} lines`;
       const smallFont = `${fs - 2}px ${FONT_FAMILY}`;
       ctx.font = smallFont;
       const tw = measureTextWidth(label, smallFont);
@@ -465,7 +646,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       if (remaining > 0) {
         ctx.fillStyle = "rgba(205, 214, 244, 0.08)";
         ctx.fillRect(0, 0, w, h);
-        // Schedule a redraw to clear the flash
         needsRedraw = true;
         scheduleTermRender();
       } else {
@@ -782,6 +962,14 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
 
     measureChar();
 
+    // Try to create WebGL renderer — falls back to Canvas 2D silently
+    gpuCtx = TerminalGLContext.tryCreate(fontSize(), FONT_FAMILY);
+    if (gpuCtx) {
+      // Insert WebGL canvas before the 2D canvas and hide the 2D fallback
+      containerRef.insertBefore(gpuCtx.canvas, canvasRef);
+      canvasRef.style.display = "none";
+    }
+
     // Listen for screen deltas from Rust
     unlisten = (await listen<{ term_id: string; delta: TermScreenDelta }>(
       "terminal-screen",
@@ -938,6 +1126,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       if (unlistenTheme) unlistenTheme();
       if (resizeObs) resizeObs.disconnect();
       termA11y.cleanup();
+      if (gpuCtx) { gpuCtx.dispose(); gpuCtx = null; }
+      if (sixelOverlay) { sixelOverlay.remove(); sixelOverlay = null; }
       sixelImages = [];
       sixelBitmapCache.clear();
       scrollbackNormal = [];

@@ -1,4 +1,3 @@
-use std::net::TcpStream;
 use std::time::Duration;
 use tauri::{command, AppHandle, State};
 use crate::browser::BrowserManager;
@@ -9,23 +8,43 @@ pub struct LocalPort {
     pub url: String,
 }
 
-/// Scan common dev server ports to find running local servers
+/// Scan common dev server ports in parallel to find running local servers.
 #[command]
-pub fn scan_local_ports() -> Vec<LocalPort> {
+pub async fn scan_local_ports() -> Vec<LocalPort> {
     let common_ports: Vec<u16> = vec![
         3000, 3001, 3333, 4000, 4200, 4321, 5000, 5173, 5174, 5500,
         8000, 8080, 8081, 8888, 9000, 9090,
     ];
-    let timeout = Duration::from_millis(80);
+    let timeout = Duration::from_millis(200);
 
-    common_ports
+    let handles: Vec<_> = common_ports
         .into_iter()
-        .filter(|port| TcpStream::connect_timeout(&format!("127.0.0.1:{}", port).parse().unwrap(), timeout).is_ok())
-        .map(|port| LocalPort {
-            port,
-            url: format!("http://localhost:{}", port),
+        .map(|port| {
+            tokio::spawn(async move {
+                let addr = format!("127.0.0.1:{}", port);
+                match tokio::time::timeout(
+                    timeout,
+                    tokio::net::TcpStream::connect(&addr),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => Some(LocalPort {
+                        port,
+                        url: format!("http://localhost:{}", port),
+                    }),
+                    _ => None,
+                }
+            })
         })
-        .collect()
+        .collect();
+
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Ok(Some(port)) = handle.await {
+            results.push(port);
+        }
+    }
+    results
 }
 
 #[command]
