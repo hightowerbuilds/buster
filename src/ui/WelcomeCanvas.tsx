@@ -76,6 +76,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
   let reassembleTimer = 0; // counts frames since last drag to trigger reassembly
   let subtitleY = 0;       // Y position of the subtitle text (platform)
   let folderY = 0;         // Y position of the folder links (platform)
+  let lastTitleSize = 320; // actual title font size after scaling
 
   const SUBTITLE = "canvas-rendered ide";
   const DRAG_RADIUS = 40;  // how close the drag must be to knock particles loose
@@ -137,7 +138,12 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
 
     const titleW = measureTextWidth("Buster", `${titleSize}px ${titleFontFamily}`);
     const offsetX = (w - titleW) / 2 - 10;
-    const offsetY = (h - titleSize) * 0.35;
+    // Center the whole block (title + subtitle + folders ~= titleSize + 60px)
+    // vertically, biased slightly upward (45% from top)
+    const blockHeight = titleSize + 60;
+    const offsetY = (h - blockHeight) * 0.45;
+
+    lastTitleSize = titleSize;
 
     const points = sampleTextPixels("Buster", titleSize, titleFontFamily, offsetX, offsetY, 5);
 
@@ -258,7 +264,8 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     let settledCount = 0;
 
     // Platform positions (top of text lines where particles can land)
-    const platformY1 = subtitleY > 0 ? subtitleY - 4 : h * 0.72 - 4;
+    const fallbackSubY = (h - lastTitleSize - 60) * 0.45 + lastTitleSize + 20;
+    const platformY1 = subtitleY > 0 ? subtitleY - 4 : fallbackSubY - 4;
     const platformY2 = folderY > 0 ? folderY - 4 : platformY1 + 35;
 
     for (const p of particles) {
@@ -346,7 +353,9 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
 
-      const subY = h * 0.72;
+      // Position subtitle just below the title, not as a fixed % of canvas height
+      const blockTop = (h - lastTitleSize - 60) * 0.45;
+      const subY = blockTop + lastTitleSize + 20;
       subtitleY = subY;
       folderY = subY + 35;
 

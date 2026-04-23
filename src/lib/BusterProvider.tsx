@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   word_wrap: true,
   font_size: 14,
   tab_size: 4,
+  use_spaces: true,
   minimap: false,
   line_numbers: true,
   cursor_blink: true,

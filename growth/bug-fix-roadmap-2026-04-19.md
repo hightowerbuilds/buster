@@ -15,7 +15,7 @@ Order is by expected ROI (how much pain per minute of fix time), not by severity
 
 ## Tier 1 — High ROI, small patches
 
-### [ ] Set `TERM` env var in PTY spawn
+### [x] Set `TERM` env var in PTY spawn (fixed prior session)
 
 **Impact:** Every `git log`, `git diff`, `git show`, `less`, `man`, `htop` session in the integrated terminal currently hits `WARNING: terminal is not fully functional` before outputting anything. Users work around it with `--no-pager` flags or by reading the warning and pressing RETURN. It's a constant papercut.
 
@@ -27,7 +27,7 @@ Order is by expected ROI (how much pain per minute of fix time), not by severity
 
 ---
 
-### [ ] Fix Zoom In / Zoom Out shortcut labels
+### [x] Fix Zoom In / Zoom Out shortcut labels (fixed 2026-04-22)
 
 **Impact:** Cosmetic, but it's visible every time the palette opens. Both Zoom entries currently display `⌘-` in the shortcut column. Zoom In should show `⌘+` or `⌘=`.
 
@@ -39,7 +39,7 @@ Order is by expected ROI (how much pain per minute of fix time), not by severity
 
 ---
 
-### [ ] Escape dismisses palette even when query is non-empty
+### [x] Escape dismisses palette even when query is non-empty (fixed prior session)
 
 **Impact:** UX papercut. After typing into the command palette or quick-open, Escape clears the input but doesn't close the overlay — users have to press Escape a second time or click outside. Most palette implementations dismiss on Escape regardless of input state.
 
@@ -65,7 +65,7 @@ Root cause: the wheel handler was per-panel and hit-tested by cursor position, s
 
 Fix: each `CanvasEditor` registers its `applyScroll` function with a module-level `activeScrollTarget` slot whenever `props.active` becomes true. The wheel handler now dispatches `e.deltaY` through that slot — so scrolling anywhere in the editor area always scrolls the click-focused panel. Inactive panels never receive scroll state mutations, so the paint-skip optimization remains sound.
 
-### [ ] Commit Graph missing newest commit
+### [x] Commit Graph missing newest commit (fixed 2026-04-22)
 
 **Impact:** Data correctness. The Status tab correctly reports `Push 2↑` (I had two local commits ahead of origin), but the Commit Graph tab only renders 1 of the 2. Users who rely on the graph to review recent history will see incomplete state — especially bad right after committing.
 
@@ -82,7 +82,7 @@ Fix: each `CanvasEditor` registers its `applyScroll` function with a module-leve
 
 ---
 
-### [ ] Canvas render corruption when switching panel layouts
+### [x] ~~Canvas render corruption when switching panel layouts~~ (duplicate of fixed entry above)
 
 **Impact:** Visual, recoverable, but jarring. Observed repro: open ≥2 editor tabs, change panel layout (e.g. single → 2-col → quad), switch which tab is in which panel. The canvas drew two offset copies of the same file stacked — different font sizes, partially overlapping. Only cleared by closing all editor tabs with `Cmd+W`.
 
@@ -97,7 +97,7 @@ Fix: each `CanvasEditor` registers its `applyScroll` function with a module-leve
 
 ---
 
-### [ ] Settings panel doesn't mouse-wheel scroll in nested layouts
+### [x] Settings panel doesn't mouse-wheel scroll in nested layouts (fixed 2026-04-22)
 
 **Impact:** Settings has content below the viewport (keybindings section, theme import, etc.) that's unreachable when Settings is rendered in a split panel rather than as a full-viewport tab. Mouse wheel over the panel scrolled the neighboring editor instead.
 
@@ -111,7 +111,7 @@ Fix: each `CanvasEditor` registers its `applyScroll` function with a module-leve
 
 ## Tier 3 — Rough edges, polish
 
-### [ ] Navigation keys (End/Home/PageUp/PageDown) in palette input type instead of navigate
+### [x] Navigation keys (End/Home/PageUp/PageDown) in palette input type instead of navigate (fixed 2026-04-22)
 
 **Observation:** While the palette is open, pressing `End` typed `]` into the search input. Expected: move selection to last entry. Pressing `PageDown` also didn't navigate.
 
@@ -121,7 +121,7 @@ Fix: each `CanvasEditor` registers its `applyScroll` function with a module-leve
 
 ---
 
-### [ ] Default window size too small
+### [x] Default window size too small (fixed 2026-04-22)
 
 **Observation:** App launches at ~550×360px — usable only after clicking the green maximize. The welcome canvas's "canvas-rendered ide" subtitle and recent-folders row are pushed below the fold at that size.
 
@@ -129,7 +129,7 @@ Fix: each `CanvasEditor` registers its `applyScroll` function with a module-leve
 
 ---
 
-### [ ] Welcome canvas layout at fullscreen drops subtitle/recent-folders below the fold
+### [x] Welcome canvas layout at fullscreen drops subtitle/recent-folders below the fold (fixed 2026-04-22)
 
 **Observation:** At fullscreen (1500+ px wide), the "Buster" particle logo centers in the top half and the subtitle + recent-folders row appear far below — spatially disconnected from the logo. At smaller sizes they cluster together correctly.
 
@@ -137,7 +137,7 @@ Fix: each `CanvasEditor` registers its `applyScroll` function with a module-leve
 
 ---
 
-### [ ] PageDown/Cmd+G in editor didn't scroll
+### [x] PageDown/Cmd+G in editor didn't scroll (fixed 2026-04-22)
 
 **Observation:** Key capture on the canvas editor is finicky — PageDown was a no-op until I mouse-wheel-scrolled first. Cmd+G (Go to Line per the README) didn't show a dialog.
 

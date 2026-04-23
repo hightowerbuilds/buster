@@ -28,6 +28,7 @@
   overflow-y: auto;
   max-width: 600px;
   flex: 1;
+  min-height: 0;
 }
 
 .settings-row {

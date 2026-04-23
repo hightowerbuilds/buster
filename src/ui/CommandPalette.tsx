@@ -60,7 +60,8 @@ function formatKeybinding(kb?: string): string {
   return kb
     .replace(/Mod\+/g, navigator.platform.startsWith("Mac") ? "\u2318" : "Ctrl+")
     .replace(/Shift\+/g, "\u21E7")
-    .replace(/Alt\+/g, "\u2325");
+    .replace(/Alt\+/g, "\u2325")
+    .replace(/=$/, "+");
 }
 
 const CommandPalette: Component<CommandPaletteProps> = (props) => {
@@ -225,6 +226,20 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIdx(Math.max(selectedIdx() - 1, 0));
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setSelectedIdx(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      const max = isSearchMode() ? searchResults().length : isSymbolMode() ? filteredSymbols().length : isCommand() ? filteredCommands().length : filtered().length;
+      setSelectedIdx(Math.max(max - 1, 0));
+    } else if (e.key === "PageDown") {
+      e.preventDefault();
+      const max = isSearchMode() ? searchResults().length : isSymbolMode() ? filteredSymbols().length : isCommand() ? filteredCommands().length : filtered().length;
+      setSelectedIdx(Math.min(selectedIdx() + 10, max - 1));
+    } else if (e.key === "PageUp") {
+      e.preventDefault();
+      setSelectedIdx(Math.max(selectedIdx() - 10, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (isSearchMode()) {

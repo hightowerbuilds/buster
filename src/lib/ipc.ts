@@ -68,6 +68,7 @@ export interface AppSettings {
   word_wrap: boolean;
   font_size: number;
   tab_size: number;
+  use_spaces: boolean;
   minimap: boolean;
   line_numbers: boolean;
   cursor_blink: boolean;

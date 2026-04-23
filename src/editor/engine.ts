@@ -16,197 +16,82 @@
  */
 
 import { createSignal, batch } from "solid-js";
-import { getCharWidth, isWideChar, stringDisplayWidth, pixelToCol } from "./text-measure";
+import { getCharWidth, pixelToCol } from "./text-measure";
 import type { SearchMatch } from "../lib/ipc";
+
+// ─── Re-exports from extracted modules ─────────────────────────────
+// Keep all public symbols importable from "./engine" for backward compat.
 
 export { getCharWidth };
 
-// ─── Types ──────────────────────────────────────────────────────────
+export type {
+  Pos,
+  Selection,
+  DisplayRow,
+  EditDelta,
+  HistoryEntry,
+} from "./engine-text-ops";
 
-export interface Pos {
-  line: number;
-  col: number;
-}
+export {
+  PADDING_LEFT,
+  UNDO_GROUP_MS,
+  MAX_UNDO,
+  MAX_UNDO_BYTES,
+  orderPositions,
+  clamp,
+  findWordBoundaryLeft,
+  findWordBoundaryRight,
+  adjustPosAfterDelete,
+  deduplicateCursors,
+  insertAtPos,
+  backspaceAtPos,
+  deleteForwardAtPos,
+  deleteRangeFromLines,
+} from "./engine-text-ops";
 
-interface Selection {
-  anchor: Pos;
-  head: Pos;
-}
+export {
+  computeFoldRange,
+  isFoldable,
+  computeDisplayRows,
+} from "./engine-folding";
 
-export interface DisplayRow {
-  bufferLine: number;
-  startCol: number;
-  text: string;
-}
+// ─── Internal imports ──────────────────────────────────────────────
 
-/** A single edit range describing what text was replaced and with what. */
-export interface EditDelta {
-  /** Start line of the replaced range (zero-based, before the edit). */
-  startLine: number;
-  /** Start column of the replaced range (zero-based, before the edit). */
-  startCol: number;
-  /** End line of the replaced range (zero-based, before the edit). */
-  endLine: number;
-  /** End column of the replaced range (zero-based, before the edit). */
-  endCol: number;
-  /** The new text that replaced the range. Empty string means deletion. */
-  newText: string;
-}
+import type { Pos, Selection, EditDelta, HistoryEntry } from "./engine-text-ops";
+import {
+  PADDING_LEFT,
+  UNDO_GROUP_MS,
+  MAX_UNDO,
+  MAX_UNDO_BYTES,
+  orderPositions,
+  clamp,
+  findWordBoundaryLeft,
+  findWordBoundaryRight,
+  adjustPosAfterDelete,
+  deduplicateCursors,
+  insertAtPos,
+  backspaceAtPos,
+  deleteForwardAtPos,
+  deleteRangeFromLines,
+} from "./engine-text-ops";
 
-// ─── Constants ──────────────────────────────────────────────────────
+import {
+  computeFoldRange,
+  isFoldable,
+  computeDisplayRows,
+} from "./engine-folding";
 
-export const PADDING_LEFT = 8;
-
-/** Standalone display-row computation for the canvas renderer. */
-/** Compute the range of lines that a fold at `startLine` covers (indentation-based). */
-export function computeFoldRange(lines: string[], startLine: number): { start: number; end: number } | null {
-  if (startLine >= lines.length - 1) return null;
-  const baseIndent = lines[startLine].search(/\S/);
-  if (baseIndent < 0) return null; // blank line
-  let end = startLine + 1;
-  // Find the last line that has greater indentation than the start line
-  while (end < lines.length) {
-    const line = lines[end];
-    const indent = line.search(/\S/);
-    if (indent < 0) { end++; continue; } // skip blank lines
-    if (indent <= baseIndent) break;
-    end++;
-  }
-  if (end <= startLine + 1) return null; // nothing to fold
-  return { start: startLine + 1, end: end - 1 };
-}
-
-/** Check if a line is foldable (next line has greater indentation). */
-export function isFoldable(lines: string[], lineIdx: number): boolean {
-  if (lineIdx >= lines.length - 1) return false;
-  const currentIndent = lines[lineIdx].search(/\S/);
-  if (currentIndent < 0) return false;
-  const nextIndent = lines[lineIdx + 1].search(/\S/);
-  return nextIndent > currentIndent;
-}
-
-export function computeDisplayRows(
-  lines: string[],
-  charW: number,
-  editorWidth: number,
-  wordWrap: boolean,
-  gutterW: number,
-  foldedLines?: Set<number>
-): DisplayRow[] {
-  if (!wordWrap) {
-    const rows: DisplayRow[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      if (foldedLines?.has(i)) continue; // skip folded lines
-      rows.push({ bufferLine: i, startCol: 0, text: lines[i] });
-    }
-    return rows;
-  }
-
-  const maxWidth = Math.max(charW * 10, editorWidth - gutterW - PADDING_LEFT - 10);
-  const rows: DisplayRow[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    if (foldedLines?.has(i)) continue;
-    const line = lines[i];
-    // Fast path: line fits without wrapping
-    if (stringDisplayWidth(line) * charW <= maxWidth) {
-      rows.push({ bufferLine: i, startCol: 0, text: line });
-      continue;
-    }
-    // Slow path: word-wrap by accumulating pixel width
-    let col = 0;
-    while (col < line.length) {
-      let px = 0;
-      let end = col;
-      while (end < line.length) {
-        const cw = isWideChar(line.charCodeAt(end)) ? charW * 2 : charW;
-        if (px + cw > maxWidth && end > col) break;
-        px += cw;
-        end++;
-      }
-      // Try to break at a word boundary
-      if (end < line.length) {
-        let breakAt = end;
-        while (breakAt > col + 1 && !/\s/.test(line[breakAt - 1])) breakAt--;
-        if (breakAt > col + 1) end = breakAt;
-      }
-      rows.push({ bufferLine: i, startCol: col, text: line.slice(col, end) });
-      col = end;
-    }
-  }
-
-  return rows;
-}
-
-const UNDO_GROUP_MS = 300;
-const MAX_UNDO = 500;
-/** Maximum total bytes across all undo snapshots (10 MB). */
-const MAX_UNDO_BYTES = 10 * 1024 * 1024;
-
-// ─── History entry ──────────────────────────────────────────────────
-
-interface HistoryEntry {
-  lines: string[];
-  primary: Pos;
-  extras: Pos[];
-  sel: Selection | null;
-  /** Approximate byte size of this snapshot's lines array. */
-  byteSize: number;
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────
-
-function orderPositions(a: Pos, b: Pos): [Pos, Pos] {
-  if (a.line < b.line || (a.line === b.line && a.col <= b.col)) return [a, b];
-  return [b, a];
-}
-
-function clamp(pos: Pos, lines: string[]): Pos {
-  const line = Math.max(0, Math.min(pos.line, lines.length - 1));
-  const col = Math.max(0, Math.min(pos.col, lines[line]?.length ?? 0));
-  return { line, col };
-}
-
-function findWordBoundaryLeft(line: string, col: number): number {
-  if (col <= 0) return 0;
-  let i = col - 1;
-  while (i > 0 && /\s/.test(line[i])) i--;
-  while (i > 0 && /\w/.test(line[i - 1])) i--;
-  return i;
-}
-
-function findWordBoundaryRight(line: string, col: number): number {
-  if (col >= line.length) return line.length;
-  let i = col;
-  while (i < line.length && /\w/.test(line[i])) i++;
-  while (i < line.length && /\s/.test(line[i])) i++;
-  return i;
-}
-
-function adjustPosAfterDelete(pos: Pos, from: Pos, to: Pos): Pos {
-  // Before the deleted range — unchanged
-  if (pos.line < from.line || (pos.line === from.line && pos.col <= from.col)) return pos;
-  // Within the deleted range — collapse to `from`
-  if (pos.line < to.line || (pos.line === to.line && pos.col <= to.col)) return { ...from };
-  // After the deleted range on the same end-line
-  if (pos.line === to.line) {
-    return { line: from.line, col: from.col + (pos.col - to.col) };
-  }
-  // On a later line — shift line number
-  return { line: pos.line - (to.line - from.line), col: pos.col };
-}
-
-function deduplicateCursors(primary: Pos, extras: Pos[]): { primary: Pos; extras: Pos[] } {
-  const seen = new Set<string>();
-  seen.add(`${primary.line}:${primary.col}`);
-  const unique = extras.filter(p => {
-    const key = `${p.line}:${p.col}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  return { primary, extras: unique };
-}
+import {
+  type VimOpsDeps,
+  moveCursorToFirstNonBlank as _moveCursorToFirstNonBlank,
+  moveToWordEnd as _moveToWordEnd,
+  deleteLine as _deleteLine,
+  yankLine as _yankLine,
+  openLineBelow as _openLineBelow,
+  openLineAbove as _openLineAbove,
+  replaceChar as _replaceChar,
+  getWordUnderCursor as _getWordUnderCursor,
+} from "./engine-vim-ops";
 
 // ─── Engine factory ─────────────────────────────────────────────────
 
@@ -244,7 +129,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
   const foldedLineSet = new Set<number>(); // lines that are hidden
 
   // Display row cache (keyed on editSeq + layout params)
-  let rowCache: DisplayRow[] | null = null;
+  let rowCache: import("./engine-text-ops").DisplayRow[] | null = null;
   let rowCacheKey = "";
 
   // ── Internal helpers ──────────────────────────────────────────
@@ -316,70 +201,12 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     rowCacheKey = "";
   }
 
-  // ── Core text operations (work on raw arrays, not signals) ────
-
-  function insertAtPos(ls: string[], pos: Pos, text: string): { lines: string[]; newPos: Pos } {
-    const result = ls.slice();
-    const textLines = text.split("\n");
-    const before = result[pos.line].slice(0, pos.col);
-    const after = result[pos.line].slice(pos.col);
-
-    if (textLines.length === 1) {
-      result[pos.line] = before + textLines[0] + after;
-      return { lines: result, newPos: { line: pos.line, col: pos.col + textLines[0].length } };
-    }
-
-    const newLines: string[] = [];
-    newLines.push(before + textLines[0]);
-    for (let i = 1; i < textLines.length - 1; i++) newLines.push(textLines[i]);
-    newLines.push(textLines[textLines.length - 1] + after);
-    result.splice(pos.line, 1, ...newLines);
-
-    return {
-      lines: result,
-      newPos: { line: pos.line + textLines.length - 1, col: textLines[textLines.length - 1].length },
-    };
-  }
-
-  function backspaceAtPos(ls: string[], pos: Pos): { lines: string[]; newPos: Pos } {
-    const result = ls.slice();
-    if (pos.col > 0) {
-      const line = result[pos.line];
-      result[pos.line] = line.slice(0, pos.col - 1) + line.slice(pos.col);
-      return { lines: result, newPos: { line: pos.line, col: pos.col - 1 } };
-    }
-    if (pos.line > 0) {
-      const prevLen = result[pos.line - 1].length;
-      result[pos.line - 1] += result[pos.line];
-      result.splice(pos.line, 1);
-      return { lines: result, newPos: { line: pos.line - 1, col: prevLen } };
-    }
-    return { lines: result, newPos: pos };
-  }
-
-  function deleteForwardAtPos(ls: string[], pos: Pos): string[] {
-    const result = ls.slice();
-    const line = result[pos.line];
-    if (pos.col < line.length) {
-      result[pos.line] = line.slice(0, pos.col) + line.slice(pos.col + 1);
-    } else if (pos.line < result.length - 1) {
-      result[pos.line] = line + result[pos.line + 1];
-      result.splice(pos.line + 1, 1);
-    }
-    return result;
-  }
-
-  function deleteRangeFromLines(ls: string[], from: Pos, to: Pos): string[] {
-    const result = ls.slice();
-    if (from.line === to.line) {
-      result[from.line] = result[from.line].slice(0, from.col) + result[from.line].slice(to.col);
-    } else {
-      const before = result[from.line].slice(0, from.col);
-      const after = result[to.line].slice(to.col);
-      result.splice(from.line, to.line - from.line + 1, before + after);
-    }
-    return result;
-  }
+  // ── Vim operations dependency bridge ───────────────────────────
+  const vimDeps: VimOpsDeps = {
+    lines, cursor, sel,
+    setLines, setCursor, setSel,
+    recordUndo, afterEdit,
+  };
 
   function deleteCurrentSelection(ls: string[]): { lines: string[]; pos: Pos } {
     const s = sel();
@@ -746,115 +573,16 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
     // ── Vim-specific methods ────────────────────────────────────
 
-    /** Move cursor to first non-whitespace character on current line (Vim ^). */
-    moveCursorToFirstNonBlank(extend: boolean = false) {
-      const ls = lines();
-      const line = ls[cursor().line] ?? "";
-      const match = line.match(/^\s*/);
-      const col = match ? match[0].length : 0;
-      const next = { line: cursor().line, col };
-      batch(() => {
-        if (extend) {
-          const anchor = sel()?.anchor ?? cursor();
-          setSel({ anchor, head: next });
-        } else {
-          setSel(null);
-        }
-        setCursor(next);
-      });
-    },
+    // ── Vim-specific methods (delegated to engine-vim-ops.ts) ────
 
-    /** Move cursor to end of current/next word (Vim e). */
-    moveToWordEnd(extend: boolean = false) {
-      const p = cursor();
-      const ls = lines();
-      const line = ls[p.line] ?? "";
-      let col = p.col;
-
-      // If at end of word or on whitespace, skip to next word first
-      if (col < line.length - 1) col++;
-      // Skip whitespace
-      while (col < line.length && /\s/.test(line[col])) col++;
-      // Skip to end of word
-      if (/\w/.test(line[col] ?? "")) {
-        while (col < line.length - 1 && /\w/.test(line[col + 1])) col++;
-      } else {
-        while (col < line.length - 1 && !/\w/.test(line[col + 1]) && !/\s/.test(line[col + 1])) col++;
-      }
-
-      const next = { line: p.line, col };
-      batch(() => {
-        if (extend) {
-          const anchor = sel()?.anchor ?? p;
-          setSel({ anchor, head: next });
-        } else {
-          setSel(null);
-        }
-        setCursor(next);
-      });
-    },
-
-    /** Delete N lines from cursor position (Vim dd with count). Returns deleted text. */
-    deleteLine(count: number = 1): string {
-      recordUndo();
-      const ls = lines();
-      const startLine = cursor().line;
-      const endLine = Math.min(startLine + count, ls.length);
-      const deleted = ls.slice(startLine, endLine).join("\n");
-
-      const from: Pos = { line: startLine, col: 0 };
-      let to: Pos;
-      if (endLine < ls.length) {
-        to = { line: endLine, col: 0 };
-      } else if (startLine > 0) {
-        to = { line: startLine, col: 0 };
-        from.line = startLine - 1;
-        from.col = ls[startLine - 1].length;
-      } else {
-        // Only line — clear it
-        to = { line: 0, col: ls[0].length };
-      }
-
-      const newLines = deleteRangeFromLines(ls, from, to);
-      const newPos = { line: Math.min(from.line, newLines.length - 1), col: 0 };
-      batch(() => { setLines(newLines); setCursor(newPos); setSel(null); });
-      afterEdit([{ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: "" }]);
-      return deleted;
-    },
-
-    /** Return N lines as text from cursor position without deleting (Vim yy). */
-    yankLine(count: number = 1): string {
-      const ls = lines();
-      const startLine = cursor().line;
-      const endLine = Math.min(startLine + count, ls.length);
-      return ls.slice(startLine, endLine).join("\n");
-    },
-
-    /** Insert a new line below cursor and position cursor there (Vim o). */
-    openLineBelow() {
-      recordUndo();
-      const ls = lines().slice();
-      const p = cursor();
-      const line = ls[p.line] ?? "";
-      const indent = line.match(/^\s*/)![0];
-      ls.splice(p.line + 1, 0, indent);
-      const newPos = { line: p.line + 1, col: indent.length };
-      batch(() => { setLines(ls); setCursor(newPos); setSel(null); });
-      afterEdit([{ startLine: p.line, startCol: line.length, endLine: p.line, endCol: line.length, newText: "\n" + indent }]);
-    },
-
-    /** Insert a new line above cursor and position cursor there (Vim O). */
-    openLineAbove() {
-      recordUndo();
-      const ls = lines().slice();
-      const p = cursor();
-      const line = ls[p.line] ?? "";
-      const indent = line.match(/^\s*/)![0];
-      ls.splice(p.line, 0, indent);
-      const newPos = { line: p.line, col: indent.length };
-      batch(() => { setLines(ls); setCursor(newPos); setSel(null); });
-      afterEdit([{ startLine: p.line, startCol: 0, endLine: p.line, endCol: 0, newText: indent + "\n" }]);
-    },
+    moveCursorToFirstNonBlank(extend: boolean = false) { _moveCursorToFirstNonBlank(vimDeps, extend); },
+    moveToWordEnd(extend: boolean = false) { _moveToWordEnd(vimDeps, extend); },
+    deleteLine(count: number = 1): string { return _deleteLine(vimDeps, count); },
+    yankLine(count: number = 1): string { return _yankLine(vimDeps, count); },
+    openLineBelow() { _openLineBelow(vimDeps); },
+    openLineAbove() { _openLineAbove(vimDeps); },
+    replaceChar(char: string) { _replaceChar(vimDeps, char); },
+    getWordUnderCursor(): string { return _getWordUnderCursor(vimDeps); },
 
     /** Join current line with next line (Vim J). */
     joinLines() {
@@ -870,30 +598,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       result.splice(p.line + 1, 1);
       batch(() => { setLines(result); setCursor({ line: p.line, col: currentLen }); });
       afterEdit([{ startLine: p.line, startCol: currentLen, endLine: p.line + 1, endCol: ls[p.line + 1].length, newText: nextTrimmed ? " " + nextTrimmed : "" }]);
-    },
-
-    /** Replace character under cursor without moving (Vim r). */
-    replaceChar(char: string) {
-      const p = cursor();
-      const ls = lines();
-      const line = ls[p.line] ?? "";
-      if (p.col >= line.length) return;
-      recordUndo();
-      const result = ls.slice();
-      result[p.line] = line.slice(0, p.col) + char + line.slice(p.col + 1);
-      batch(() => { setLines(result); setCursor(p); });
-      afterEdit([{ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col + 1, newText: char }]);
-    },
-
-    /** Get the word under cursor (for Vim * search). */
-    getWordUnderCursor(): string {
-      const p = cursor();
-      const line = lines()[p.line] ?? "";
-      let start = p.col;
-      let end = p.col;
-      while (start > 0 && /\w/.test(line[start - 1])) start--;
-      while (end < line.length && /\w/.test(line[end])) end++;
-      return line.slice(start, end);
     },
 
     /** Find all matches in the document. Returns SearchMatch[] for use by find panel, vim search, etc. */
@@ -993,33 +697,34 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
     // ── Line operations ────────────────────────────────────────
 
-    /** Indent: insert tab at start of each line in selection, or at cursor if no selection. */
-    indentLines() {
+    /** Indent: insert indent unit at start of each line in selection, or at cursor if no selection. */
+    indentLines(unit: string = "\t") {
       recordUndo();
       const ls = lines();
       const s = sel();
+      const len = unit.length;
       if (s) {
         const [from, to] = orderPositions(s.anchor, s.head);
         const newLines = [...ls];
         for (let i = from.line; i <= to.line; i++) {
-          newLines[i] = "\t" + newLines[i];
+          newLines[i] = unit + newLines[i];
         }
         batch(() => {
           setLines(newLines);
-          setSel({ anchor: { line: from.line, col: from.col + 1 }, head: { line: to.line, col: to.col + 1 } });
-          setCursor({ line: to.line, col: to.col + 1 });
+          setSel({ anchor: { line: from.line, col: from.col + len }, head: { line: to.line, col: to.col + len } });
+          setCursor({ line: to.line, col: to.col + len });
         });
       } else {
         const c = cursor();
         const newLines = [...ls];
-        newLines[c.line] = "\t" + newLines[c.line];
-        batch(() => { setLines(newLines); setCursor({ line: c.line, col: c.col + 1 }); });
+        newLines[c.line] = unit + newLines[c.line];
+        batch(() => { setLines(newLines); setCursor({ line: c.line, col: c.col + len }); });
       }
       afterEdit(null);
     },
 
-    /** Outdent: remove leading tab/spaces from each line in selection or current line. */
-    outdentLines() {
+    /** Outdent: remove one indent level from each line in selection or current line. */
+    outdentLines(tabSize: number = 4) {
       recordUndo();
       const ls = lines();
       const s = sel();
@@ -1032,13 +737,15 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         if (line.startsWith("\t")) {
           newLines[i] = line.slice(1);
           shifts.push(1);
-        } else if (line.startsWith("  ")) {
-          // Remove up to 2 spaces (soft tab)
-          const spaces = line.match(/^ {1,2}/)![0].length;
-          newLines[i] = line.slice(spaces);
-          shifts.push(spaces);
         } else {
-          shifts.push(0);
+          // Remove up to tabSize leading spaces
+          const match = line.match(new RegExp(`^ {1,${tabSize}}`));
+          if (match) {
+            newLines[i] = line.slice(match[0].length);
+            shifts.push(match[0].length);
+          } else {
+            shifts.push(0);
+          }
         }
       }
       if (shifts.every(s => s === 0)) return; // nothing to outdent
@@ -1296,7 +1003,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
     // ── Display rows (cached) ───────────────────────────────────
 
-    computeDisplayRows(charW: number, editorWidth: number, wordWrap: boolean, gutterW: number): DisplayRow[] {
+    computeDisplayRows(charW: number, editorWidth: number, wordWrap: boolean, gutterW: number): import("./engine-text-ops").DisplayRow[] {
       const key = `${editSeq()}:${charW}:${editorWidth}:${wordWrap}:${gutterW}`;
       if (rowCache && rowCacheKey === key) return rowCache;
 

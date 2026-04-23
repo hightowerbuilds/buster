@@ -31,6 +31,7 @@ const ROW_HEIGHT = 32;
 const LANE_WIDTH = 20;
 const GRAPH_LEFT = 16;
 const TEXT_LEFT_PAD = 16;
+const HEADER_HEIGHT = 28;
 const FONT = '13px "JetBrains Mono", monospace';
 const LABEL_FONT = '11px "Courier New", Courier, monospace';
 
@@ -166,7 +167,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
     for (let i = firstRow; i < lastRow; i++) {
       const node = nodes[i];
       const lane = laneData[i].lane;
-      const y = (i - firstRow) * ROW_HEIGHT + offsetY + ROW_HEIGHT / 2;
+      const y = (i - firstRow) * ROW_HEIGHT + offsetY + ROW_HEIGHT / 2 + HEADER_HEIGHT;
       const x = GRAPH_LEFT + lane * LANE_WIDTH + LANE_WIDTH / 2;
       const color = laneColors[lane % laneColors.length];
 
@@ -176,7 +177,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
 
         const parentLane = laneData[parentRow]?.lane ?? lane;
         const parentColor = laneColors[parentLane % laneColors.length];
-        const py = (parentRow - firstRow) * ROW_HEIGHT + offsetY + ROW_HEIGHT / 2;
+        const py = (parentRow - firstRow) * ROW_HEIGHT + offsetY + ROW_HEIGHT / 2 + HEADER_HEIGHT;
         const px = GRAPH_LEFT + parentLane * LANE_WIDTH + LANE_WIDTH / 2;
 
         // Only draw if at least partially visible
@@ -204,7 +205,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
     for (let i = firstRow; i < lastRow; i++) {
       const node = nodes[i];
       const lane = laneData[i].lane;
-      const y = (i - firstRow) * ROW_HEIGHT + offsetY + ROW_HEIGHT / 2;
+      const y = (i - firstRow) * ROW_HEIGHT + offsetY + ROW_HEIGHT / 2 + HEADER_HEIGHT;
       const x = GRAPH_LEFT + lane * LANE_WIDTH + LANE_WIDTH / 2;
       const color = laneColors[lane % laneColors.length];
       const isHover = hoverIdx() === i;
@@ -212,7 +213,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
       // Hover highlight
       if (isHover) {
         ctx.fillStyle = p.currentLine;
-        ctx.fillRect(0, (i - firstRow) * ROW_HEIGHT + offsetY, w, ROW_HEIGHT);
+        ctx.fillRect(0, (i - firstRow) * ROW_HEIGHT + offsetY + HEADER_HEIGHT, w, ROW_HEIGHT);
       }
 
       // Node circle
@@ -309,7 +310,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
 
   function handleScroll(e: WheelEvent) {
     e.preventDefault();
-    const totalHeight = commits().length * ROW_HEIGHT + 28;
+    const totalHeight = commits().length * ROW_HEIGHT + HEADER_HEIGHT;
     const maxScroll = Math.max(0, totalHeight - canvasHeight());
     setScrollTop(Math.max(0, Math.min(scrollTop() + e.deltaY, maxScroll)));
     scheduleRedraw();
@@ -318,7 +319,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
   function handleMouseMove(e: MouseEvent) {
     if (!containerRef) return;
     const rect = containerRef.getBoundingClientRect();
-    const y = e.clientY - rect.top + scrollTop() - 28;
+    const y = e.clientY - rect.top + scrollTop() - HEADER_HEIGHT;
     const idx = Math.floor(y / ROW_HEIGHT);
     setHoverIdx(idx >= 0 && idx < commits().length ? idx : -1);
     scheduleRedraw();

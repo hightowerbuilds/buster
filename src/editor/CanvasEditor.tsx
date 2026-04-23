@@ -71,6 +71,12 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   const engine = createEditorEngine(props.initialText, props.filePath ?? undefined);
 
+  /** Return the whitespace string for one indent level (respects tab_size and use_spaces settings). */
+  function indentUnit(): string {
+    const size = store.settings.tab_size || 4;
+    return store.settings.use_spaces !== false ? " ".repeat(size) : "\t";
+  }
+
   // ── Vim mode ──────────────────────────────────────────────────
   const vim = createVimHandler();
   createEffect(() => { vim.setEnabled(store.settings.vim_mode ?? false); });
@@ -242,6 +248,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     lines: () => engine.lines(),
     updateCursor: (line: number, col: number) => engine.setCursor({ line, col }),
     insertText: (text: string) => engine.insert(text),
+    setSelection: (aL: number, aC: number, hL: number, hC: number) =>
+      engine.setSelection({ line: aL, col: aC }, { line: hL, col: hC }),
     resetCursorBlink: () => {},
     clearHighlightCache,
   });
@@ -523,6 +531,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
     // Escape cascade
     if (e.key === "Escape") {
+      if (ac.isInSnippet()) { e.preventDefault(); ac.exitSnippet(); return; }
       if (ghost.ghostText()) { e.preventDefault(); ghost.dismiss(); return; }
       if (sigHelp.signature()) { e.preventDefault(); sigHelp.dismiss(); return; }
       if (codeActions.menuVisible()) { e.preventDefault(); codeActions.dismiss(); return; }
@@ -549,6 +558,52 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     if (isMod && e.key === "a") {
       e.preventDefault();
       engine.selectAll();
+      return;
+    }
+
+    // Select next occurrence (Cmd+D)
+    if (isMod && e.key === "d") {
+      e.preventDefault();
+      const sel = engine.getOrderedSelection();
+      if (sel) {
+        // Selection exists — find next occurrence of selected text
+        const selectedText = engine.getTextRange(sel.from, sel.to);
+        if (selectedText) {
+          const ls = engine.lines();
+          // Search from after current selection
+          let found = false;
+          for (let line = sel.to.line; line < ls.length && !found; line++) {
+            const startCol = line === sel.to.line ? sel.to.col : 0;
+            const idx = ls[line].indexOf(selectedText, startCol);
+            if (idx !== -1) {
+              engine.addCursor({ line, col: idx + selectedText.length });
+              engine.setSelection(sel.from, sel.to); // keep original selection
+              found = true;
+            }
+          }
+          // Wrap around from beginning if not found
+          if (!found) {
+            for (let line = 0; line <= sel.from.line && !found; line++) {
+              const endCol = line === sel.from.line ? sel.from.col : ls[line].length;
+              const idx = ls[line].indexOf(selectedText);
+              if (idx !== -1 && idx + selectedText.length <= endCol) {
+                engine.addCursor({ line, col: idx + selectedText.length });
+                found = true;
+              }
+            }
+          }
+        }
+      } else {
+        // No selection — select the word under cursor
+        const word = engine.getWordUnderCursor();
+        if (word) {
+          const c = engine.cursor();
+          const line = engine.getLine(c.line);
+          let start = c.col;
+          while (start > 0 && /\w/.test(line[start - 1])) start--;
+          engine.setSelection({ line: c.line, col: start }, { line: c.line, col: start + word.length });
+        }
+      }
       return;
     }
 
@@ -702,10 +757,23 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     } else if (e.key === "Home") {
       e.preventDefault(); ac.dismiss();
       engine.moveCursorToLineStart();
-         } else if (e.key === "End") {
+    } else if (e.key === "End") {
       e.preventDefault(); ac.dismiss();
       engine.moveCursorToLineEnd();
-         } else if (e.key === "Backspace" && e.altKey) {
+    } else if (e.key === "PageDown") {
+      e.preventDefault(); ac.dismiss();
+      const pageRows = Math.max(1, Math.floor(canvasHeight() / lineHeight()) - 2);
+      const c = engine.cursor();
+      const maxLine = engine.lines().length - 1;
+      engine.setCursor({ line: Math.min(c.line + pageRows, maxLine), col: c.col });
+      ensureCursorVisible();
+    } else if (e.key === "PageUp") {
+      e.preventDefault(); ac.dismiss();
+      const pageRows = Math.max(1, Math.floor(canvasHeight() / lineHeight()) - 2);
+      const c = engine.cursor();
+      engine.setCursor({ line: Math.max(c.line - pageRows, 0), col: c.col });
+      ensureCursorVisible();
+    } else if (e.key === "Backspace" && e.altKey) {
       e.preventDefault();
       if (hiddenInput) hiddenInput.value = "";
       engine.deleteWordBackward();
@@ -713,6 +781,18 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
          } else if (e.key === "Backspace") {
       e.preventDefault();
       if (hiddenInput) hiddenInput.value = "";
+      // Auto-delete matching bracket/quote pair: backspace inside () removes both
+      const bCur = engine.cursor();
+      if (!engine.sel() && bCur.col > 0) {
+        const bLine = engine.getLine(bCur.line);
+        const charBefore = bLine[bCur.col - 1];
+        const charAfter = bLine[bCur.col];
+        if (charBefore && charAfter && BRACKET_PAIRS[charBefore] === charAfter) {
+          engine.deleteRange({ line: bCur.line, col: bCur.col - 1 }, { line: bCur.line, col: bCur.col + 1 });
+          clearHighlightCache(); ac.trigger();
+          return;
+        }
+      }
       engine.backspace();
       clearHighlightCache(); ac.trigger();
     } else if (e.key === "Delete") {
@@ -722,15 +802,43 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       clearHighlightCache();
     } else if (e.key === "Enter") {
       e.preventDefault(); ac.dismiss();
-      // Auto-indent: match leading whitespace of current line
-      const currentLine = engine.getLine(engine.cursor().line);
+      const cur = engine.cursor();
+      const currentLine = engine.getLine(cur.line);
       const indent = currentLine.match(/^\s*/)![0];
-      engine.insert("\n" + indent);
+      const charBefore = currentLine[cur.col - 1] ?? "";
+      const charAfter = currentLine[cur.col] ?? "";
+
+      // Smart indent: split braces {|} → {\n  |\n}
+      if (charBefore === "{" && charAfter === "}") {
+        const deeper = indent + indentUnit();
+        engine.insert("\n" + deeper + "\n" + indent);
+        // Move cursor to the middle line
+        engine.setCursor({ line: cur.line + 1, col: deeper.length });
+      }
+      // Smart indent: split parens (|) and brackets [|]
+      else if ((charBefore === "(" && charAfter === ")") || (charBefore === "[" && charAfter === "]")) {
+        const deeper = indent + indentUnit();
+        engine.insert("\n" + deeper + "\n" + indent);
+        engine.setCursor({ line: cur.line + 1, col: deeper.length });
+      }
+      // Increase indent after { [ (
+      else if ("{[(".includes(charBefore)) {
+        engine.insert("\n" + indent + indentUnit());
+      }
+      // Normal auto-indent
+      else {
+        engine.insert("\n" + indent);
+      }
       clearHighlightCache(); ensureCursorVisible();
     } else if (e.key === "Tab") {
       // When tab trapping is off (Ctrl+M), let Tab move focus naturally
       if (!tabTrapping()) return;
       e.preventDefault();
+      // Advance snippet tab stops if in a snippet session
+      if (!e.shiftKey && ac.isInSnippet()) {
+        ac.advanceSnippet();
+        return;
+      }
       // Accept ghost text if visible
       const accepted = ghost.accept();
       if (accepted) {
@@ -738,11 +846,11 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
         clearHighlightCache();        return;
       }
       if (e.shiftKey) {
-        engine.outdentLines();
+        engine.outdentLines(store.settings.tab_size || 4);
       } else if (engine.sel()) {
-        engine.indentLines();
+        engine.indentLines(indentUnit());
       } else {
-        engine.insert("\t");
+        engine.insert(indentUnit());
       }
       clearHighlightCache();    } else if (!isModifier && !isMod && !extend) {
       // Clear selection for regular character keys (they'll go through handleInput)
@@ -763,6 +871,31 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
     // In Vim Normal/Visual mode, suppress text insertion
     if (vim.enabled() && vim.mode() !== "insert") return;
+
+    // Emmet-style HTML boilerplate: typing "!" in an empty HTML file expands to full document
+    if (text === "!" && props.filePath) {
+      const ext = extname(props.filePath).toLowerCase();
+      if ((ext === ".html" || ext === ".htm") && engine.lineCount() <= 1 && engine.getLine(0).trim() === "") {
+        const unit = indentUnit();
+        const boilerplate =
+`<!DOCTYPE html>
+<html lang="en">
+<head>
+${unit}<meta charset="UTF-8">
+${unit}<meta name="viewport" content="width=device-width, initial-scale=1.0">
+${unit}<title>Document</title>
+</head>
+<body>
+${unit}
+</body>
+</html>`;
+        engine.insert(boilerplate);
+        // Place cursor inside <body> on the indented blank line
+        engine.setCursor({ line: 8, col: unit.length });
+        clearHighlightCache();
+        return;
+      }
+    }
 
     // Auto-close brackets and quotes
     if (text.length === 1 && BRACKET_PAIRS[text]) {
@@ -812,9 +945,30 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       }
     }
 
+    // Auto-outdent: typing } on whitespace-only line reduces indent
+    if (text === "}" || text === "]" || text === ")") {
+      const cur = engine.cursor();
+      const line = engine.getLine(cur.line);
+      if (/^\s*$/.test(line.slice(0, cur.col))) {
+        const unit = indentUnit();
+        const currentIndent = line.match(/^\s*/)![0];
+        if (currentIndent.length >= unit.length) {
+          const newIndent = currentIndent.slice(unit.length);
+          engine.deleteRange({ line: cur.line, col: 0 }, { line: cur.line, col: currentIndent.length });
+          engine.setCursor({ line: cur.line, col: 0 });
+          engine.insert(newIndent + text);
+          clearHighlightCache();
+          ac.trigger();
+          sigHelp.onChar(text);
+          ghost.scheduleRequest();
+          return;
+        }
+      }
+    }
+
     engine.insert(text);
     clearHighlightCache();
-       ac.trigger();
+    ac.trigger();
     if (text.length === 1) sigHelp.onChar(text);
     ghost.scheduleRequest();
   }
@@ -854,9 +1008,11 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   }
 
   // Register/unregister as the active scroll target based on props.active.
+  // Also focus the hidden input so keyboard events are captured.
   createEffect(() => {
     if (props.active !== false) {
       activeScrollTarget.apply = applyScroll;
+      requestAnimationFrame(() => focusInput());
     } else if (activeScrollTarget.apply === applyScroll) {
       activeScrollTarget.apply = null;
     }

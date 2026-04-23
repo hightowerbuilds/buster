@@ -11,6 +11,8 @@ pub struct AppSettings {
     pub word_wrap: bool,
     pub font_size: u32,
     pub tab_size: u32,
+    #[serde(default = "default_true")]
+    pub use_spaces: bool,
     pub minimap: bool,
     pub line_numbers: bool,
     pub cursor_blink: bool,
@@ -63,6 +65,7 @@ impl Default for AppSettings {
             word_wrap: true,
             font_size: 14,
             tab_size: 4,
+            use_spaces: true,
             minimap: false,
             line_numbers: true,
             cursor_blink: true,

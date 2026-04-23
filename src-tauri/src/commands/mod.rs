@@ -8,7 +8,7 @@ pub mod lsp;
 pub mod extensions;
 pub mod session;
 pub mod browser;
-pub mod browser_module;
+pub mod surface;
 pub mod keymap;
 pub mod filebuffer;
 pub mod debugger;

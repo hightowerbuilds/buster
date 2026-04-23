@@ -10,8 +10,21 @@ export interface AutocompleteDeps {
   lines: () => string[];
   updateCursor: (line: number, col: number) => void;
   insertText: (text: string) => void;
+  setSelection: (anchorLine: number, anchorCol: number, headLine: number, headCol: number) => void;
   resetCursorBlink: () => void;
   clearHighlightCache: () => void;
+}
+
+/** A resolved tab stop within an expanded snippet. */
+interface TabStop {
+  /** Tab stop number (1, 2, ... 0 is final). */
+  index: number;
+  /** Absolute line in the document. */
+  line: number;
+  /** Absolute column where the placeholder starts. */
+  col: number;
+  /** Length of the placeholder text (0 for bare $N stops). */
+  length: number;
 }
 
 export function createAutocomplete(deps: AutocompleteDeps) {
@@ -19,6 +32,37 @@ export function createAutocomplete(deps: AutocompleteDeps) {
   const [completionIdx, setCompletionIdx] = createSignal(0);
   const [completionVisible, setCompletionVisible] = createSignal(false);
   let triggerTimer: number | undefined;
+
+  // ── Snippet session state ───────────────────────────────────
+  let snippetStops: TabStop[] = [];
+  let snippetStopIdx = -1;
+
+  function isInSnippet(): boolean {
+    return snippetStops.length > 0 && snippetStopIdx >= 0;
+  }
+
+  function exitSnippet() {
+    snippetStops = [];
+    snippetStopIdx = -1;
+  }
+
+  /** Advance to the next tab stop. Returns true if there was a stop to advance to. */
+  function advanceSnippet(): boolean {
+    if (!isInSnippet()) return false;
+    snippetStopIdx++;
+    if (snippetStopIdx >= snippetStops.length) {
+      exitSnippet();
+      return false;
+    }
+    const stop = snippetStops[snippetStopIdx];
+    if (stop.length > 0) {
+      deps.setSelection(stop.line, stop.col, stop.line, stop.col + stop.length);
+    } else {
+      deps.updateCursor(stop.line, stop.col);
+    }
+    deps.resetCursorBlink();
+    return true;
+  }
 
   function dismiss() {
     setCompletionVisible(false);
@@ -52,33 +96,31 @@ export function createAutocomplete(deps: AutocompleteDeps) {
     }, 100) as unknown as number;
   }
 
-  /** Parse snippet text into plain text, returning cursor offset for first tab stop. */
-  function parseSnippet(text: string): { plain: string; cursorOffset: number } {
+  /** Parse snippet text, returning plain text and all tab stops with their offsets. */
+  function parseSnippet(text: string): { plain: string; stops: { index: number; offset: number; length: number }[] } {
     let plain = "";
-    let cursorOffset = -1;
+    const stops: { index: number; offset: number; length: number }[] = [];
     let i = 0;
     while (i < text.length) {
       if (text[i] === "$") {
         if (text[i + 1] === "{") {
-          // ${1:placeholder} — extract placeholder text
           const close = text.indexOf("}", i + 2);
           if (close !== -1) {
             const inner = text.slice(i + 2, close);
             const colonIdx = inner.indexOf(":");
             const tabStop = colonIdx >= 0 ? parseInt(inner.slice(0, colonIdx)) : parseInt(inner);
             const placeholder = colonIdx >= 0 ? inner.slice(colonIdx + 1) : "";
-            if (tabStop === 1 || (tabStop === 0 && cursorOffset < 0)) {
-              cursorOffset = plain.length;
+            if (!isNaN(tabStop)) {
+              stops.push({ index: tabStop, offset: plain.length, length: placeholder.length });
             }
             plain += placeholder;
             i = close + 1;
             continue;
           }
         } else if (/\d/.test(text[i + 1] ?? "")) {
-          // $1, $0 — tab stop without placeholder
           const tabStop = parseInt(text[i + 1]);
-          if (tabStop === 1 || (tabStop === 0 && cursorOffset < 0)) {
-            cursorOffset = plain.length;
+          if (!isNaN(tabStop)) {
+            stops.push({ index: tabStop, offset: plain.length, length: 0 });
           }
           i += 2;
           continue;
@@ -87,7 +129,13 @@ export function createAutocomplete(deps: AutocompleteDeps) {
       plain += text[i];
       i++;
     }
-    return { plain, cursorOffset };
+    // Sort: $1, $2, ... $N, then $0 last (final cursor position)
+    stops.sort((a, b) => {
+      if (a.index === 0) return 1;
+      if (b.index === 0) return -1;
+      return a.index - b.index;
+    });
+    return { plain, stops };
   }
 
   function accept() {
@@ -110,15 +158,25 @@ export function createAutocomplete(deps: AutocompleteDeps) {
     // Check if the completion text contains snippet syntax
     const hasSnippet = remaining.includes("$");
     if (hasSnippet) {
-      const { plain, cursorOffset } = parseSnippet(remaining);
+      const { plain, stops } = parseSnippet(remaining);
       remaining = plain;
       if (remaining.length > 0) {
         deps.insertText(remaining);
         deps.clearHighlightCache();
-        // Move cursor to first tab stop if found
-        if (cursorOffset >= 0 && cursorOffset < remaining.length) {
-          const newCol = col + cursorOffset;
-          deps.updateCursor(line, newCol);
+
+        // Build absolute tab stop positions
+        if (stops.length > 0) {
+          snippetStops = stops.map(s => ({
+            index: s.index,
+            line,
+            col: col + s.offset,
+            length: s.length,
+          }));
+          snippetStopIdx = -1; // advanceSnippet will increment to 0
+          dismiss();
+          deps.resetCursorBlink();
+          advanceSnippet();
+          return;
         }
       }
     } else if (remaining.length > 0) {
@@ -147,5 +205,9 @@ export function createAutocomplete(deps: AutocompleteDeps) {
     accept,
     navigateDown,
     navigateUp,
+    // Snippet session
+    isInSnippet,
+    advanceSnippet,
+    exitSnippet,
   };
 }

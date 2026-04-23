@@ -8,6 +8,8 @@ import { showToast } from "./CanvasToasts";
 import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "./ContextMenu";
 import { TerminalGLContext, type FontVariant } from "./terminal-webgl";
+import { mapSpecialKey, mapCtrlKey, mapAltKey, encodeSgrMouse, encodeDefaultMouse } from "./terminal-keys";
+import { searchTerminalRows, scrollToMatch } from "./terminal-search";
 
 interface TermCell {
   ch: string;
@@ -195,54 +197,13 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   }
 
   function runTermSearch(query: string) {
-    searchMatches = [];
-    if (!query) { needsRedraw = true; scheduleTermRender(); return; }
-
-    let regex: RegExp | null = null;
-    if (searchUseRegex) {
-      try {
-        regex = new RegExp(query, searchCaseSensitive ? "g" : "gi");
-      } catch {
-        // Invalid regex — show no matches
-        needsRedraw = true; scheduleTermRender(); return;
-      }
-    }
-
+    if (!query) { searchMatches = []; needsRedraw = true; scheduleTermRender(); return; }
     const allRows = [...scrollback(), ...cells];
-    for (let r = 0; r < allRows.length; r++) {
-      const row = allRows[r];
-      if (!row) continue;
-      const rawText = row.map(c => c.ch).join("");
-
-      if (regex) {
-        regex.lastIndex = 0;
-        let m: RegExpExecArray | null;
-        while ((m = regex.exec(rawText)) !== null) {
-          if (m[0].length === 0) { regex.lastIndex++; continue; }
-          searchMatches.push({ row: r, col: m.index, len: m[0].length });
-        }
-      } else {
-        const text = searchCaseSensitive ? rawText : rawText.toLowerCase();
-        const q = searchCaseSensitive ? query : query.toLowerCase();
-        let idx = 0;
-        while ((idx = text.indexOf(q, idx)) !== -1) {
-          searchMatches.push({ row: r, col: idx, len: q.length });
-          idx += q.length;
-        }
-      }
-    }
+    searchMatches = searchTerminalRows(allRows, query, { useRegex: searchUseRegex, caseSensitive: searchCaseSensitive });
     searchMatchIdx = searchMatches.length > 0 ? searchMatches.length - 1 : -1;
-    // Scroll to the current match
     if (searchMatchIdx >= 0) {
-      const match = searchMatches[searchMatchIdx];
-      const sb = scrollback();
-      const totalRows = sb.length + (cells.length || termRows);
-      const visibleCount = cells.length || termRows;
-      const matchAbsolute = match.row;
-      const liveStart = totalRows - visibleCount;
-      if (matchAbsolute < liveStart) {
-        scrollOffset = liveStart - matchAbsolute;
-      }
+      const newOffset = scrollToMatch(searchMatches[searchMatchIdx].row, scrollback().length, cells.length || termRows, scrollOffset);
+      if (newOffset !== null) scrollOffset = newOffset;
     }
     needsRedraw = true; scheduleTermRender();
   }
@@ -250,14 +211,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   function jumpToSearchMatch(dir: 1 | -1) {
     if (searchMatches.length === 0) return;
     searchMatchIdx = (searchMatchIdx + dir + searchMatches.length) % searchMatches.length;
-    const match = searchMatches[searchMatchIdx];
-    const sb = scrollback();
-    const totalRows = sb.length + (cells.length || termRows);
-    const visibleCount = cells.length || termRows;
-    const liveStart = totalRows - visibleCount;
-    if (match.row < liveStart - scrollOffset || match.row >= liveStart - scrollOffset + visibleCount) {
-      scrollOffset = Math.max(0, liveStart - match.row);
-    }
+    const newOffset = scrollToMatch(searchMatches[searchMatchIdx].row, scrollback().length, cells.length || termRows, scrollOffset);
+    if (newOffset !== null) scrollOffset = newOffset;
     needsRedraw = true; scheduleTermRender();
   }
 
@@ -702,17 +657,11 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
 
   function sendMouseEvent(button: number, row: number, col: number, release: boolean) {
     if (!ptyId || mouseMode === "none") return;
-    // SGR encoding: \x1b[<button;col;rowM (press) or \x1b[<button;col;rowm (release)
-    // Coordinates are 1-based
-    if (mouseEncoding === "sgr") {
-      const suffix = release ? "m" : "M";
-      invoke("terminal_write", { termId: ptyId, data: `\x1b[<${button};${col + 1};${row + 1}${suffix}` }).catch((e) => console.warn("Terminal IPC error:", e));
-    } else {
-      // Default encoding: \x1b[M + 3 bytes (button+32, col+33, row+33)
-      if (!release) {
-        const data = `\x1b[M${String.fromCharCode(button + 32)}${String.fromCharCode(col + 33)}${String.fromCharCode(row + 33)}`;
-        invoke("terminal_write", { termId: ptyId, data }).catch((e) => console.warn("Terminal IPC error:", e));
-      }
+    const data = mouseEncoding === "sgr"
+      ? encodeSgrMouse(button, row, col, release)
+      : encodeDefaultMouse(button, row, col, release);
+    if (data) {
+      invoke("terminal_write", { termId: ptyId, data }).catch((e) => console.warn("Terminal IPC error:", e));
     }
   }
 
@@ -891,40 +840,11 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       needsRedraw = true; scheduleTermRender();
     }
 
-    // Map special keys to escape sequences
-    let data: string | null = null;
-    switch (e.key) {
-      case "Enter": data = "\r"; break;
-      case "Backspace": data = "\x7f"; break;
-      case "Tab":
-        // When tab trapping is off (Ctrl+M), let Tab move focus naturally
-        if (!tabTrapping()) return;
-        data = "\t"; break;
-      case "Escape": data = "\x1b"; e.stopPropagation(); break;
-      case "ArrowUp": data = "\x1b[A"; break;
-      case "ArrowDown": data = "\x1b[B"; break;
-      case "ArrowRight": data = "\x1b[C"; break;
-      case "ArrowLeft": data = "\x1b[D"; break;
-      case "Home": data = "\x1b[H"; break;
-      case "End": data = "\x1b[F"; break;
-      case "Delete": data = "\x1b[3~"; break;
-      case "PageUp": data = "\x1b[5~"; break;
-      case "PageDown": data = "\x1b[6~"; break;
-    }
-
-    // Ctrl+key combinations — use e.code (physical key) so Ctrl+Shift+C !== Ctrl+C
-    if (e.ctrlKey && !e.altKey && !e.metaKey && e.code.startsWith("Key")) {
-      const letter = e.code.charCodeAt(3); // "KeyA" → 65
-      const code = letter - 64; // A=1, B=2, ... Z=26
-      if (code > 0 && code < 27) {
-        data = String.fromCharCode(code);
-      }
-    }
-
-    // Alt+key combinations — send ESC prefix (meta convention for readline word nav etc.)
-    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.length === 1) {
-      data = "\x1b" + e.key;
-    }
+    // Map special keys, Ctrl+key, and Alt+key to escape sequences
+    let data: string | null = mapSpecialKey(e.key, tabTrapping());
+    if (e.key === "Escape" && data) e.stopPropagation();
+    if (!data) data = mapCtrlKey(e.code, e.ctrlKey, e.altKey, e.metaKey);
+    if (!data) data = mapAltKey(e.key, e.altKey, e.ctrlKey, e.metaKey);
 
     if (data) {
       e.preventDefault();

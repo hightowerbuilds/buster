@@ -33,9 +33,19 @@ const [deleteConfirm, setDeleteConfirm] = createSignal<{ path: string; name: str
 
 function dismissCtxMenu() { setCtxMenu(null); }
 
-// Listen for clicks outside to dismiss
+// Listen for mousedown outside to dismiss (mousedown instead of click so it fires
+// before focus changes, and we skip the right-click that opened the menu).
 if (typeof document !== "undefined") {
-  document.addEventListener("click", dismissCtxMenu);
+  let skipNextMousedown = false;
+  document.addEventListener("contextmenu", () => { skipNextMousedown = true; });
+  document.addEventListener("mousedown", (e) => {
+    if (skipNextMousedown) { skipNextMousedown = false; return; }
+    if (!ctxMenu()) return;
+    // Don't dismiss if clicking inside the context menu itself
+    const target = e.target as HTMLElement;
+    if (target.closest?.(".ctx-menu")) return;
+    dismissCtxMenu();
+  });
 }
 
 // ── TreeItem component ──────────────────────────────────────────
