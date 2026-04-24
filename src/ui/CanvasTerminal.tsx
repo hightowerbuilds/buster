@@ -3,14 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import CanvasSurface from "./CanvasSurface";
 import { useBuster } from "../lib/buster-context";
-import { FONT_FAMILY, getCharWidth, measureTextWidth } from "../editor/text-measure";
+import { getCharWidth } from "../editor/text-measure";
 import { showToast } from "./CanvasToasts";
 import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "./ContextMenu";
-import { TerminalGLContext, type FontVariant } from "./terminal-webgl";
+import { TerminalGLContext } from "./terminal-webgl";
 import { mapSpecialKey, mapCtrlKey, mapAltKey, encodeSgrMouse, encodeDefaultMouse } from "./terminal-keys";
 import { searchTerminalRows, scrollToMatch } from "./terminal-search";
 import { decodeBinaryDelta, type TermCell } from "./terminal-binary";
+import { renderWebGL as doRenderWebGL, renderCanvas2D as doRenderCanvas2D, type TermRenderState, type TermRenderDeps } from "./terminal-render";
 
 /** A decoded sixel image received from the Rust backend. */
 interface SixelImageData {
@@ -202,379 +203,33 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     const h = containerRef.clientHeight;
     if (w === 0 || h === 0) return;
 
+    // Render state bridge for the extracted render module
+    const rs: TermRenderState = {
+      cells, cursorRow, cursorCol, charWidth, charHeight,
+      termRows, termCols, isFocused, scrollOffset,
+      searchVisible, searchMatches, searchMatchIdx,
+      bellFlashUntil, sixelImages, sixelBitmapCache,
+    };
+    const rd: TermRenderDeps = {
+      state: rs, palette, fontSize, getVisibleRows, normalizedSelection,
+      scrollback, scheduleTermRender,
+      sixelOverlay, containerRef,
+      setSixelOverlay: (el) => { sixelOverlay = el; },
+    };
+
     if (gpuCtx?.isActive()) {
-      renderWebGL(w, h);
+      doRenderWebGL(w, h, gpuCtx, rd);
+      // Sync mutable state back
+      bellFlashUntil = rs.bellFlashUntil;
+      if (rs.bellFlashUntil > 0) { needsRedraw = true; }
     } else if (canvasRef) {
-      renderCanvas2D(w, h);
+      doRenderCanvas2D(w, h, canvasRef, rd);
+      bellFlashUntil = rs.bellFlashUntil;
+      if (rs.bellFlashUntil > 0) { needsRedraw = true; }
     }
   }
 
-  // ── WebGL render path ─────────────────────────────────────
-
-  function renderWebGL(w: number, h: number) {
-    const gpu = gpuCtx!;
-    const p = palette();
-    const fs = fontSize();
-    const cw = charWidth;
-    const ch = charHeight;
-
-    gpu.beginFrame(w, h, p.editorBg, fs, FONT_FAMILY);
-
-    if (cells.length === 0) return;
-    const visibleRows = getVisibleRows();
-
-    // Pass 1: cell backgrounds (skip default bg)
-    for (let row = 0; row < visibleRows.length; row++) {
-      const rowCells = visibleRows[row];
-      if (!rowCells) continue;
-      for (let col = 0; col < rowCells.length; col++) {
-        const cell = rowCells[col];
-        if (cell.width === 0) continue;
-        const isDefaultBg = cell.bg[0] === 30 && cell.bg[1] === 30 && cell.bg[2] === 46;
-        if (isDefaultBg) continue;
-        const x = Math.round(col * cw);
-        const y = Math.round(row * ch);
-        const cellW = cell.width === 2 ? cw * 2 : cw;
-        gpu.addBg(x, y, cellW + 1, ch, cell.bg[0], cell.bg[1], cell.bg[2]);
-      }
-    }
-    gpu.flushQuads();
-
-    // Pass 2: selection highlight
-    const sel = normalizedSelection();
-    if (sel) {
-      for (let row = sel.start.row; row <= Math.min(sel.end.row, visibleRows.length - 1); row++) {
-        const cs = row === sel.start.row ? sel.start.col : 0;
-        const ce = row === sel.end.row ? sel.end.col : (visibleRows[row]?.length ?? termCols) - 1;
-        gpu.addOverlayCss(cs * cw, row * ch, (ce - cs + 1) * cw, ch, p.selection);
-      }
-    }
-
-    // Search match highlights
-    if (searchVisible && searchMatches.length > 0) {
-      const sb = scrollback();
-      const totalRows = sb.length + (cells.length || termRows);
-      const visibleCount = cells.length || termRows;
-      const viewStart = totalRows - visibleCount - scrollOffset;
-      for (let mi = 0; mi < searchMatches.length; mi++) {
-        const m = searchMatches[mi];
-        const displayRow = m.row - viewStart;
-        if (displayRow < 0 || displayRow >= visibleCount) continue;
-        if (mi === searchMatchIdx) {
-          gpu.addOverlay(m.col * cw, displayRow * ch, m.len * cw, ch, 250 / 255, 179 / 255, 135 / 255, 0.4);
-        } else {
-          gpu.addOverlay(m.col * cw, displayRow * ch, m.len * cw, ch, 137 / 255, 180 / 255, 250 / 255, 0.25);
-        }
-      }
-    }
-    gpu.flushQuads();
-
-    // Pass 3: text glyphs
-    for (let row = 0; row < visibleRows.length; row++) {
-      const rowCells = visibleRows[row];
-      if (!rowCells) continue;
-      for (let col = 0; col < rowCells.length; col++) {
-        const cell = rowCells[col];
-        if (cell.width === 0) continue;
-        if (cell.ch === " " || cell.ch === "") continue;
-        const x = Math.round(col * cw);
-        const y = Math.round(row * ch);
-        const variant: FontVariant = ((cell.bold ? 1 : 0) | (cell.italic ? 2 : 0)) as FontVariant;
-        const alpha = cell.faint ? 0.5 : 1.0;
-        gpu.addChar(cell.ch, variant, x, y, cell.fg[0], cell.fg[1], cell.fg[2], alpha);
-      }
-    }
-    gpu.flushText();
-
-    // Pass 4: decorations (underline, strikethrough as thin quads)
-    for (let row = 0; row < visibleRows.length; row++) {
-      const rowCells = visibleRows[row];
-      if (!rowCells) continue;
-      for (let col = 0; col < rowCells.length; col++) {
-        const cell = rowCells[col];
-        if (cell.width === 0) continue;
-        if (!cell.underline && !cell.strikethrough) continue;
-        const x = Math.round(col * cw);
-        const y = Math.round(row * ch);
-        const cellW = cell.width === 2 ? cw * 2 : cw;
-        const alpha = cell.faint ? 0.5 : 1.0;
-        if (cell.underline) {
-          gpu.addOverlay(x, y + ch - 1, cellW, 1, cell.fg[0] / 255, cell.fg[1] / 255, cell.fg[2] / 255, alpha);
-        }
-        if (cell.strikethrough) {
-          gpu.addOverlay(x, Math.round(y + ch / 2), cellW, 1, cell.fg[0] / 255, cell.fg[1] / 255, cell.fg[2] / 255, alpha);
-        }
-      }
-    }
-    gpu.flushQuads();
-
-    // Pass 5: cursor
-    if (isFocused && scrollOffset === 0) {
-      const cx = Math.round(cursorCol * cw);
-      const cy = Math.round(cursorRow * ch);
-      const cursorCell = cells[cursorRow]?.[cursorCol];
-      const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
-      gpu.addOverlayCss(cx, cy, cursorW, ch, p.cursor);
-      gpu.flushQuads();
-      if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
-        gpu.addCharHex(cursorCell.ch, 0, cx, cy, p.editorBg);
-        gpu.flushText();
-      }
-    }
-
-    // Pass 6: scroll indicator
-    if (scrollOffset > 0) {
-      const label = `\u2191 ${scrollOffset} lines`;
-      const tw = label.length * cw;
-      gpu.addOverlayCss(w - tw - 16, 4, tw + 12, fs + 4, p.surface1);
-      gpu.flushQuads();
-      for (let i = 0; i < label.length; i++) {
-        gpu.addCharHex(label[i], 0, w - tw - 10 + i * cw, 6, p.text);
-      }
-      gpu.flushText();
-    }
-
-    // Pass 7: bell flash
-    if (bellFlashUntil > 0) {
-      const remaining = bellFlashUntil - performance.now();
-      if (remaining > 0) {
-        gpu.addOverlay(0, 0, w, h, 205 / 255, 214 / 255, 244 / 255, 0.08);
-        gpu.flushQuads();
-        needsRedraw = true;
-        scheduleTermRender();
-      } else {
-        bellFlashUntil = 0;
-      }
-    }
-
-    // Sixel images: draw on a 2D overlay canvas
-    renderSixelOverlay(w, h);
-  }
-
-  function renderSixelOverlay(w: number, h: number) {
-    if (sixelImages.length === 0) {
-      // Hide overlay if no sixel images
-      if (sixelOverlay) sixelOverlay.style.display = "none";
-      return;
-    }
-    // Lazily create the sixel overlay canvas
-    if (!sixelOverlay && containerRef) {
-      sixelOverlay = document.createElement("canvas");
-      sixelOverlay.style.position = "absolute";
-      sixelOverlay.style.top = "0";
-      sixelOverlay.style.left = "0";
-      sixelOverlay.style.width = "100%";
-      sixelOverlay.style.height = "100%";
-      sixelOverlay.style.pointerEvents = "none";
-      containerRef.appendChild(sixelOverlay);
-    }
-    if (!sixelOverlay) return;
-    sixelOverlay.style.display = "block";
-
-    const dpr = window.devicePixelRatio || 1;
-    const targetW = Math.round(w * dpr);
-    const targetH = Math.round(h * dpr);
-    if (sixelOverlay.width !== targetW || sixelOverlay.height !== targetH) {
-      sixelOverlay.width = targetW;
-      sixelOverlay.height = targetH;
-    }
-    const ctx = sixelOverlay.getContext("2d", { alpha: true })!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    const cw = charWidth;
-    const ch = charHeight;
-    for (const img of sixelImages) {
-      if (img.width === 0 || img.height === 0) continue;
-      const cacheKey = `${img.row},${img.col},${img.width},${img.height}`;
-      let imgData = sixelBitmapCache.get(cacheKey);
-      if (!imgData) {
-        imgData = new ImageData(img.width, img.height);
-        const src = img.pixels;
-        const dst = imgData.data;
-        const len = Math.min(src.length, dst.length);
-        for (let i = 0; i < len; i++) dst[i] = src[i];
-        sixelBitmapCache.set(cacheKey, imgData);
-        if (sixelBitmapCache.size > MAX_SIXEL_CACHE) {
-          const first = sixelBitmapCache.keys().next().value!;
-          sixelBitmapCache.delete(first);
-        }
-      }
-      ctx.putImageData(imgData, img.col * cw, img.row * ch);
-    }
-  }
-
-  // ── Canvas 2D fallback render path ────────────��───────────
-
-  function renderCanvas2D(w: number, h: number) {
-    const dpr = window.devicePixelRatio || 1;
-    const targetW = Math.round(w * dpr);
-    const targetH = Math.round(h * dpr);
-    if (canvasRef!.width !== targetW || canvasRef!.height !== targetH) {
-      canvasRef!.width = targetW;
-      canvasRef!.height = targetH;
-    }
-    const ctx = canvasRef!.getContext("2d", { alpha: false })!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const p = palette();
-    ctx.fillStyle = p.editorBg;
-    ctx.fillRect(0, 0, w, h);
-
-    if (cells.length === 0) return;
-
-    const cw = charWidth;
-    const ch = charHeight;
-    const visibleRows = getVisibleRows();
-
-    // Cell backgrounds
-    for (let row = 0; row < visibleRows.length; row++) {
-      const rowCells = visibleRows[row];
-      if (!rowCells) continue;
-      for (let col = 0; col < rowCells.length; col++) {
-        const cell = rowCells[col];
-        if (cell.width === 0) continue;
-        const x = Math.round(col * cw);
-        const y = Math.round(row * ch);
-        const cellW = cell.width === 2 ? cw * 2 : cw;
-        const isDefaultBg = cell.bg[0] === 30 && cell.bg[1] === 30 && cell.bg[2] === 46;
-        if (!isDefaultBg) {
-          ctx.fillStyle = `rgb(${cell.bg[0]}, ${cell.bg[1]}, ${cell.bg[2]})`;
-          ctx.fillRect(x, y, cellW + 1, ch);
-        }
-      }
-    }
-
-    // Selection highlight
-    const sel = normalizedSelection();
-    if (sel) {
-      ctx.fillStyle = p.selection;
-      for (let row = sel.start.row; row <= Math.min(sel.end.row, visibleRows.length - 1); row++) {
-        const cs = row === sel.start.row ? sel.start.col : 0;
-        const ce = row === sel.end.row ? sel.end.col : (visibleRows[row]?.length ?? termCols) - 1;
-        ctx.fillRect(cs * cw, row * ch, (ce - cs + 1) * cw, ch);
-      }
-    }
-
-    // Search match highlights
-    if (searchVisible && searchMatches.length > 0) {
-      const sb = scrollback();
-      const totalRows = sb.length + (cells.length || termRows);
-      const visibleCount = cells.length || termRows;
-      const viewStart = totalRows - visibleCount - scrollOffset;
-      for (let mi = 0; mi < searchMatches.length; mi++) {
-        const m = searchMatches[mi];
-        const displayRow = m.row - viewStart;
-        if (displayRow < 0 || displayRow >= visibleCount) continue;
-        const isCurrent = mi === searchMatchIdx;
-        ctx.fillStyle = isCurrent ? "rgba(250, 179, 135, 0.4)" : "rgba(137, 180, 250, 0.25)";
-        ctx.fillRect(m.col * cw, displayRow * ch, m.len * cw, ch);
-      }
-    }
-
-    // Text
-    const fs = fontSize();
-    const baseFont = `${fs}px ${FONT_FAMILY}`;
-    ctx.textBaseline = "top";
-    for (let row = 0; row < visibleRows.length; row++) {
-      const rowCells = visibleRows[row];
-      if (!rowCells) continue;
-      for (let col = 0; col < rowCells.length; col++) {
-        const cell = rowCells[col];
-        if (cell.width === 0) continue;
-        if (cell.ch === " " || cell.ch === "") continue;
-        const x = Math.round(col * cw);
-        const y = Math.round(row * ch);
-        const cellW = cell.width === 2 ? cw * 2 : cw;
-        const weight = cell.bold ? "bold " : "";
-        const style = cell.italic ? "italic " : "";
-        const cellFont = (weight || style) ? `${style}${weight}${fs}px ${FONT_FAMILY}` : baseFont;
-        const fgColor = cell.faint
-          ? `rgba(${cell.fg[0]}, ${cell.fg[1]}, ${cell.fg[2]}, 0.5)`
-          : `rgb(${cell.fg[0]}, ${cell.fg[1]}, ${cell.fg[2]})`;
-        ctx.font = cellFont;
-        ctx.fillStyle = fgColor;
-        ctx.fillText(cell.ch, x, y);
-        if (cell.underline) {
-          ctx.strokeStyle = fgColor;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x, y + ch - 1);
-          ctx.lineTo(x + cellW, y + ch - 1);
-          ctx.stroke();
-        }
-        if (cell.strikethrough) {
-          ctx.strokeStyle = fgColor;
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          const mid = y + ch / 2;
-          ctx.moveTo(x, mid);
-          ctx.lineTo(x + cellW, mid);
-          ctx.stroke();
-        }
-      }
-    }
-
-    // Cursor
-    if (isFocused && scrollOffset === 0) {
-      const cx = Math.round(cursorCol * cw);
-      const cy = Math.round(cursorRow * ch);
-      const cursorCell = cells[cursorRow]?.[cursorCol];
-      const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
-      ctx.fillStyle = p.cursor;
-      ctx.fillRect(cx, cy, cursorW, ch);
-      if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
-        ctx.font = baseFont;
-        ctx.fillStyle = p.editorBg;
-        ctx.fillText(cursorCell.ch, cx, cy);
-      }
-    }
-
-    // Sixel images
-    for (const img of sixelImages) {
-      if (img.width === 0 || img.height === 0) continue;
-      const cacheKey = `${img.row},${img.col},${img.width},${img.height}`;
-      let imgData = sixelBitmapCache.get(cacheKey);
-      if (!imgData) {
-        imgData = new ImageData(img.width, img.height);
-        const src = img.pixels;
-        const dst = imgData.data;
-        const len = Math.min(src.length, dst.length);
-        for (let i = 0; i < len; i++) dst[i] = src[i];
-        sixelBitmapCache.set(cacheKey, imgData);
-        if (sixelBitmapCache.size > MAX_SIXEL_CACHE) {
-          const first = sixelBitmapCache.keys().next().value!;
-          sixelBitmapCache.delete(first);
-        }
-      }
-      ctx.putImageData(imgData, img.col * cw, img.row * ch);
-    }
-
-    // Scroll indicator
-    if (scrollOffset > 0) {
-      const label = `\u2191 ${scrollOffset} lines`;
-      const smallFont = `${fs - 2}px ${FONT_FAMILY}`;
-      ctx.font = smallFont;
-      const tw = measureTextWidth(label, smallFont);
-      ctx.fillStyle = p.surface1;
-      ctx.fillRect(w - tw - 16, 4, tw + 12, fs + 4);
-      ctx.fillStyle = p.text;
-      ctx.fillText(label, w - tw - 10, 6);
-    }
-
-    // Bell flash overlay
-    if (bellFlashUntil > 0) {
-      const remaining = bellFlashUntil - performance.now();
-      if (remaining > 0) {
-        ctx.fillStyle = "rgba(205, 214, 244, 0.08)";
-        ctx.fillRect(0, 0, w, h);
-        needsRedraw = true;
-        scheduleTermRender();
-      } else {
-        bellFlashUntil = 0;
-      }
-    }
-  }
+  // Render paths extracted to terminal-render.ts
 
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;
   const RESIZE_DEBOUNCE_MS = 80;
