@@ -63,6 +63,9 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let new_file = MenuItem::with_id(app, "new_file", "New File", true, Some("CmdOrCtrl+N"))?;
+            let save = MenuItem::with_id(app, "save", "Save", true, Some("CmdOrCtrl+S"))?;
+            let save_as = MenuItem::with_id(app, "save_as", "Save As...", true, Some("CmdOrCtrl+Shift+S"))?;
             let close_tab = MenuItem::with_id(
                 app,
                 "close_tab",
@@ -71,8 +74,13 @@ pub fn run() {
                 Some("CmdOrCtrl+W"),
             )?;
             let file_menu = Submenu::with_items(app, "File", true, &[
+                &new_file,
+                &PredefinedMenuItem::separator(app)?,
                 &change_dir,
                 &close_dir,
+                &PredefinedMenuItem::separator(app)?,
+                &save,
+                &save_as,
                 &PredefinedMenuItem::separator(app)?,
                 &close_tab,
             ])?;
@@ -141,6 +149,15 @@ pub fn run() {
                     }
                     "view_settings" => {
                         let _ = app_handle.emit("menu-open-settings", ());
+                    }
+                    "new_file" => {
+                        let _ = app_handle.emit("menu-new-file", ());
+                    }
+                    "save" => {
+                        let _ = app_handle.emit("menu-save", ());
+                    }
+                    "save_as" => {
+                        let _ = app_handle.emit("menu-save-as", ());
                     }
                     _ => {}
                 }

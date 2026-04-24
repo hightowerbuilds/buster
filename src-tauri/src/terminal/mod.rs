@@ -286,6 +286,86 @@ pub struct PtyInstance {
     child_pid: Option<u32>,
 }
 
+/// Encode a TermScreenDelta as a compact binary buffer.
+///
+/// Layout:
+///   Header (15+ bytes):
+///     u16 rows, u16 cols, u16 cursor_row, u16 cursor_col,
+///     u8  meta_flags (full|bell|alt_screen|bracketed_paste),
+///     u8  mouse_mode (0‒4), u8 mouse_encoding (0‒2),
+///     u16 num_changed_rows, u16 title_len,
+///     [title_len bytes UTF-8 title]
+///   Per changed row:
+///     u16 row_index, then cols × 12 bytes of cells
+///   Per cell (12 bytes):
+///     u32 codepoint (LE), u8×3 fg, u8×3 bg, u8 attr_flags, u8 width
+pub fn encode_delta_binary(delta: &TermScreenDelta) -> Vec<u8> {
+    let title_bytes = delta.title.as_deref().unwrap_or("").as_bytes();
+    let title_len = title_bytes.len().min(u16::MAX as usize);
+
+    let cols = delta.cols as usize;
+    let header_size = 15 + title_len;
+    let row_size = 2 + cols * 12;
+    let total = header_size + delta.changed_rows.len() * row_size;
+
+    let mut buf = Vec::with_capacity(total);
+
+    // Header
+    buf.extend_from_slice(&delta.rows.to_le_bytes());
+    buf.extend_from_slice(&delta.cols.to_le_bytes());
+    buf.extend_from_slice(&delta.cursor_row.to_le_bytes());
+    buf.extend_from_slice(&delta.cursor_col.to_le_bytes());
+
+    let meta: u8 = (delta.full as u8)
+        | ((delta.bell as u8) << 1)
+        | ((delta.alt_screen as u8) << 2)
+        | ((delta.bracketed_paste as u8) << 3);
+    buf.push(meta);
+
+    buf.push(match delta.mouse_mode.as_str() {
+        "press" => 1,
+        "press_release" => 2,
+        "button_motion" => 3,
+        "any_motion" => 4,
+        _ => 0,
+    });
+
+    buf.push(match delta.mouse_encoding.as_str() {
+        "utf8" => 1,
+        "sgr" => 2,
+        _ => 0,
+    });
+
+    buf.extend_from_slice(&(delta.changed_rows.len() as u16).to_le_bytes());
+    buf.extend_from_slice(&(title_len as u16).to_le_bytes());
+    buf.extend_from_slice(&title_bytes[..title_len]);
+
+    // Changed rows
+    for row in &delta.changed_rows {
+        buf.extend_from_slice(&row.index.to_le_bytes());
+        for cell in &row.cells {
+            let cp = cell.ch.chars().next().unwrap_or(' ') as u32;
+            buf.extend_from_slice(&cp.to_le_bytes());
+            buf.push(cell.fg[0]);
+            buf.push(cell.fg[1]);
+            buf.push(cell.fg[2]);
+            buf.push(cell.bg[0]);
+            buf.push(cell.bg[1]);
+            buf.push(cell.bg[2]);
+            let flags: u8 = (cell.bold as u8)
+                | ((cell.italic as u8) << 1)
+                | ((cell.underline as u8) << 2)
+                | ((cell.inverse as u8) << 3)
+                | ((cell.strikethrough as u8) << 4)
+                | ((cell.faint as u8) << 5);
+            buf.push(flags);
+            buf.push(cell.width);
+        }
+    }
+
+    buf
+}
+
 pub struct TerminalManager {
     instances: Mutex<HashMap<String, Arc<Mutex<PtyInstance>>>>,
     next_id: Mutex<u32>,
@@ -725,5 +805,51 @@ mod tests {
         let mgr = TerminalManager::new();
         let instances = mgr.instances.lock().unwrap();
         assert!(instances.is_empty());
+    }
+
+    #[test]
+    fn encode_delta_binary_header_and_cells() {
+        let delta = TermScreenDelta {
+            rows: 2,
+            cols: 3,
+            cursor_row: 1,
+            cursor_col: 2,
+            changed_rows: vec![ChangedRow {
+                index: 0,
+                cells: vec![
+                    TermCell { ch: "A".into(), fg: [255, 0, 0], bg: [0, 0, 0], bold: true, italic: false, underline: false, inverse: false, strikethrough: false, faint: false, width: 1 },
+                    TermCell { ch: " ".into(), fg: [200, 200, 200], bg: [30, 30, 46], bold: false, italic: false, underline: false, inverse: false, strikethrough: false, faint: false, width: 1 },
+                    TermCell { ch: "B".into(), fg: [0, 255, 0], bg: [0, 0, 0], bold: false, italic: true, underline: false, inverse: false, strikethrough: false, faint: false, width: 1 },
+                ],
+            }],
+            full: true,
+            mouse_mode: "none".into(),
+            mouse_encoding: "default".into(),
+            bracketed_paste: false,
+            title: None,
+            bell: false,
+            alt_screen: false,
+        };
+
+        let buf = encode_delta_binary(&delta);
+        // Header: 15 bytes (no title) + 1 row × (2 + 3×12) = 15 + 38 = 53
+        assert_eq!(buf.len(), 53);
+        // rows=2 LE
+        assert_eq!(buf[0], 2);
+        assert_eq!(buf[1], 0);
+        // cols=3 LE
+        assert_eq!(buf[2], 3);
+        assert_eq!(buf[3], 0);
+        // meta_flags: full=1
+        assert_eq!(buf[8], 1);
+        // First cell codepoint = 'A' = 65
+        let cell_start = 15 + 2; // header + row_index
+        assert_eq!(buf[cell_start], 65);
+        // First cell bold flag = 1
+        assert_eq!(buf[cell_start + 10], 1);
+        // Third cell codepoint = 'B' = 66, italic flag = 2
+        let cell3 = cell_start + 24;
+        assert_eq!(buf[cell3], 66);
+        assert_eq!(buf[cell3 + 10], 2);
     }
 }

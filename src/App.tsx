@@ -173,6 +173,8 @@ const App: Component = () => {
 
   const commandDeps: CommandDeps = {
     handleSave: actions.handleSave,
+    createNewFile: actions.createNewFile,
+    handleSaveAs: actions.handleSaveAs,
     changeDirectory: actions.changeDirectory,
     handleTabClose: actions.handleTabClose,
     activeTabId: () => store.activeTabId,
@@ -201,6 +203,12 @@ const App: Component = () => {
     splitRight,
     splitDown,
     closeSplit,
+    closeTabOrSplit: () => {
+      const hasSplits = store.tabs.some(t => t.splitChild);
+      if (hasSplits) { closeSplit(); return; }
+      const id = store.activeTabId;
+      if (id) actions.handleTabClose(id);
+    },
   };
 
   const appCommands = createAppCommands(commandDeps);
@@ -366,6 +374,8 @@ const App: Component = () => {
               onRename={(tabId, name) => {
                 const idx = store.tabs.findIndex(t => t.id === tabId);
                 if (idx >= 0) setStore("tabs", idx, "name", name);
+                // Re-focus the editor after rename so the user can type immediately
+                requestAnimationFrame(() => focusTabPanel(tabId));
               }}
               onNewTerminal={actions.createTerminalTab}
               onReorder={(fromIdx, toIdx) => {
@@ -397,6 +407,8 @@ const App: Component = () => {
                 <WelcomeCanvas
                   recentFolders={store.settings.recent_folders}
                   onOpenFolder={(path) => actions.openWorkspace(path)}
+                  onNewFile={() => actions.createNewFile()}
+                  onOpenDirectory={() => actions.changeDirectory()}
                 />
               }
             />
@@ -424,9 +436,6 @@ const App: Component = () => {
       <CommandLineSwitchboard
         visible={commandLineVisible()}
         onClose={closeCommandLine}
-        onSplitRight={() => { splitRight(); closeCommandLine(); }}
-        onSplitDown={() => { splitDown(); closeCommandLine(); }}
-        onCloseSplit={() => { closeSplit(); closeCommandLine(); }}
         onOpenExtensions={handleCommandLineExtensions}
         onOpenDebug={handleCommandLineDebug}
         onOpenGit={handleCommandLineGit}

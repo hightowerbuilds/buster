@@ -24,13 +24,15 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
   const panelCache = new Map<string, { element: JSX.Element; dispose: () => void; setActive: (value: boolean) => void }>();
   const [blogModeSet, setBlogModeSet] = createSignal<Set<string>>(new Set());
 
-  // Clean up cached panels when tabs are closed
+  // Clean up cached panels when tabs are closed.
+  // Defer dispose to avoid macOS CFRelease crash from synchronous WebGL
+  // teardown during the SolidJS reactive update cycle.
   createEffect(() => {
     const currentIds = new Set(deps.tabs().map(t => t.id));
     for (const [id, cached] of panelCache) {
       if (!currentIds.has(id)) {
-        cached.dispose();
         panelCache.delete(id);
+        setTimeout(() => cached.dispose(), 0);
       }
     }
   });

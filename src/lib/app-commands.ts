@@ -8,7 +8,6 @@
 
 import { registry, type Command } from "./command-registry";
 import { announce } from "./a11y";
-import { closeApp } from "./session";
 import type { Accessor, Setter } from "solid-js";
 import type { EditorEngine } from "../editor/engine";
 import type { CreateHotkeyDefinition } from "@tanstack/solid-hotkeys";
@@ -59,7 +58,9 @@ function cycleRegion(direction: 1 | -1) {
 // ── Types ────────────────────────────────────────────────────────
 
 export interface CommandDeps {
+  createNewFile: () => void;
   handleSave: () => void;
+  handleSaveAs: () => void;
   changeDirectory: () => void;
   handleTabClose: (id: string) => void;
   activeTabId: Accessor<string | null>;
@@ -84,6 +85,7 @@ export interface CommandDeps {
   splitRight: () => void;
   splitDown: () => void;
   closeSplit: () => void;
+  closeTabOrSplit: () => void;
 }
 
 const MAX_TAB_HOTKEYS = 9;
@@ -112,7 +114,6 @@ function moveTab(deps: Pick<CommandDeps, "tabs" | "activeTabId" | "switchToTab">
 
 /** Default hotkey for each command. "Mod" maps to Cmd on Mac, Ctrl on Win/Linux. */
 export const DEFAULT_KEYBINDINGS: Record<string, string> = {
-  "file.save": "Mod+s",
   "file.openFolder": "Mod+o",
   // file.closeTab has no default hotkey — Cmd+W is now view.closeSplit
   "terminal.new": "Mod+t",
@@ -156,9 +157,11 @@ export function resolveHotkey(commandId: string, userOverrides?: Record<string, 
 
 export function createAppCommands(deps: CommandDeps): Command[] {
   return [
+    { id: "file.newFile", label: "New File", category: "File", keybinding: "Mod+N", execute: () => deps.createNewFile() },
     { id: "file.save", label: "Save", category: "File", keybinding: "Mod+S", execute: () => deps.handleSave() },
+    { id: "file.saveAs", label: "Save As...", category: "File", keybinding: "Mod+Shift+S", execute: () => deps.handleSaveAs() },
     { id: "file.openFolder", label: "Open Folder", category: "File", keybinding: "Mod+O", execute: () => deps.changeDirectory() },
-    { id: "file.closeTab", label: "Close Tab / Close Window", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); else closeApp(); } },
+    { id: "file.closeTab", label: "Close Tab", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
     { id: "editor.goToLine", label: "Go to Line...", category: "Editor", keybinding: "Ctrl+G", execute: () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); } },
     { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }) },
@@ -173,7 +176,7 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "browser.open", label: "Open Browser", category: "Browser", keybinding: "Mod+Shift+B", execute: () => deps.createBrowserTab() },
     { id: "view.splitRight", label: "Split Right", category: "View", keybinding: "Mod+D", execute: () => deps.splitRight() },
     { id: "view.splitDown", label: "Split Down", category: "View", keybinding: "Mod+Shift+D", execute: () => deps.splitDown() },
-    { id: "view.closeSplit", label: "Close Panel", category: "View", keybinding: "Mod+W", execute: () => deps.closeSplit() },
+    { id: "view.closeSplit", label: "Close Tab / Panel", category: "View", keybinding: "Mod+W", execute: () => deps.closeTabOrSplit() },
     { id: "editor.toggleVimMode", label: "Toggle Vim Mode", category: "Editor", execute: () => {
       const s = deps.settings();
       deps.updateSettings({ ...s, vim_mode: !s.vim_mode });

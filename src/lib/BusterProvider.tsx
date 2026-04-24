@@ -148,15 +148,10 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   document.addEventListener("visibilitychange", handleVisibility);
   onCleanup(() => document.removeEventListener("visibilitychange", handleVisibility));
 
-  // Hot-exit — Cmd+W triggers this via Tauri's CloseRequested intercept
+  // Red X button → save session and close the window
   listen("window-close-requested", async () => {
-    const tabId = store.activeTabId;
-    if (tabId && store.tabs.length > 0) {
-      actions.handleTabClose(tabId);
-    } else {
-      await actions.saveSessionNow();
-      await closeApp();
-    }
+    await actions.saveSessionNow();
+    await closeApp();
   }).then(u => menuListeners.push(u));
 
   // ── Effects ─────────────────────────────────────────────────
@@ -253,18 +248,13 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     openExtensions: actions.createExtensionsTab,
     openDebug: actions.createDebugTab,
     openSettings: actions.createSettingsTab,
-    closeTabOrWindow: () => {
-      // If there are split panels, close the last split instead of the tab
-      const hasSplits = store.tabs.some(t => t.splitChild);
-      if (hasSplits) {
-        // Dispatch a custom event that App.tsx listens for
-        window.dispatchEvent(new CustomEvent("buster-close-split"));
-        return;
-      }
+    closeActiveTab: () => {
       const id = store.activeTabId;
       if (id) actions.handleTabClose(id);
-      else closeApp();
     },
+    createNewFile: actions.createNewFile,
+    handleSave: actions.handleSave,
+    handleSaveAs: actions.handleSaveAs,
   }).then(handles => menuListeners.push(...handles));
 
   // ── Restore session ─────────────────────────────────────────

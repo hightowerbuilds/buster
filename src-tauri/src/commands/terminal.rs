@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use tauri::{command, AppHandle, Emitter, State};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-use crate::terminal::{TermScreenDelta, TerminalManager};
+use crate::terminal::{TerminalManager, encode_delta_binary};
 use crate::terminal::term_pro;
 
 #[command]
@@ -21,9 +22,11 @@ pub fn terminal_spawn(
         cols,
         cwd,
         move |id, delta| {
-            let _ = app_handle.emit("terminal-screen", TermScreenEvent {
+            let bin = encode_delta_binary(&delta);
+            let b64 = STANDARD.encode(&bin);
+            let _ = app_handle.emit("terminal-screen", BinaryScreenEvent {
                 term_id: id,
-                delta,
+                data: b64,
             });
         },
         move |id, image| {
@@ -109,9 +112,11 @@ pub fn terminal_resync(
     term_id: String,
 ) -> Result<(), String> {
     let delta = state.resync(&term_id)?;
-    let _ = app.emit("terminal-screen", TermScreenEvent {
+    let bin = encode_delta_binary(&delta);
+    let b64 = STANDARD.encode(&bin);
+    let _ = app.emit("terminal-screen", BinaryScreenEvent {
         term_id,
-        delta,
+        data: b64,
     });
     Ok(())
 }
@@ -125,9 +130,10 @@ pub fn terminal_kill(
 }
 
 #[derive(Clone, serde::Serialize)]
-struct TermScreenEvent {
+struct BinaryScreenEvent {
     term_id: String,
-    delta: TermScreenDelta,
+    /// Base64-encoded binary delta (see terminal::encode_delta_binary).
+    data: String,
 }
 
 #[derive(Clone, serde::Serialize)]

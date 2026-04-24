@@ -25,8 +25,10 @@ export interface EngineMap {
 
 export interface BusterActions {
   // File operations
+  createNewFile(): void;
   handleFileSelect(path: string): Promise<void>;
   handleSave(): Promise<void>;
+  handleSaveAs(): Promise<void>;
   handleSync(): Promise<void>;
   loadFileContent(path: string): Promise<{ content: string; fileName: string; filePath: string }>;
 

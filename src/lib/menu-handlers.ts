@@ -22,7 +22,10 @@ interface MenuHandlerDeps {
   openExtensions: () => void;
   openDebug: () => void;
   openSettings: () => void;
-  closeTabOrWindow: () => void;
+  closeActiveTab: () => void;
+  createNewFile: () => void;
+  handleSave: () => void;
+  handleSaveAs: () => void;
 }
 
 /**
@@ -38,7 +41,10 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
     listen("menu-open-extensions", () => deps.openExtensions()) as unknown as Promise<() => void>,
     listen("menu-open-debug", () => deps.openDebug()) as unknown as Promise<() => void>,
     listen("menu-open-settings", () => deps.openSettings()) as unknown as Promise<() => void>,
-    listen("menu-close-tab", () => deps.closeTabOrWindow()) as unknown as Promise<() => void>,
+    listen("menu-close-tab", () => deps.closeActiveTab()) as unknown as Promise<() => void>,
+    listen("menu-new-file", () => deps.createNewFile()) as unknown as Promise<() => void>,
+    listen("menu-save", () => deps.handleSave()) as unknown as Promise<() => void>,
+    listen("menu-save-as", () => deps.handleSaveAs()) as unknown as Promise<() => void>,
   );
 
   // Undo / Redo

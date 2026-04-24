@@ -296,6 +296,10 @@ export class WebGLTextRenderer {
     gl.deleteBuffer(this.uvBuffer);
     gl.deleteTexture(this.atlasTexture);
     this._ready = false;
+    // Explicitly lose the WebGL context before the canvas is removed from the DOM.
+    // Without this, macOS may crash with CFRelease() called with NULL during teardown.
+    const ext = gl.getExtension("WEBGL_lose_context");
+    if (ext) ext.loseContext();
   }
 
   private compileShader(type: number, source: string): WebGLShader {

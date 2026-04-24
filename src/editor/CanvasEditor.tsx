@@ -14,6 +14,9 @@ import { createGhostText } from "./editor-ghost-text";
 import { createInlayHints } from "./editor-inlay-hints";
 import { createEditorA11y } from "./editor-a11y";
 import { createVimHandler } from "./vim-mode";
+import { handleEditorKeyDown, type KeyboardDeps } from "./editor-keyboard";
+import { handleEditorMouseDown, handleEditorMouseMove, handleEditorMouseUp, type MouseDeps } from "./editor-mouse";
+import { handleEditorInput, type InputDeps } from "./editor-input";
 import CanvasSurface from "../ui/CanvasSurface";
 import { clipboardWrite, clipboardRead } from "../lib/clipboard";
 import { basename, extname } from "buster-path";
@@ -309,669 +312,53 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   let isComposing = false;
 
-  // ── Mouse → position ────────────────────────────────────────────
+  // ── Delegated mouse/keyboard/input handlers ─────────────────────
 
-  function posFromMouse(e: MouseEvent) {
-    if (!containerRef) return { line: 0, col: 0 };
-    const rect = containerRef.getBoundingClientRect();
-    return engine.posFromPixel(
-      e.clientX, e.clientY, rect, scrollTop(),
-      fontSize(), props.lineNumbers !== false, wordWrap(), canvasWidth(),
-    );
-  }
+  const mouseDeps: MouseDeps = {
+    engine, ac, hover,
+    containerRef: () => containerRef,
+    filePath: () => props.filePath ?? null,
+    lineNumbers: () => props.lineNumbers !== false,
+    wordWrap, canvasWidth, scrollTop, fontSize,
+    isDragging, setIsDragging,
+    diagnostics: () => props.diagnostics ?? [],
+    setBreakpointSet,
+    clearHighlightCache, focusInput, scheduleRender,
+  };
 
-  // ── Mouse handlers ──────────────────────────────────────────────
+  const keyboardDeps: KeyboardDeps = {
+    engine, vim, vimDeps, ac, hover, sigHelp, codeActions, ghost, a11y,
+    filePath: () => props.filePath ?? null,
+    wordWrap, charW, canvasWidth, canvasHeight,
+    gutterW, lineHeight,
+    tabTrapping, indentUnit,
+    settings: () => store.settings,
+    clearHighlightCache, ensureCursorVisible, scheduleRender, focusInput,
+    hiddenInput: () => hiddenInput,
+    isComposing: () => isComposing,
+  };
 
-  function handleMouseDown(e: MouseEvent) {
-    ac.dismiss();
-    hover.dismiss();
+  const inputDeps: InputDeps = {
+    engine, vim, ac, sigHelp, ghost,
+    filePath: () => props.filePath ?? null,
+    hiddenInput: () => hiddenInput,
+    isComposing: () => isComposing,
+    indentUnit, clearHighlightCache,
+  };
 
-    // Gutter interactions
-    if (containerRef && props.lineNumbers !== false) {
-      const rect = containerRef.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      if (x < 50) {
-        const pos = posFromMouse(e);
-        // Fold toggle (left edge, < 20px)
-        if (x < 20 && engine.toggleFold(pos.line)) {
-          e.preventDefault();
-          clearHighlightCache();
-          focusInput();
-          return;
-        }
-        // Breakpoint toggle (click on line number area, 20-50px)
-        if (x >= 20 && props.filePath) {
-          e.preventDefault();
-          import("../lib/ipc").then(({ debugToggleBreakpoint }) => {
-            debugToggleBreakpoint(props.filePath!, pos.line).then(() => {
-              // Refresh breakpoints from backend
-              import("../lib/ipc").then(({ debugGetBreakpoints }) => {
-                debugGetBreakpoints(props.filePath!).then(bps => {
-                  setBreakpointSet(new Set(bps.map(bp => bp.line)));
-                  scheduleRender();
-                }).catch(() => showError("Failed to refresh breakpoints"));
-              });
-            }).catch(() => showError("Failed to toggle breakpoint"));
-          });
-          focusInput();
-          return;
-        }
-
-        // Diagnostic gutter dot click — jump to the diagnostic
-        const diag = props.diagnostics;
-        if (diag && diag.length > 0) {
-          const hit = diag.find(d => d.line === pos.line);
-          if (hit) {
-            e.preventDefault();
-            engine.setCursor({ line: hit.line, col: hit.col });
-            focusInput();
-            return;
-          }
-        }
-      }
-    }
-
-    const pos = posFromMouse(e);
-
-    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
-      e.preventDefault();
-      engine.setCursor(pos);
-      hover.goToDefinition();
-      focusInput();
-      return;
-    }
-
-    if (e.altKey) {
-      e.preventDefault();
-      engine.addCursor(pos);
-           focusInput();
-      return;
-    }
-
-    engine.clearExtras();
-    engine.setCursor(pos);
-    engine.setSelection(pos, pos);
-    setIsDragging(true);
-       focusInput();
-  }
-
-  function handleMouseMove(e: MouseEvent) {
-    if (isDragging()) {
-      const pos = posFromMouse(e);
-      const anchor = engine.sel()?.anchor ?? engine.cursor();
-      engine.setSelection(anchor, pos);
-      return;
-    }
-    const pos = posFromMouse(e);
-
-    // Check if hovering over a gutter diagnostic dot
-    if (containerRef && props.lineNumbers !== false) {
-      const rect = containerRef.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      if (x < 50) {  // gutter width
-        const diag = props.diagnostics;
-        if (diag && diag.length > 0) {
-          const gutterHit = diag.find(d => d.line === pos.line);
-          if (gutterHit) {
-            const prefix = gutterHit.severity === 1 ? "Error" : gutterHit.severity === 2 ? "Warning" : "Info";
-            hover.showImmediate(`${prefix}: ${gutterHit.message}`, pos.line, 0);
-            return;
-          }
-        }
-      }
-    }
-
-    // Check if hovering over a diagnostic underline — show message as tooltip
-    const diag = props.diagnostics;
-    if (diag && diag.length > 0) {
-      const hit = diag.find(d =>
-        (pos.line > d.line || (pos.line === d.line && pos.col >= d.col)) &&
-        (pos.line < d.endLine || (pos.line === d.endLine && pos.col <= d.endCol))
-      );
-      if (hit) {
-        const prefix = hit.severity === 1 ? "Error" : hit.severity === 2 ? "Warning" : "Info";
-        hover.showImmediate(`${prefix}: ${hit.message}`, pos.line, pos.col);
-        return;
-      }
-    }
-
-    hover.schedule(pos.line, pos.col);
-  }
-
-  function handleMouseUp() {
-    setIsDragging(false);
-    const s = engine.sel();
-    if (s && s.anchor.line === s.head.line && s.anchor.col === s.head.col) {
-      engine.clearSelection();
-    }
-  }
-
-  // ── Keyboard handler ────────────────────────────────────────────
+  function handleMouseDown(e: MouseEvent) { handleEditorMouseDown(e, mouseDeps); }
+  function handleMouseMove(e: MouseEvent) { handleEditorMouseMove(e, mouseDeps); }
+  function handleMouseUp() { handleEditorMouseUp(mouseDeps); }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (isComposing) return;
-
-    // Vim mode intercept — returns true if Vim consumed the key
-    if (vim.enabled() && vim.handleVimKey(e, engine, vimDeps)) {
-      e.preventDefault();
-      scheduleRender();
-      return;
+    // Toggle blame (Cmd+Shift+B) — handled here since it uses local state
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "B") {
+      e.preventDefault(); toggleBlame(); return;
     }
-
-    const isMod = e.metaKey || e.ctrlKey;
-
-    // Autocomplete interception
-    if (ac.completionVisible() && ac.completions().length > 0) {
-      if (e.key === "ArrowDown") { e.preventDefault(); ac.navigateDown(); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); ac.navigateUp(); return; }
-      if (e.key === "Tab" || e.key === "Enter") {
-        e.preventDefault();
-        // Accept completion — insert the label text
-        ac.accept();
-        return;
-      }
-      if (e.key === "Escape") { e.preventDefault(); ac.dismiss(); return; }
-    }
-
-    if (e.ctrlKey && e.key === " ") { e.preventDefault(); ac.trigger(); return; }
-    if (e.key === "F12") { e.preventDefault(); hover.goToDefinition(); return; }
-
-    // Code action menu
-    if (codeActions.menuVisible()) {
-      if (e.key === "ArrowDown") { e.preventDefault(); codeActions.navigateDown(); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); codeActions.navigateUp(); return; }
-      if (e.key === "Enter") {
-        e.preventDefault();
-        const action = codeActions.selectedAction();
-        if (action && action.edits.length > 0) {
-          engine.clearExtras();
-          engine.beginUndoGroup();
-
-          // Sort edits back-to-front so earlier offsets stay valid
-          const sorted = [...action.edits].sort((a, b) =>
-            b.start_line !== a.start_line ? b.start_line - a.start_line : b.start_col - a.start_col
-          );
-
-          // Remember the first edit in document order for cursor placement
-          const firstEdit = action.edits.reduce((a, b) =>
-            a.start_line < b.start_line || (a.start_line === b.start_line && a.start_col < b.start_col) ? a : b
-          );
-
-          for (const edit of sorted) {
-            engine.deleteRange(
-              { line: edit.start_line, col: edit.start_col },
-              { line: edit.end_line, col: edit.end_col },
-            );
-            if (edit.new_text) {
-              engine.setCursor({ line: edit.start_line, col: edit.start_col });
-              engine.insert(edit.new_text);
-            }
-          }
-
-          // Place cursor at end of the first edit's new text
-          const newTextLines = (firstEdit.new_text || "").split("\n");
-          const endLine = firstEdit.start_line + newTextLines.length - 1;
-          const endCol = newTextLines.length === 1
-            ? firstEdit.start_col + newTextLines[0].length
-            : newTextLines[newTextLines.length - 1].length;
-          engine.setCursor({ line: endLine, col: endCol });
-
-          engine.endUndoGroup();
-          clearHighlightCache();
-        }
-        codeActions.dismiss();
-        return;
-      }
-      if (e.key === "Escape") { e.preventDefault(); codeActions.dismiss(); return; }
-    }
-    if (isMod && e.key === ".") { e.preventDefault(); codeActions.fetchActions().then(() => codeActions.showMenu()); return; }
-
-    // Toggle blame view (Cmd/Ctrl+Shift+B)
-    if (isMod && e.shiftKey && e.key === "B") { e.preventDefault(); toggleBlame(); return; }
-
-    // Escape cascade
-    if (e.key === "Escape") {
-      if (ac.isInSnippet()) { e.preventDefault(); ac.exitSnippet(); return; }
-      if (ghost.ghostText()) { e.preventDefault(); ghost.dismiss(); return; }
-      if (sigHelp.signature()) { e.preventDefault(); sigHelp.dismiss(); return; }
-      if (codeActions.menuVisible()) { e.preventDefault(); codeActions.dismiss(); return; }
-      if (engine.hasMultiCursors()) { e.preventDefault(); engine.clearExtras(); return; }
-    }
-
-    // Undo
-    if (isMod && e.key === "z" && !e.shiftKey) {
-      e.preventDefault();
-      engine.undo();
-      a11y.announceUndo();
-      clearHighlightCache();      return;
-    }
-
-    // Redo
-    if ((isMod && e.key === "z" && e.shiftKey) || (isMod && e.key === "y")) {
-      e.preventDefault();
-      engine.redo();
-      a11y.announceRedo();
-      clearHighlightCache();      return;
-    }
-
-    // Select All
-    if (isMod && e.key === "a") {
-      e.preventDefault();
-      engine.selectAll();
-      return;
-    }
-
-    // Select next occurrence (Cmd+D)
-    if (isMod && e.key === "d") {
-      e.preventDefault();
-      const sel = engine.getOrderedSelection();
-      if (sel) {
-        // Selection exists — find next occurrence of selected text
-        const selectedText = engine.getTextRange(sel.from, sel.to);
-        if (selectedText) {
-          const ls = engine.lines();
-          // Search from after current selection
-          let found = false;
-          for (let line = sel.to.line; line < ls.length && !found; line++) {
-            const startCol = line === sel.to.line ? sel.to.col : 0;
-            const idx = ls[line].indexOf(selectedText, startCol);
-            if (idx !== -1) {
-              engine.addCursor({ line, col: idx + selectedText.length });
-              engine.setSelection(sel.from, sel.to); // keep original selection
-              found = true;
-            }
-          }
-          // Wrap around from beginning if not found
-          if (!found) {
-            for (let line = 0; line <= sel.from.line && !found; line++) {
-              const endCol = line === sel.from.line ? sel.from.col : ls[line].length;
-              const idx = ls[line].indexOf(selectedText);
-              if (idx !== -1 && idx + selectedText.length <= endCol) {
-                engine.addCursor({ line, col: idx + selectedText.length });
-                found = true;
-              }
-            }
-          }
-        }
-      } else {
-        // No selection — select the word under cursor
-        const word = engine.getWordUnderCursor();
-        if (word) {
-          const c = engine.cursor();
-          const line = engine.getLine(c.line);
-          let start = c.col;
-          while (start > 0 && /\w/.test(line[start - 1])) start--;
-          engine.setSelection({ line: c.line, col: start }, { line: c.line, col: start + word.length });
-        }
-      }
-      return;
-    }
-
-    // Copy/Cut/Paste are handled by onCopy/onCut/onPaste on the textarea,
-    // using e.clipboardData which works reliably in all Tauri contexts.
-
-    // Toggle line comment (Cmd+/)
-    if (isMod && e.key === "/") {
-      e.preventDefault();
-      const ext = props.filePath ? extname(props.filePath).slice(1) : "";
-      const prefix = (ext === "py" || ext === "sh" || ext === "bash" || ext === "zsh" || ext === "yml" || ext === "yaml" || ext === "toml") ? "#"
-        : (ext === "css") ? "//" // CSS uses /* */ but // is simpler for line toggle
-        : "//";
-      engine.toggleLineComment(prefix);
-      clearHighlightCache();
-      return;
-    }
-
-    // Duplicate line (Cmd+Shift+D)
-    if (isMod && e.shiftKey && e.key === "D") {
-      e.preventDefault();
-      engine.duplicateLines();
-      clearHighlightCache(); ensureCursorVisible();
-      return;
-    }
-
-    // Join lines (Cmd+J)
-    if (isMod && e.key === "j") {
-      e.preventDefault();
-      engine.joinLines();
-      clearHighlightCache();
-      return;
-    }
-
-    // Rename symbol (F2)
-    if (e.key === "F2" && props.filePath) {
-      e.preventDefault();
-      const c = engine.cursor();
-      const word = engine.getLine(c.line).slice(
-        engine.getLine(c.line).slice(0, c.col).search(/\w+$/) ?? c.col,
-        c.col + (engine.getLine(c.line).slice(c.col).match(/^\w+/)?.[0]?.length ?? 0)
-      );
-      const newName = prompt("Rename symbol:", word);
-      if (newName && newName !== word) {
-        import("../lib/ipc").then(({ lspRename }) => {
-          lspRename(props.filePath!, c.line, c.col, newName).then(edits => {
-            if (edits.length > 0) {
-              // Apply edits for current file (bottom-up to keep positions valid)
-              const fileEdits = edits
-                .filter(e => e.file_path === props.filePath)
-                .sort((a, b) => b.start_line !== a.start_line ? b.start_line - a.start_line : b.start_col - a.start_col);
-              engine.beginUndoGroup();
-              for (const edit of fileEdits) {
-                engine.deleteRange(
-                  { line: edit.start_line, col: edit.start_col },
-                  { line: edit.end_line, col: edit.end_col }
-                );
-                engine.setCursor({ line: edit.start_line, col: edit.start_col });
-                engine.insert(edit.new_text);
-              }
-              engine.endUndoGroup();
-              clearHighlightCache();
-            }
-          }).catch(() => showError("Rename failed"));
-        });
-      }
-      return;
-    }
-
-    // Find references (Shift+F12)
-    if (e.key === "F12" && e.shiftKey && props.filePath) {
-      e.preventDefault();
-      const c = engine.cursor();
-      import("../lib/ipc").then(({ lspReferences }) => {
-        lspReferences(props.filePath!, c.line, c.col).then(locations => {
-          if (locations.length > 0) {
-            // Show in hover tooltip as a simple list
-            const text = locations.map(l => {
-              const name = basename(l.file_path) || l.file_path;
-              return `${name}:${l.line + 1}:${l.col + 1}`;
-            }).join("\n");
-            hover.showImmediate(`${locations.length} references:\n${text}`, c.line, c.col);
-          }
-        }).catch(() => showError("Find references failed"));
-      });
-      return;
-    }
-
-    // Move line up (Alt+Up)
-    if (e.altKey && !isMod && e.key === "ArrowUp") {
-      e.preventDefault();
-      engine.moveLines("up");
-      clearHighlightCache(); ensureCursorVisible();
-      return;
-    }
-
-    // Move line down (Alt+Down)
-    if (e.altKey && !isMod && e.key === "ArrowDown") {
-      e.preventDefault();
-      engine.moveLines("down");
-      clearHighlightCache(); ensureCursorVisible();
-      return;
-    }
-
-    // Clear selection on most non-modifier, non-shift keys
-    const isModifier = e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta";
-    const extend = e.shiftKey && !isModifier;
-
-    // Navigation — word/line/document level (modifier keys)
-    const isMac = navigator.platform.startsWith("Mac");
-    if (e.key === "ArrowLeft" && (e.altKey || (!isMac && e.ctrlKey))) {
-      e.preventDefault(); ac.dismiss(); engine.moveWord("left", extend); return;
-    } else if (e.key === "ArrowRight" && (e.altKey || (!isMac && e.ctrlKey))) {
-      e.preventDefault(); ac.dismiss(); engine.moveWord("right", extend); return;
-    } else if (e.key === "ArrowLeft" && e.metaKey) {
-      e.preventDefault(); ac.dismiss(); engine.moveCursorToLineStart(); return;
-    } else if (e.key === "ArrowRight" && e.metaKey) {
-      e.preventDefault(); ac.dismiss(); engine.moveCursorToLineEnd(); return;
-    } else if (e.key === "ArrowUp" && e.metaKey) {
-      e.preventDefault(); ac.dismiss();
-      engine.setCursor({ line: 0, col: 0 }); ensureCursorVisible(); return;
-    } else if (e.key === "ArrowDown" && e.metaKey) {
-      e.preventDefault(); ac.dismiss();
-      const ls = engine.lines(); engine.setCursor({ line: ls.length - 1, col: ls[ls.length - 1].length });
-      ensureCursorVisible(); return;
-    }
-
-    // Navigation — character level
-    if (e.key === "ArrowLeft") {
-      e.preventDefault(); ac.dismiss();
-      engine.moveCursor("left", extend);
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault(); ac.dismiss();
-      engine.moveCursor("right", extend);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault(); ac.dismiss();
-      if (wordWrap()) {
-        engine.moveCursorByDisplayRow("up", extend, charW(), canvasWidth(), true, gutterW());
-      } else {
-        engine.moveCursor("up", extend);
-      }
-      ensureCursorVisible();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault(); ac.dismiss();
-      if (wordWrap()) {
-        engine.moveCursorByDisplayRow("down", extend, charW(), canvasWidth(), true, gutterW());
-      } else {
-        engine.moveCursor("down", extend);
-      }
-      ensureCursorVisible();
-    } else if (e.key === "Home") {
-      e.preventDefault(); ac.dismiss();
-      engine.moveCursorToLineStart();
-    } else if (e.key === "End") {
-      e.preventDefault(); ac.dismiss();
-      engine.moveCursorToLineEnd();
-    } else if (e.key === "PageDown") {
-      e.preventDefault(); ac.dismiss();
-      const pageRows = Math.max(1, Math.floor(canvasHeight() / lineHeight()) - 2);
-      const c = engine.cursor();
-      const maxLine = engine.lines().length - 1;
-      engine.setCursor({ line: Math.min(c.line + pageRows, maxLine), col: c.col });
-      ensureCursorVisible();
-    } else if (e.key === "PageUp") {
-      e.preventDefault(); ac.dismiss();
-      const pageRows = Math.max(1, Math.floor(canvasHeight() / lineHeight()) - 2);
-      const c = engine.cursor();
-      engine.setCursor({ line: Math.max(c.line - pageRows, 0), col: c.col });
-      ensureCursorVisible();
-    } else if (e.key === "Backspace" && e.altKey) {
-      e.preventDefault();
-      if (hiddenInput) hiddenInput.value = "";
-      engine.deleteWordBackward();
-      clearHighlightCache(); ac.trigger();
-         } else if (e.key === "Backspace") {
-      e.preventDefault();
-      if (hiddenInput) hiddenInput.value = "";
-      // Auto-delete matching bracket/quote pair: backspace inside () removes both
-      const bCur = engine.cursor();
-      if (!engine.sel() && bCur.col > 0) {
-        const bLine = engine.getLine(bCur.line);
-        const charBefore = bLine[bCur.col - 1];
-        const charAfter = bLine[bCur.col];
-        if (charBefore && charAfter && BRACKET_PAIRS[charBefore] === charAfter) {
-          engine.deleteRange({ line: bCur.line, col: bCur.col - 1 }, { line: bCur.line, col: bCur.col + 1 });
-          clearHighlightCache(); ac.trigger();
-          return;
-        }
-      }
-      engine.backspace();
-      clearHighlightCache(); ac.trigger();
-    } else if (e.key === "Delete") {
-      e.preventDefault(); ac.dismiss();
-      if (hiddenInput) hiddenInput.value = "";
-      engine.deleteForward();
-      clearHighlightCache();
-    } else if (e.key === "Enter") {
-      e.preventDefault(); ac.dismiss();
-      const cur = engine.cursor();
-      const currentLine = engine.getLine(cur.line);
-      const indent = currentLine.match(/^\s*/)![0];
-      const charBefore = currentLine[cur.col - 1] ?? "";
-      const charAfter = currentLine[cur.col] ?? "";
-
-      // Smart indent: split braces {|} → {\n  |\n}
-      if (charBefore === "{" && charAfter === "}") {
-        const deeper = indent + indentUnit();
-        engine.insert("\n" + deeper + "\n" + indent);
-        // Move cursor to the middle line
-        engine.setCursor({ line: cur.line + 1, col: deeper.length });
-      }
-      // Smart indent: split parens (|) and brackets [|]
-      else if ((charBefore === "(" && charAfter === ")") || (charBefore === "[" && charAfter === "]")) {
-        const deeper = indent + indentUnit();
-        engine.insert("\n" + deeper + "\n" + indent);
-        engine.setCursor({ line: cur.line + 1, col: deeper.length });
-      }
-      // Increase indent after { [ (
-      else if ("{[(".includes(charBefore)) {
-        engine.insert("\n" + indent + indentUnit());
-      }
-      // Normal auto-indent
-      else {
-        engine.insert("\n" + indent);
-      }
-      clearHighlightCache(); ensureCursorVisible();
-    } else if (e.key === "Tab") {
-      // When tab trapping is off (Ctrl+M), let Tab move focus naturally
-      if (!tabTrapping()) return;
-      e.preventDefault();
-      // Advance snippet tab stops if in a snippet session
-      if (!e.shiftKey && ac.isInSnippet()) {
-        ac.advanceSnippet();
-        return;
-      }
-      // Accept ghost text if visible
-      const accepted = ghost.accept();
-      if (accepted) {
-        engine.insert(accepted);
-        clearHighlightCache();        return;
-      }
-      if (e.shiftKey) {
-        engine.outdentLines(store.settings.tab_size || 4);
-      } else if (engine.sel()) {
-        engine.indentLines(indentUnit());
-      } else {
-        engine.insert(indentUnit());
-      }
-      clearHighlightCache();    } else if (!isModifier && !isMod && !extend) {
-      // Clear selection for regular character keys (they'll go through handleInput)
-      engine.clearSelection();
-    }
+    handleEditorKeyDown(e, keyboardDeps);
   }
 
-  // ── Text input (synchronous — no race conditions!) ──────────────
-
-  const BRACKET_PAIRS: Record<string, string> = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'", "`": "`" };
-  const CLOSE_BRACKETS = new Set([")", "]", "}"]);
-
-  function handleInput() {
-    if (!hiddenInput || isComposing) return;
-    const text = hiddenInput.value;
-    if (!text) return;
-    hiddenInput.value = "";
-
-    // In Vim Normal/Visual mode, suppress text insertion
-    if (vim.enabled() && vim.mode() !== "insert") return;
-
-    // Emmet-style HTML boilerplate: typing "!" in an empty HTML file expands to full document
-    if (text === "!" && props.filePath) {
-      const ext = extname(props.filePath).toLowerCase();
-      if ((ext === ".html" || ext === ".htm") && engine.lineCount() <= 1 && engine.getLine(0).trim() === "") {
-        const unit = indentUnit();
-        const boilerplate =
-`<!DOCTYPE html>
-<html lang="en">
-<head>
-${unit}<meta charset="UTF-8">
-${unit}<meta name="viewport" content="width=device-width, initial-scale=1.0">
-${unit}<title>Document</title>
-</head>
-<body>
-${unit}
-</body>
-</html>`;
-        engine.insert(boilerplate);
-        // Place cursor inside <body> on the indented blank line
-        engine.setCursor({ line: 8, col: unit.length });
-        clearHighlightCache();
-        return;
-      }
-    }
-
-    // Auto-close brackets and quotes
-    if (text.length === 1 && BRACKET_PAIRS[text]) {
-      const closing = BRACKET_PAIRS[text];
-      // For quotes, only auto-close if not already inside the same quote
-      const isQuote = text === '"' || text === "'" || text === "`";
-      const line = engine.getLine(engine.cursor().line);
-      const col = engine.cursor().col;
-      const charAfter = line[col] ?? "";
-
-      if (isQuote) {
-        // Skip over closing quote if next char matches
-        if (charAfter === text) {
-          engine.moveCursor("right");
-          clearHighlightCache();
-          return;
-        }
-      }
-
-      // Skip over closing bracket if next char matches
-      if (CLOSE_BRACKETS.has(text) && charAfter === text) {
-        engine.moveCursor("right");
-        clearHighlightCache();
-        return;
-      }
-
-      // Auto-close: insert pair and move cursor back
-      if (!isQuote || charAfter === "" || /[\s)\]},;]/.test(charAfter)) {
-        engine.insert(text + closing);
-        engine.moveCursor("left");
-        clearHighlightCache();
-        ac.trigger();
-        if (text.length === 1) sigHelp.onChar(text);
-        ghost.scheduleRequest();
-        return;
-      }
-    }
-
-    // Skip over closing bracket if typed explicitly
-    if (text.length === 1 && CLOSE_BRACKETS.has(text)) {
-      const line = engine.getLine(engine.cursor().line);
-      const charAfter = line[engine.cursor().col] ?? "";
-      if (charAfter === text) {
-        engine.moveCursor("right");
-        clearHighlightCache();
-        return;
-      }
-    }
-
-    // Auto-outdent: typing } on whitespace-only line reduces indent
-    if (text === "}" || text === "]" || text === ")") {
-      const cur = engine.cursor();
-      const line = engine.getLine(cur.line);
-      if (/^\s*$/.test(line.slice(0, cur.col))) {
-        const unit = indentUnit();
-        const currentIndent = line.match(/^\s*/)![0];
-        if (currentIndent.length >= unit.length) {
-          const newIndent = currentIndent.slice(unit.length);
-          engine.deleteRange({ line: cur.line, col: 0 }, { line: cur.line, col: currentIndent.length });
-          engine.setCursor({ line: cur.line, col: 0 });
-          engine.insert(newIndent + text);
-          clearHighlightCache();
-          ac.trigger();
-          sigHelp.onChar(text);
-          ghost.scheduleRequest();
-          return;
-        }
-      }
-    }
-
-    engine.insert(text);
-    clearHighlightCache();
-    ac.trigger();
-    if (text.length === 1) sigHelp.onChar(text);
-    ghost.scheduleRequest();
-  }
+  function handleInput() { handleEditorInput(inputDeps); }
 
   // ── Scroll (batched per frame to prevent event accumulation) ────
 
@@ -1187,9 +574,13 @@ ${unit}
       if (activeScrollTarget.apply === applyScroll) activeScrollTarget.apply = null;
       // Close document syntax tree
       if (fp) syntaxClose(fp);
-      // Clean up GPU text renderer
-      gpuCtx?.dispose();
-      gpuCtx = null;
+      // Clean up GPU text renderer — loseContext() first to release the
+      // macOS GPU layer cleanly, preventing CFRelease(NULL) crash.
+      if (gpuCtx) {
+        const lc = gpuCtx.canvas.getContext("webgl2")?.getExtension("WEBGL_lose_context");
+        if (lc) lc.loseContext();
+        gpuCtx = null;
+      }
     });
   });
 

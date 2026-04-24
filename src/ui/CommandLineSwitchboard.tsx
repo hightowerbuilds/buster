@@ -3,9 +3,6 @@ import { Component, For, Show, createEffect, on } from "solid-js";
 interface CommandLineSwitchboardProps {
   visible: boolean;
   onClose: () => void;
-  onSplitRight: () => void;
-  onSplitDown: () => void;
-  onCloseSplit: () => void;
   onOpenExtensions: () => void;
   onOpenDebug: () => void;
   onOpenSettings: () => void;
@@ -16,20 +13,16 @@ interface CommandLineSwitchboardProps {
 
 interface CommandOption {
   key: string;
-  label: string;
   description: string;
   action: string;
 }
 
 const COMMAND_OPTIONS: CommandOption[] = [
-  { key: "r", label: "spl", description: "Split Right", action: "splitRight" },
-  { key: "d", label: "spl", description: "Split Down", action: "splitDown" },
-  { key: "x", label: "cls", description: "Close Split", action: "closeSplit" },
-  { key: "e", label: "ext", description: "Extensions", action: "extensions" },
-  { key: "g", label: "git", description: "Git", action: "git" },
-  { key: "b", label: "brw", description: "Browser", action: "browser" },
-  { key: "l", label: "log", description: "Console", action: "console" },
-  { key: "s", label: "set", description: "Settings", action: "settings" },
+  { key: "e", description: "Extensions", action: "extensions" },
+  { key: "g", description: "Git", action: "git" },
+  { key: "b", description: "Browser", action: "browser" },
+  { key: "l", description: "Console", action: "console" },
+  { key: "s", description: "Settings", action: "settings" },
 ];
 
 const VALID_COMMAND_KEYS = new Set(COMMAND_OPTIONS.map((o) => o.key));
@@ -67,7 +60,7 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
   }
 
   function handleInput(e: InputEvent & { currentTarget: HTMLInputElement }) {
-    const key = e.currentTarget.value.toLowerCase().replace(/[^rdxegblsf]/g, "").slice(-1);
+    const key = e.currentTarget.value.toLowerCase().replace(/[^egblsf]/g, "").slice(-1);
     e.currentTarget.value = key;
     if (!key) return;
 
@@ -75,9 +68,6 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
     if (!option) return;
 
     switch (option.action) {
-      case "splitRight": props.onSplitRight(); props.onClose(); break;
-      case "splitDown": props.onSplitDown(); props.onClose(); break;
-      case "closeSplit": props.onCloseSplit(); props.onClose(); break;
       case "extensions": props.onOpenExtensions(); break;
       case "debug": props.onOpenDebug(); break;
       case "git": props.onOpenGit(); break;
@@ -104,18 +94,17 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
               autocapitalize="off"
               spellcheck={false}
               aria-label="Command line input"
-              placeholder="R / D / X / E / G / B / L / S"
+              placeholder="E / G / B / L / S"
               onKeyDown={handleKeyDown}
               onInput={handleInput}
             />
           </div>
-          <div class="command-line-caption">R=Split Right, D=Split Down, X=Close Split, E=Extensions, G=Git, B=Browser, L=Console, S=Settings</div>
+          <div class="command-line-caption">E=Extensions, G=Git, B=Browser, L=Console, S=Settings</div>
           <div class="command-line-options" role="list">
             <For each={COMMAND_OPTIONS}>
               {(option) => (
                 <div class="command-line-option" role="listitem">
                   <span class="command-line-option-key">{option.key.toUpperCase()}</span>
-                  <span class="command-line-option-label">{option.label}</span>
                   <span class="command-line-option-desc">{option.description}</span>
                 </div>
               )}

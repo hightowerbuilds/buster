@@ -86,7 +86,7 @@
 }
 
 .command-line-option-desc {
-  color: var(--text-muted);
+  color: var(--text);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

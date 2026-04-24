@@ -430,6 +430,8 @@ class TerminalWebGLRenderer {
     gl.deleteBuffer(this.textColorBuf);
     gl.deleteTexture(this.atlasTexture);
     this._ready = false;
+    const ext = gl.getExtension("WEBGL_lose_context");
+    if (ext) ext.loseContext();
   }
 
   private createProgram(vertSrc: string, fragSrc: string): WebGLProgram {

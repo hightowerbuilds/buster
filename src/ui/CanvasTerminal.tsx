@@ -10,20 +10,7 @@ import ContextMenu, { type ContextMenuState } from "./ContextMenu";
 import { TerminalGLContext, type FontVariant } from "./terminal-webgl";
 import { mapSpecialKey, mapCtrlKey, mapAltKey, encodeSgrMouse, encodeDefaultMouse } from "./terminal-keys";
 import { searchTerminalRows, scrollToMatch } from "./terminal-search";
-
-interface TermCell {
-  ch: string;
-  fg: [number, number, number];
-  bg: [number, number, number];
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  inverse: boolean;
-  strikethrough: boolean;
-  faint: boolean;
-  /** 0 = wide-char continuation (skip), 1 = normal, 2 = double-width */
-  width: number;
-}
+import { decodeBinaryDelta, type TermCell } from "./terminal-binary";
 
 /** A decoded sixel image received from the Rust backend. */
 interface SixelImageData {
@@ -37,26 +24,6 @@ interface SixelImageData {
   row: number;
   /** Terminal column where the image starts. */
   col: number;
-}
-
-interface ChangedRow {
-  index: number;
-  cells: TermCell[];
-}
-
-interface TermScreenDelta {
-  rows: number;
-  cols: number;
-  cursor_row: number;
-  cursor_col: number;
-  changed_rows: ChangedRow[];
-  full: boolean;
-  mouse_mode?: string;
-  mouse_encoding?: string;
-  bracketed_paste?: boolean;
-  title?: string;
-  bell?: boolean;
-  alt_screen?: boolean;
 }
 
 interface CanvasTerminalProps {
@@ -890,12 +857,12 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       canvasRef.style.display = "none";
     }
 
-    // Listen for screen deltas from Rust
-    unlisten = (await listen<{ term_id: string; delta: TermScreenDelta }>(
+    // Listen for binary screen deltas from Rust
+    unlisten = (await listen<{ term_id: string; data: string }>(
       "terminal-screen",
       (event) => {
         if (event.payload.term_id === ptyId) {
-          const d = event.payload.delta;
+          const d = decodeBinaryDelta(event.payload.data);
 
           // Handle alt-screen transitions
           if (d.alt_screen !== undefined && d.alt_screen !== inAltScreen) {

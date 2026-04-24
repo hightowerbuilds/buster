@@ -53,6 +53,8 @@ interface RainDrop {
 interface WelcomeCanvasProps {
   recentFolders?: string[];
   onOpenFolder?: (path: string) => void;
+  onNewFile?: () => void;
+  onOpenDirectory?: () => void;
 }
 
 const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
@@ -72,6 +74,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
   let prevDragX = 0;
   let prevDragY = 0;
   let folderHitAreas: { x: number; y: number; w: number; h: number; path: string }[] = [];
+  let actionHitAreas: { x: number; y: number; w: number; h: number; action: string }[] = [];
   let phaseTimer = 0;
   let reassembleTimer = 0; // counts frames since last drag to trigger reassembly
   let subtitleY = 0;       // Y position of the subtitle text (platform)
@@ -344,7 +347,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       phaseTimer = 0;
     }
 
-    // Subtitle + recent folders
+    // Subtitle + action buttons + recent folders
     if (phase === "settled") {
       subtitleProgress = Math.min(subtitleProgress + 1.2, SUBTITLE.length);
       const subText = SUBTITLE.slice(0, Math.floor(subtitleProgress));
@@ -357,7 +360,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       const blockTop = (h - lastTitleSize - 60) * 0.45;
       const subY = blockTop + lastTitleSize + 20;
       subtitleY = subY;
-      folderY = subY + 35;
+      folderY = subY + 80; // pushed down to make room for action buttons
 
       ctx.fillStyle = `rgba(166, 173, 200, ${Math.min(1, subtitleProgress * 0.1)})`;
       ctx.fillText(subText, w / 2, subY);
@@ -369,17 +372,63 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
         ctx.fillRect(cursorX, subY, 2, 16);
       }
 
-      // Recent folders
+      // Action buttons + recent folders
       if (subtitleProgress >= SUBTITLE.length) {
         folderFadeProgress = Math.min(folderFadeProgress + 0.06, 1);
 
+        if (folderFadeProgress > 0.3) {
+          const btnAlpha = Math.min(1, (folderFadeProgress - 0.3) * 2);
+          const btnY = subY + 40;
+          actionHitAreas = [];
+
+          ctx.font = '14px "JetBrains Mono", monospace';
+          ctx.textAlign = "left";
+
+          const btnFont = '14px "JetBrains Mono", monospace';
+          const actions = [
+            { label: "+ New File",     action: "new-file" },
+            { label: "> Open Folder",  action: "open-dir" },
+          ];
+
+          const btnGap = 28;
+          const btnItems = actions.map(a => ({
+            ...a,
+            width: measureTextWidth(a.label, btnFont),
+          }));
+          const btnTotalW = btnItems.reduce((s, b) => s + b.width, 0) + btnGap * (btnItems.length - 1);
+          let bx = w / 2 - btnTotalW / 2;
+
+          for (const btn of btnItems) {
+            const hitX = bx - 8;
+            const hitW = btn.width + 16;
+            const isHover = mouseX >= hitX && mouseX <= hitX + hitW && mouseY >= btnY - 4 && mouseY <= btnY + 18;
+
+            actionHitAreas.push({ x: hitX, y: btnY - 4, w: hitW, h: 22, action: btn.action });
+
+            ctx.fillStyle = isHover
+              ? `rgba(137, 180, 250, ${btnAlpha * 0.95})`
+              : `rgba(137, 180, 250, ${btnAlpha * 0.6})`;
+            ctx.fillText(btn.label, bx, btnY);
+            bx += btn.width + btnGap;
+          }
+        }
+
+        // Recent folders
         const folders = props.recentFolders ?? [];
         if (folders.length > 0 && folderFadeProgress > 0.5) {
           const folderAlpha = Math.min(1, (folderFadeProgress - 0.5) * 2);
-          const fy = subY + 35;
+          const fy = subY + 80;
           folderHitAreas = [];
 
+          // Label
+          ctx.font = '12px "JetBrains Mono", monospace';
+          ctx.textAlign = "center";
+          ctx.fillStyle = `rgba(88, 91, 112, ${folderAlpha * 0.8})`;
+          ctx.fillText("recent projects", w / 2, fy - 2);
+
           ctx.font = '16px "JetBrains Mono", monospace';
+          ctx.textAlign = "left";
+          const linkY = fy + 18;
 
           const gap = 20;
           const items = folders.map((f) => {
@@ -392,15 +441,14 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
           for (const item of items) {
             const hitX = curX - 6;
             const hitW = item.width + 12;
-            const isHover = mouseX >= hitX && mouseX <= hitX + hitW && mouseY >= fy - 4 && mouseY <= fy + 18;
+            const isHover = mouseX >= hitX && mouseX <= hitX + hitW && mouseY >= linkY - 4 && mouseY <= linkY + 18;
 
-            folderHitAreas.push({ x: hitX, y: fy - 4, w: hitW, h: 22, path: item.path });
+            folderHitAreas.push({ x: hitX, y: linkY - 4, w: hitW, h: 22, path: item.path });
 
-            ctx.textAlign = "left";
             ctx.fillStyle = isHover
               ? `rgba(232, 237, 242, ${folderAlpha * 0.95})`
               : `rgba(166, 173, 200, ${folderAlpha * 0.6})`;
-            ctx.fillText(item.display, curX, fy);
+            ctx.fillText(item.display, curX, linkY);
             curX += item.width + gap;
           }
         }
@@ -418,6 +466,11 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     animId = requestAnimationFrame(render);
   }
 
+  function isOverClickable(): boolean {
+    return folderHitAreas.some(a => mouseX >= a.x && mouseX <= a.x + a.w && mouseY >= a.y && mouseY <= a.y + a.h)
+        || actionHitAreas.some(a => mouseX >= a.x && mouseX <= a.x + a.w && mouseY >= a.y && mouseY <= a.y + a.h);
+  }
+
   function handleMouseMove(e: MouseEvent) {
     if (!canvasRef) return;
     const rect = canvasRef.getBoundingClientRect();
@@ -427,11 +480,8 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       dragX = mouseX;
       dragY = mouseY;
     }
-    const overFolder = folderHitAreas.some(
-      (a) => mouseX >= a.x && mouseX <= a.x + a.w && mouseY >= a.y && mouseY <= a.y + a.h
-    );
-    // Show grab cursor over the text area, pointer over folders
-    if (overFolder) {
+    // Show grab cursor over the text area, pointer over clickable items
+    if (isOverClickable()) {
       canvasRef.style.cursor = "pointer";
     } else if (dragging) {
       canvasRef.style.cursor = "grabbing";
@@ -451,11 +501,8 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // Don't start drag if clicking a folder
-    const overFolder = folderHitAreas.some(
-      (a) => cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h
-    );
-    if (overFolder) return;
+    // Don't start drag if clicking a folder or action button
+    if (isOverClickable()) return;
 
     dragging = true;
     dragX = cx; dragY = cy;
@@ -473,6 +520,13 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     const rect = canvasRef.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
+    for (const area of actionHitAreas) {
+      if (cx >= area.x && cx <= area.x + area.w && cy >= area.y && cy <= area.y + area.h) {
+        if (area.action === "new-file") props.onNewFile?.();
+        else if (area.action === "open-dir") props.onOpenDirectory?.();
+        return;
+      }
+    }
     for (const area of folderHitAreas) {
       if (cx >= area.x && cx <= area.x + area.w && cy >= area.y && cy <= area.y + area.h) {
         props.onOpenFolder?.(area.path);
