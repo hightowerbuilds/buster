@@ -266,6 +266,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     updateCursor: (line: number, col: number) => engine.setCursor({ line, col }),
     ensureCursorVisible,
     onGoToFile: props.onGoToFile,
+    pushNavHistory: (path, line, col) => actions.pushNavHistory(path, line, col),
   });
 
   const sigHelp = createSignatureHelp({
@@ -376,7 +377,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     pendingScrollDelta = 0;
     const rows = getDisplayRows();
     const totalHeight = rows.length * lineHeight();
-    const maxScroll = Math.max(0, totalHeight - canvasHeight() + lineHeight());
+    // Scroll past end: allow the last line to sit near the top of the viewport
+    const maxScroll = Math.max(0, totalHeight - lineHeight());
     setScrollTop(Math.max(0, Math.min(scrollTop() + delta, maxScroll)));
   }
 
@@ -479,6 +481,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       breakpointLines: breakpointSet(),
       cursorStyle: vim.enabled() && vim.mode() !== "insert" ? "block" : "line",
       gpu: gpuCtx,
+      tabSize: store.settings.tab_size || 4,
+      showIndentGuides: store.settings.show_indent_guides ?? true,
+      showWhitespace: store.settings.show_whitespace ?? false,
     });
   }
 
@@ -596,6 +601,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   function handleEditorContextMenu(e: MouseEvent) {
     e.preventDefault();
     const hasSel = !!engine.getOrderedSelection();
+    const hasLsp = !!props.filePath;
     setEditorCtxMenu({
       x: e.clientX,
       y: e.clientY,
@@ -609,6 +615,51 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
           if (sel) clipboardWrite(engine.getTextRange(sel.from, sel.to));
         }, disabled: !hasSel },
         { label: "Paste", action: () => { clipboardRead().then(t => { if (t) engine.insert(t); }); } },
+        { separator: true },
+        { label: "Go to Definition", action: () => { hover.goToDefinition(); }, disabled: !hasLsp },
+        { label: "Go to Type Definition", action: () => { hover.goToTypeDefinition(); }, disabled: !hasLsp },
+        { label: "Find References", action: () => {
+          if (!props.filePath) return;
+          const c = engine.cursor();
+          import("../lib/ipc").then(({ lspReferences }) => {
+            lspReferences(props.filePath!, c.line, c.col).then(locations => {
+              if (locations.length > 0) {
+                const text = locations.map(l => {
+                  const name = basename(l.file_path) || l.file_path;
+                  return `${name}:${l.line + 1}:${l.col + 1}`;
+                }).join("\n");
+                hover.showImmediate(`${locations.length} references:\n${text}`, c.line, c.col);
+              }
+            }).catch(() => showError("Find references failed"));
+          });
+        }, disabled: !hasLsp },
+        { label: "Rename Symbol", action: () => {
+          if (!props.filePath) return;
+          const c = engine.cursor();
+          const line = engine.getLine(c.line);
+          const wordStart = line.slice(0, c.col).search(/\w+$/) ?? c.col;
+          const wordEnd = c.col + (line.slice(c.col).match(/^\w+/)?.[0]?.length ?? 0);
+          const word = line.slice(wordStart, wordEnd);
+          const newName = prompt("Rename symbol:", word);
+          if (newName && newName !== word) {
+            import("../lib/ipc").then(({ lspRename }) => {
+              lspRename(props.filePath!, c.line, c.col, newName).then(edits => {
+                if (edits.length > 0) {
+                  const fileEdits = edits
+                    .filter(e => e.file_path === props.filePath)
+                    .sort((a, b) => b.start_line !== a.start_line ? b.start_line - a.start_line : b.start_col - a.start_col);
+                  engine.beginUndoGroup();
+                  for (const edit of fileEdits) {
+                    engine.deleteRange({ line: edit.start_line, col: edit.start_col }, { line: edit.end_line, col: edit.end_col });
+                    engine.setCursor({ line: edit.start_line, col: edit.start_col });
+                    engine.insert(edit.new_text);
+                  }
+                  engine.endUndoGroup();
+                }
+              }).catch(() => showError("Rename failed"));
+            });
+          }
+        }, disabled: !hasLsp },
         { separator: true },
         { label: "Select All", action: () => engine.selectAll() },
       ],
@@ -660,7 +711,29 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
           e.preventDefault();
           const text = e.clipboardData?.getData("text/plain");
           if (text) {
-            engine.insert(text);
+            const pasteLines = text.split("\n");
+            if (pasteLines.length > 1) {
+              // Auto-indent: adjust pasted lines to match cursor context
+              const curLine = engine.getLine(engine.cursor().line);
+              const targetIndent = curLine.match(/^\s*/)![0];
+              // Find the common indent of the pasted text (skip first line)
+              let minIndent = Infinity;
+              for (let i = 1; i < pasteLines.length; i++) {
+                if (pasteLines[i].trim().length === 0) continue;
+                const spaces = pasteLines[i].match(/^\s*/)![0].length;
+                if (spaces < minIndent) minIndent = spaces;
+              }
+              if (minIndent === Infinity) minIndent = 0;
+              // Re-indent lines 1+ relative to target
+              const adjusted = [pasteLines[0]];
+              for (let i = 1; i < pasteLines.length; i++) {
+                const stripped = pasteLines[i].slice(minIndent);
+                adjusted.push(targetIndent + stripped);
+              }
+              engine.insert(adjusted.join("\n"));
+            } else {
+              engine.insert(text);
+            }
             clearHighlightCache();
           }
         },

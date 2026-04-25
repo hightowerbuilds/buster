@@ -95,10 +95,16 @@ import {
 
 // ─── Engine factory ─────────────────────────────────────────────────
 
+export type LineEnding = "LF" | "CRLF";
+
 export function createEditorEngine(initialText: string = "", filePath?: string) {
   // ── Reactive state ────────────────────────────────────────────
 
-  const initial = initialText.length > 0 ? initialText.split("\n") : [""];
+  // Detect line ending from original text
+  const detectedEnding: LineEnding = initialText.includes("\r\n") ? "CRLF" : "LF";
+  // Strip \r for internal representation (always use \n)
+  const cleanText = initialText.replace(/\r\n/g, "\n");
+  const initial = cleanText.length > 0 ? cleanText.split("\n") : [""];
 
   const [lines, setLines]       = createSignal<string[]>(initial);
   const [cursor, setCursor]     = createSignal<Pos>({ line: 0, col: 0 });
@@ -107,6 +113,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
   const [editSeq, setEditSeq]   = createSignal(0);
   const [dirty, setDirty]       = createSignal(false);
   const [path, setPath]         = createSignal<string | null>(filePath ?? null);
+  const [lineEnding, setLineEnding] = createSignal<LineEnding>(detectedEnding);
 
   // ── Non-reactive internals ────────────────────────────────────
 
@@ -226,6 +233,8 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     editSeq,
     dirty,
     filePath: path,
+    lineEnding,
+    setLineEnding,
 
     lineCount: () => lines().length,
     getText: () => lines().join("\n"),

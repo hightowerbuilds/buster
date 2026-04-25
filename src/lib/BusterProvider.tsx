@@ -51,6 +51,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   effect_grain: 0,
   vim_mode: false,
   blog_theme: "normal",
+  show_indent_guides: true,
+  show_whitespace: false,
 };
 
 const RECENT_FILES_KEY = "buster-recent-files";
@@ -105,6 +107,9 @@ const INITIAL_STATE: BusterStoreState = {
   debugVariables: [],
   debugOutput: [],
   debugSelectedFrameId: null,
+
+  navHistory: [],
+  navHistoryIdx: -1,
 
   recentFiles: JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || "[]"),
   tabTrapping: true,

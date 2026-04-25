@@ -31,10 +31,12 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
     jumpToDiagnostic: vi.fn(),
     findVisible: () => false,
     paletteVisible: () => false,
-    settings: () => ({ word_wrap: true, font_size: 14, tab_size: 4, use_spaces: true, minimap: false, line_numbers: true, cursor_blink: true, autocomplete: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, vim_mode: false, blog_theme: "normal" }),
+    settings: () => ({ word_wrap: true, font_size: 14, tab_size: 4, use_spaces: true, minimap: false, line_numbers: true, cursor_blink: true, autocomplete: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, vim_mode: false, blog_theme: "normal", show_indent_guides: true, show_whitespace: false }),
     updateSettings: vi.fn(),
     tabTrapping: () => true,
     setTabTrapping: vi.fn(),
+    navigateBack: vi.fn(),
+    navigateForward: vi.fn(),
     ...overrides,
   };
 }

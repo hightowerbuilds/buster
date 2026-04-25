@@ -103,6 +103,7 @@ impl LspClient {
                         "relatedInformation": false
                     },
                     "definition": {},
+                    "typeDefinition": {},
                     "documentSymbol": {
                         "symbolKind": {
                             "valueSet": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]
@@ -344,6 +345,13 @@ impl LspClient {
 
     pub fn definition(&self, uri: &str, line: u32, col: u32) -> Result<oneshot::Receiver<Value>, String> {
         self.send_request("textDocument/definition", serde_json::json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": line, "character": col }
+        }))
+    }
+
+    pub fn type_definition(&self, uri: &str, line: u32, col: u32) -> Result<oneshot::Receiver<Value>, String> {
+        self.send_request("textDocument/typeDefinition", serde_json::json!({
             "textDocument": { "uri": uri },
             "position": { "line": line, "character": col }
         }))

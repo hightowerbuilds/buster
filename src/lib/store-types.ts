@@ -85,10 +85,20 @@ export interface BusterStoreState {
   debugOutput: string[];
   debugSelectedFrameId: number | null;
 
+  // ── Navigation history ──────────────────────────────────
+  navHistory: NavHistoryEntry[];
+  navHistoryIdx: number;
+
   // ── Misc ───────────────────────────────────────────────
   recentFiles: RecentFile[];
   tabTrapping: boolean;
   lspState: LspState;
   lspLanguages: string[];
   vimMode: string | null;
+}
+
+export interface NavHistoryEntry {
+  path: string;
+  line: number;
+  col: number;
 }

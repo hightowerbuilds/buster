@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { lspHover, lspDefinition } from "../lib/ipc";
+import { lspHover, lspDefinition, lspTypeDefinition } from "../lib/ipc";
 import { showError } from "../lib/notify";
 
 export interface HoverDeps {
@@ -9,6 +9,7 @@ export interface HoverDeps {
   updateCursor: (line: number, col: number) => void;
   ensureCursorVisible: () => void;
   onGoToFile?: (path: string, line: number, col: number) => void;
+  pushNavHistory?: (path: string, line: number, col: number) => void;
 }
 
 export function createHover(deps: HoverDeps) {
@@ -46,6 +47,8 @@ export function createHover(deps: HoverDeps) {
     if (!deps.filePath()) return;
     const line = deps.cursorLine();
     const col = deps.cursorCol();
+    // Record current position before navigating
+    deps.pushNavHistory?.(deps.filePath()!, line, col);
     try {
       const locations = await lspDefinition(deps.filePath()!, line, col);
       if (locations.length > 0) {
@@ -56,6 +59,8 @@ export function createHover(deps: HoverDeps) {
         } else {
           deps.onGoToFile?.(loc.file_path, loc.line, loc.col);
         }
+        // Record destination position
+        deps.pushNavHistory?.(loc.file_path, loc.line, loc.col);
       }
     } catch {
       showError("Go to definition failed");
@@ -71,6 +76,28 @@ export function createHover(deps: HoverDeps) {
     setHoverPos({ line, col });
   }
 
+  async function goToTypeDefinition() {
+    if (!deps.filePath()) return;
+    const line = deps.cursorLine();
+    const col = deps.cursorCol();
+    deps.pushNavHistory?.(deps.filePath()!, line, col);
+    try {
+      const locations = await lspTypeDefinition(deps.filePath()!, line, col);
+      if (locations.length > 0) {
+        const loc = locations[0];
+        if (loc.file_path === deps.filePath()) {
+          deps.updateCursor(loc.line, loc.col);
+          deps.ensureCursorVisible();
+        } else {
+          deps.onGoToFile?.(loc.file_path, loc.line, loc.col);
+        }
+        deps.pushNavHistory?.(loc.file_path, loc.line, loc.col);
+      }
+    } catch {
+      showError("Go to type definition failed");
+    }
+  }
+
   return {
     hoverText,
     hoverPos,
@@ -78,5 +105,6 @@ export function createHover(deps: HoverDeps) {
     schedule,
     showImmediate,
     goToDefinition,
+    goToTypeDefinition,
   };
 }

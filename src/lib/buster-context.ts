@@ -76,6 +76,11 @@ export interface BusterActions {
   // Git
   fetchDiffHunks(tabId: string, filePath: string): Promise<void>;
 
+  // Navigation history
+  pushNavHistory(path: string, line: number, col: number): void;
+  navigateBack(): void;
+  navigateForward(): void;
+
   // Session
   buildSnapshot(): unknown;
   saveSessionNow(): Promise<void>;

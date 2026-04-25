@@ -217,6 +217,8 @@ const App: Component = () => {
       const id = store.activeTabId;
       if (id) actions.handleTabClose(id);
     },
+    navigateBack: () => actions.navigateBack(),
+    navigateForward: () => actions.navigateForward(),
   };
 
   const appCommands = createAppCommands(commandDeps);
@@ -438,6 +440,7 @@ const App: Component = () => {
               onLspClick={actions.restartLsp}
               fileLoading={store.fileLoading}
               vimMode={store.vimMode}
+              lineEnding={actions.activeEngine()?.lineEnding() ?? null}
             />
         </div>
       </div>

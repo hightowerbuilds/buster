@@ -13,6 +13,7 @@ import type { createCodeActions } from "./editor-code-actions";
 import type { createGhostText } from "./editor-ghost-text";
 import { insertEditorText } from "./editor-input";
 import { expandLanguageSnippetBeforeCursor } from "./language-snippets";
+import { expandEmmetBeforeCursor } from "./editor-emmet";
 import { getAutoClosePairMap, getLanguageDefinitionForPath } from "./language-registry";
 import { showError } from "../lib/notify";
 
@@ -124,6 +125,19 @@ export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
 
   // Toggle blame
   if (isMod && e.shiftKey && e.key === "B") { e.preventDefault(); return; } // handled by caller
+
+  // Bracket jump (Cmd+Shift+\)
+  if (isMod && e.shiftKey && e.key === "\\") {
+    e.preventDefault();
+    const match = engine.findMatchingBracket();
+    if (match) {
+      const c = engine.cursor();
+      const atOpen = c.col <= match.open.col + 1 && c.line === match.open.line;
+      engine.setCursor(atOpen ? match.close : match.open);
+      deps.ensureCursorVisible();
+    }
+    return;
+  }
 
   // Escape cascade
   if (e.key === "Escape") {
@@ -408,6 +422,24 @@ export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
       return;
     }
     if (!e.shiftKey && !engine.sel()) {
+      // Try Emmet abbreviation expansion first (HTML/CSS)
+      const emmetResult = expandEmmetBeforeCursor({
+        languagePath: deps.languagePath(),
+        lines: engine.lines(),
+        cursor: engine.cursor(),
+        indentUnit: deps.indentUnit(),
+      });
+      if (emmetResult) {
+        engine.beginUndoGroup();
+        engine.deleteRange(emmetResult.from, emmetResult.to);
+        engine.insert(emmetResult.text);
+        engine.setCursor(emmetResult.cursor);
+        engine.endUndoGroup();
+        deps.clearHighlightCache();
+        deps.ensureCursorVisible();
+        return;
+      }
+      // Then try language-specific snippets
       const snippet = expandLanguageSnippetBeforeCursor({
         languagePath: deps.languagePath(),
         lines: engine.lines(),

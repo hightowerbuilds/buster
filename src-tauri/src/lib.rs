@@ -304,6 +304,7 @@ pub fn run() {
             commands::lsp::lsp_completion,
             commands::lsp::lsp_hover,
             commands::lsp::lsp_definition,
+            commands::lsp::lsp_type_definition,
             commands::lsp::lsp_inlay_hints,
             commands::lsp::lsp_signature_help,
             commands::lsp::lsp_code_action,

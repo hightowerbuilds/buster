@@ -101,6 +101,59 @@ function codeLanguage(
   };
 }
 
+// ── Language snippets ─────────────────────────────────────────────
+
+function jsSnippets(): BuiltInSnippet[] {
+  return [
+    { prefix: "cl", label: "console.log", detail: "Log to console", body: () => ({ text: "console.log($0)", cursor: { line: 0, col: 12 } }) },
+    { prefix: "fn", label: "function", detail: "Function declaration", body: (u) => ({ text: `function $1($2) {\n${u}$0\n}`, cursor: { line: 0, col: 9 } }) },
+    { prefix: "afn", label: "arrow function", detail: "Arrow function expression", body: (u) => ({ text: `const $1 = ($2) => {\n${u}$0\n};`, cursor: { line: 0, col: 6 } }) },
+    { prefix: "for", label: "for loop", detail: "For loop", body: (u) => ({ text: `for (let i = 0; i < $1; i++) {\n${u}$0\n}`, cursor: { line: 0, col: 20 } }) },
+    { prefix: "fore", label: "for...of", detail: "For...of loop", body: (u) => ({ text: `for (const $1 of $2) {\n${u}$0\n}`, cursor: { line: 0, col: 11 } }) },
+    { prefix: "if", label: "if statement", detail: "If statement", body: (u) => ({ text: `if ($1) {\n${u}$0\n}`, cursor: { line: 0, col: 4 } }) },
+    { prefix: "ife", label: "if/else", detail: "If/else statement", body: (u) => ({ text: `if ($1) {\n${u}$0\n} else {\n${u}\n}`, cursor: { line: 0, col: 4 } }) },
+    { prefix: "try", label: "try/catch", detail: "Try/catch block", body: (u) => ({ text: `try {\n${u}$0\n} catch (err) {\n${u}\n}`, cursor: { line: 1, col: u.length } }) },
+    { prefix: "imp", label: "import", detail: "Import statement", body: () => ({ text: 'import { $1 } from "$2";', cursor: { line: 0, col: 10 } }) },
+  ];
+}
+
+function rustSnippets(): BuiltInSnippet[] {
+  return [
+    { prefix: "fn", label: "fn", detail: "Function", body: (u) => ({ text: `fn $1($2) {\n${u}$0\n}`, cursor: { line: 0, col: 3 } }) },
+    { prefix: "pfn", label: "pub fn", detail: "Public function", body: (u) => ({ text: `pub fn $1($2) {\n${u}$0\n}`, cursor: { line: 0, col: 7 } }) },
+    { prefix: "let", label: "let", detail: "Let binding", body: () => ({ text: "let $1 = $0;", cursor: { line: 0, col: 4 } }) },
+    { prefix: "letm", label: "let mut", detail: "Mutable let binding", body: () => ({ text: "let mut $1 = $0;", cursor: { line: 0, col: 8 } }) },
+    { prefix: "match", label: "match", detail: "Match expression", body: (u) => ({ text: `match $1 {\n${u}$0\n}`, cursor: { line: 0, col: 6 } }) },
+    { prefix: "impl", label: "impl", detail: "Impl block", body: (u) => ({ text: `impl $1 {\n${u}$0\n}`, cursor: { line: 0, col: 5 } }) },
+    { prefix: "struct", label: "struct", detail: "Struct definition", body: (u) => ({ text: `struct $1 {\n${u}$0\n}`, cursor: { line: 0, col: 7 } }) },
+    { prefix: "test", label: "#[test]", detail: "Test function", body: (u) => ({ text: `#[test]\nfn $1() {\n${u}$0\n}`, cursor: { line: 1, col: 3 } }) },
+  ];
+}
+
+function pythonSnippets(): BuiltInSnippet[] {
+  return [
+    { prefix: "def", label: "def", detail: "Function definition", body: (u) => ({ text: `def $1($2):\n${u}$0`, cursor: { line: 0, col: 4 } }) },
+    { prefix: "class", label: "class", detail: "Class definition", body: (u) => ({ text: `class $1:\n${u}def __init__(self$2):\n${u}${u}$0`, cursor: { line: 0, col: 6 } }) },
+    { prefix: "for", label: "for loop", detail: "For loop", body: (u) => ({ text: `for $1 in $2:\n${u}$0`, cursor: { line: 0, col: 4 } }) },
+    { prefix: "if", label: "if statement", detail: "If statement", body: (u) => ({ text: `if $1:\n${u}$0`, cursor: { line: 0, col: 3 } }) },
+    { prefix: "ife", label: "if/else", detail: "If/else statement", body: (u) => ({ text: `if $1:\n${u}$0\nelse:\n${u}`, cursor: { line: 0, col: 3 } }) },
+    { prefix: "try", label: "try/except", detail: "Try/except block", body: (u) => ({ text: `try:\n${u}$0\nexcept Exception as e:\n${u}`, cursor: { line: 1, col: u.length } }) },
+    { prefix: "with", label: "with statement", detail: "Context manager", body: (u) => ({ text: `with $1 as $2:\n${u}$0`, cursor: { line: 0, col: 5 } }) },
+  ];
+}
+
+function goSnippets(): BuiltInSnippet[] {
+  return [
+    { prefix: "fn", label: "func", detail: "Function", body: (u) => ({ text: `func $1($2) {\n${u}$0\n}`, cursor: { line: 0, col: 5 } }) },
+    { prefix: "for", label: "for loop", detail: "For loop", body: (u) => ({ text: `for $1 {\n${u}$0\n}`, cursor: { line: 0, col: 4 } }) },
+    { prefix: "forr", label: "for range", detail: "For range loop", body: (u) => ({ text: `for $1, $2 := range $3 {\n${u}$0\n}`, cursor: { line: 0, col: 4 } }) },
+    { prefix: "if", label: "if statement", detail: "If statement", body: (u) => ({ text: `if $1 {\n${u}$0\n}`, cursor: { line: 0, col: 3 } }) },
+    { prefix: "ife", label: "if/else", detail: "If/else statement", body: (u) => ({ text: `if $1 {\n${u}$0\n} else {\n${u}\n}`, cursor: { line: 0, col: 3 } }) },
+    { prefix: "iferr", label: "if err != nil", detail: "Error check", body: (u) => ({ text: `if err != nil {\n${u}return $0\n}`, cursor: { line: 1, col: u.length + 7 } }) },
+    { prefix: "struct", label: "struct", detail: "Struct type", body: (u) => ({ text: `type $1 struct {\n${u}$0\n}`, cursor: { line: 0, col: 5 } }) },
+  ];
+}
+
 export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
   {
     id: "html",
@@ -126,8 +179,12 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     snippets: [htmlBoilerplateSnippet()],
   },
-  codeLanguage("javascript", "JavaScript", [".js", ".jsx", ".mjs", ".cjs"], "//"),
-  codeLanguage("typescript", "TypeScript", [".ts", ".tsx", ".mts", ".cts"], "//"),
+  codeLanguage("javascript", "JavaScript", [".js", ".jsx", ".mjs", ".cjs"], "//", {
+    snippets: jsSnippets(),
+  }),
+  codeLanguage("typescript", "TypeScript", [".ts", ".tsx", ".mts", ".cts"], "//", {
+    snippets: jsSnippets(),
+  }),
   {
     id: "css",
     name: "CSS",
@@ -147,7 +204,9 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     surroundingPairs: COMMON_AUTO_CLOSE,
     indentation: COMMON_INDENTATION,
   },
-  codeLanguage("rust", "Rust", [".rs"], "//"),
+  codeLanguage("rust", "Rust", [".rs"], "//", {
+    snippets: rustSnippets(),
+  }),
   {
     id: "python",
     name: "Python",
@@ -160,8 +219,11 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
       increaseIndentPattern: /:\s*(#.*)?$/,
       decreaseIndentPattern: /^\s*(elif|else|except|finally)\b/,
     },
+    snippets: pythonSnippets(),
   },
-  codeLanguage("go", "Go", [".go"], "//"),
+  codeLanguage("go", "Go", [".go"], "//", {
+    snippets: goSnippets(),
+  }),
   codeLanguage("java", "Java", [".java"], "//"),
   codeLanguage("c", "C", [".c", ".h"], "//"),
   codeLanguage("cpp", "C++", [".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"], "//"),

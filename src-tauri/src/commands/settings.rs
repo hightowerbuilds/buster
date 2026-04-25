@@ -49,6 +49,10 @@ pub struct AppSettings {
     pub vim_mode: bool,
     #[serde(default = "default_blog_theme")]
     pub blog_theme: String,
+    #[serde(default = "default_true")]
+    pub show_indent_guides: bool,
+    #[serde(default)]
+    pub show_whitespace: bool,
 }
 
 fn default_theme_mode() -> String { "dark".to_string() }
@@ -84,6 +88,8 @@ impl Default for AppSettings {
             agent_timeout_secs: 300,
             vim_mode: false,
             blog_theme: "normal".to_string(),
+            show_indent_guides: true,
+            show_whitespace: false,
         }
     }
 }

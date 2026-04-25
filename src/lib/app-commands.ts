@@ -86,6 +86,8 @@ export interface CommandDeps {
   splitDown: () => void;
   closeSplit: () => void;
   closeTabOrSplit: () => void;
+  navigateBack: () => void;
+  navigateForward: () => void;
 }
 
 const MAX_TAB_HOTKEYS = 9;
@@ -125,6 +127,8 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "editor.find": "Mod+f",
   "editor.goToLine": "Ctrl+g",
   "editor.goToSymbol": "Mod+Shift+o",
+  "editor.navigateBack": "Ctrl+-",
+  "editor.navigateForward": "Ctrl+Shift+-",
   "editor.zoomIn": "Mod+=",
   "editor.zoomOut": "Mod+-",
   "editor.zoomReset": "Mod+0",
@@ -181,6 +185,16 @@ export function createAppCommands(deps: CommandDeps): Command[] {
       const s = deps.settings();
       deps.updateSettings({ ...s, vim_mode: !s.vim_mode });
     } },
+    { id: "editor.toggleWhitespace", label: "Toggle Render Whitespace", category: "Editor", execute: () => {
+      const s = deps.settings();
+      deps.updateSettings({ ...s, show_whitespace: !s.show_whitespace });
+    } },
+    { id: "editor.toggleIndentGuides", label: "Toggle Indent Guides", category: "Editor", execute: () => {
+      const s = deps.settings();
+      deps.updateSettings({ ...s, show_indent_guides: !s.show_indent_guides });
+    } },
+    { id: "editor.navigateBack", label: "Go Back", category: "Editor", keybinding: "Ctrl+-", execute: () => deps.navigateBack() },
+    { id: "editor.navigateForward", label: "Go Forward", category: "Editor", keybinding: "Ctrl+Shift+-", execute: () => deps.navigateForward() },
     { id: "editor.nextProblem", label: "Go to Next Problem", category: "Editor", keybinding: "F8", execute: () => deps.jumpToDiagnostic(1) },
     { id: "editor.prevProblem", label: "Go to Previous Problem", category: "Editor", keybinding: "Shift+F8", execute: () => deps.jumpToDiagnostic(-1) },
     { id: "view.focusNextRegion", label: "Focus Next Region", category: "View", keybinding: "F6", execute: () => cycleRegion(1) },
@@ -250,6 +264,8 @@ export function buildHotkeyDefinitions(
   add("editor.find", () => { if (deps.activeEngine()) deps.setFindVisible(true); });
   add("editor.goToLine", () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); });
   add("editor.goToSymbol", () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); });
+  add("editor.navigateBack", () => deps.navigateBack());
+  add("editor.navigateForward", () => deps.navigateForward());
   add("editor.zoomIn", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }));
   add("editor.zoomOut", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }));
   add("editor.zoomReset", () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }));

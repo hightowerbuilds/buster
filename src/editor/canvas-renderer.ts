@@ -94,6 +94,9 @@ export interface EditorRenderParams {
   breakpointLines: Set<number>;
   cursorStyle: "line" | "block";
   gpu?: WebGLTextContext | null;
+  tabSize: number;
+  showIndentGuides: boolean;
+  showWhitespace: boolean;
 }
 
 // ─── Main render orchestrator ──────────────────────────────────────
@@ -160,6 +163,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   const primaryCursorLine = params.cursors.length > 0 ? params.cursors[0].line : -1;
 
   drawSelection(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW);
+  drawSelectionOccurrences(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW);
   drawSearchHighlights(ctx, params.searchMatches, params.currentSearchIdx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW);
 
   ctx.font = font;
@@ -179,6 +183,16 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   }
 
   drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, params.lineTokens, p, params.phantomTexts, lineNumW);
+
+  // Indent guides
+  if (params.showIndentGuides) {
+    drawIndentGuides(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW, params.tabSize, primaryCursorLine);
+  }
+
+  // Whitespace rendering
+  if (params.showWhitespace) {
+    drawWhitespace(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW);
+  }
 
   if (blameVisible && params.blameData) {
     drawBlameGutter(ctx, params.blameData, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, lineNumW, p);
@@ -205,7 +219,10 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     drawFoldMarkers(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, charW);
   }
 
-  // Bracket match highlight
+  // Bracket pair colorization
+  drawBracketPairs(ctx, params.lines, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW);
+
+  // Bracket match highlight (cursor-adjacent pair gets extra emphasis)
   if (params.bracketMatch) {
     const bm = params.bracketMatch;
     for (const pos of [bm.open, bm.close]) {
@@ -214,6 +231,9 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
         if (dr.bufferLine === pos.line && pos.col >= dr.startCol && pos.col < dr.startCol + dr.text.length) {
           const x = gutterW + PADDING_LEFT + colToPixel(dr.text, pos.col - dr.startCol, charW);
           const y = (r - firstVisRow) * lineHeight + offsetY;
+          // Background fill for matched pair
+          ctx.fillStyle = "rgba(137, 180, 250, 0.12)";
+          ctx.fillRect(x, y, charW, lineHeight);
           ctx.strokeStyle = p.accent;
           ctx.lineWidth = 1;
           ctx.strokeRect(x, y, charW, lineHeight);
@@ -331,6 +351,60 @@ function drawSearchHighlights(
           }
         }
       }
+    }
+  }
+}
+
+// ─── Selection Occurrence Highlights ──────────────────────────────
+
+function drawSelectionOccurrences(
+  ctx: CanvasRenderingContext2D,
+  params: EditorRenderParams,
+  displayRows: DisplayRow[],
+  firstVisRow: number,
+  lastVisRow: number,
+  offsetY: number,
+  lineHeight: number,
+  gutterW: number,
+  charW: number,
+) {
+  if (!params.selStart || !params.selEnd) return;
+
+  const s = params.selStart;
+  const e = params.selEnd;
+  // Only highlight occurrences for single-line word selections
+  if (s.line !== e.line) return;
+
+  const sCol = Math.min(s.col, e.col);
+  const eCol = Math.max(s.col, e.col);
+  const line = params.lines[s.line] ?? "";
+  const selectedText = line.slice(sCol, eCol);
+
+  // Only for word-like selections (2+ chars, no whitespace)
+  if (selectedText.length < 2 || /\s/.test(selectedText)) return;
+
+  ctx.fillStyle = "rgba(137, 180, 250, 0.15)";
+  ctx.strokeStyle = "rgba(137, 180, 250, 0.3)";
+  ctx.lineWidth = 1;
+
+  for (let r = firstVisRow; r < lastVisRow; r++) {
+    const dr = displayRows[r];
+    // Skip the selected line itself
+    if (dr.bufferLine === s.line) continue;
+
+    const text = params.lines[dr.bufferLine] ?? "";
+    let idx = text.indexOf(selectedText);
+    while (idx !== -1) {
+      if (idx >= dr.startCol && idx < dr.startCol + dr.text.length) {
+        const localStart = idx - dr.startCol;
+        const localEnd = localStart + selectedText.length;
+        const x1 = gutterW + PADDING_LEFT + colToPixel(dr.text, localStart, charW);
+        const x2 = gutterW + PADDING_LEFT + colToPixel(dr.text, Math.min(localEnd, dr.text.length), charW);
+        const y = (r - firstVisRow) * lineHeight + offsetY;
+        ctx.fillRect(x1, y, x2 - x1, lineHeight);
+        ctx.strokeRect(x1, y, x2 - x1, lineHeight);
+      }
+      idx = text.indexOf(selectedText, idx + 1);
     }
   }
 }
@@ -494,5 +568,232 @@ function drawSegmentWithTokens(
     }
   } else {
     monoText(ctx, segment, baseX, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
+  }
+}
+
+// ─── Indent Guides ──────────────────────────────────────────────────
+
+function drawIndentGuides(
+  ctx: CanvasRenderingContext2D,
+  displayRows: DisplayRow[],
+  firstVisRow: number,
+  lastVisRow: number,
+  offsetY: number,
+  lineHeight: number,
+  gutterW: number,
+  charW: number,
+  tabSize: number,
+  primaryCursorLine: number,
+) {
+  const step = tabSize * charW;
+  if (step < 2) return;
+
+  // Determine the active indent level from the cursor's line
+  let activeIndentLevel = -1;
+  for (let r = firstVisRow; r < lastVisRow; r++) {
+    const dr = displayRows[r];
+    if (dr.bufferLine === primaryCursorLine && dr.startCol === 0) {
+      const text = dr.text;
+      let spaces = 0;
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === " ") spaces++;
+        else if (text[i] === "\t") spaces += tabSize;
+        else break;
+      }
+      activeIndentLevel = Math.floor(spaces / tabSize);
+      break;
+    }
+  }
+
+  const guideColor = "rgba(255, 255, 255, 0.06)";
+  const activeColor = "rgba(255, 255, 255, 0.14)";
+
+  ctx.lineWidth = 1;
+
+  for (let r = firstVisRow; r < lastVisRow; r++) {
+    const dr = displayRows[r];
+    if (dr.startCol !== 0) continue; // skip wrapped continuation rows
+
+    const text = dr.text;
+    // Count leading whitespace in columns
+    let spaces = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === " ") spaces++;
+      else if (text[i] === "\t") spaces += tabSize;
+      else break;
+    }
+    // For blank lines, use the max indent of surrounding lines
+    if (text.trim().length === 0) {
+      // Look at previous and next non-blank lines for context
+      let prev = 0, next = 0;
+      for (let pr = r - 1; pr >= 0; pr--) {
+        const pdr = displayRows[pr];
+        if (pdr.startCol !== 0) continue;
+        const pt = pdr.text;
+        if (pt.trim().length > 0) {
+          for (let i = 0; i < pt.length; i++) {
+            if (pt[i] === " ") prev++;
+            else if (pt[i] === "\t") prev += tabSize;
+            else break;
+          }
+          break;
+        }
+      }
+      for (let nr = r + 1; nr < displayRows.length; nr++) {
+        const ndr = displayRows[nr];
+        if (ndr.startCol !== 0) continue;
+        const nt = ndr.text;
+        if (nt.trim().length > 0) {
+          for (let i = 0; i < nt.length; i++) {
+            if (nt[i] === " ") next++;
+            else if (nt[i] === "\t") next += tabSize;
+            else break;
+          }
+          break;
+        }
+      }
+      spaces = Math.min(prev, next);
+    }
+
+    const levels = Math.floor(spaces / tabSize);
+    const y = (r - firstVisRow) * lineHeight + offsetY;
+
+    for (let level = 1; level <= levels; level++) {
+      const x = gutterW + PADDING_LEFT + (level - 1) * step;
+      ctx.strokeStyle = (level === activeIndentLevel) ? activeColor : guideColor;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x) + 0.5, y);
+      ctx.lineTo(Math.round(x) + 0.5, y + lineHeight);
+      ctx.stroke();
+    }
+  }
+}
+
+// ─── Whitespace Rendering ───────────────────────────────────────────
+
+function drawWhitespace(
+  ctx: CanvasRenderingContext2D,
+  displayRows: DisplayRow[],
+  firstVisRow: number,
+  lastVisRow: number,
+  offsetY: number,
+  lineHeight: number,
+  fontSize: number,
+  gutterW: number,
+  charW: number,
+) {
+  ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+  const dotRadius = Math.max(1, fontSize * 0.07);
+  const centerY = lineHeight / 2;
+
+  for (let r = firstVisRow; r < lastVisRow; r++) {
+    const dr = displayRows[r];
+    const y = (r - firstVisRow) * lineHeight + offsetY;
+    const text = dr.text;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === " ") {
+        // Small centered dot for spaces
+        const x = gutterW + PADDING_LEFT + colToPixel(text, i, charW) + charW / 2;
+        ctx.beginPath();
+        ctx.arc(x, y + centerY, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (ch === "\t") {
+        // Right arrow for tabs
+        const x = gutterW + PADDING_LEFT + colToPixel(text, i, charW);
+        const arrowY = y + centerY;
+        const arrowLen = charW * 0.7;
+        const arrowHead = charW * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(x + charW * 0.15, arrowY);
+        ctx.lineTo(x + charW * 0.15 + arrowLen, arrowY);
+        ctx.lineTo(x + charW * 0.15 + arrowLen - arrowHead, arrowY - arrowHead);
+        ctx.moveTo(x + charW * 0.15 + arrowLen, arrowY);
+        ctx.lineTo(x + charW * 0.15 + arrowLen - arrowHead, arrowY + arrowHead);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+// ─── Bracket Pair Colorization ──────────────────────────────────────
+
+const BRACKET_COLORS = [
+  "rgba(249, 226, 175, 0.8)",  // yellow
+  "rgba(203, 166, 247, 0.8)",  // mauve
+  "rgba(137, 180, 250, 0.8)",  // blue
+  "rgba(166, 227, 161, 0.8)",  // green
+  "rgba(250, 179, 135, 0.8)",  // peach
+  "rgba(148, 226, 213, 0.8)",  // teal
+];
+
+const OPEN_BRACKETS = new Set(["(", "[", "{"]);
+const CLOSE_BRACKETS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+
+function drawBracketPairs(
+  ctx: CanvasRenderingContext2D,
+  lines: string[],
+  displayRows: DisplayRow[],
+  firstVisRow: number,
+  lastVisRow: number,
+  offsetY: number,
+  lineHeight: number,
+  gutterW: number,
+  charW: number,
+) {
+  // Collect all bracket positions in visible lines with their depth
+  const firstLine = displayRows[firstVisRow]?.bufferLine ?? 0;
+  const lastLine = displayRows[Math.min(lastVisRow, displayRows.length) - 1]?.bufferLine ?? 0;
+
+  // Pre-scan from document start to firstLine to get the initial depth
+  let depth = 0;
+  for (let ln = 0; ln < firstLine; ln++) {
+    const text = lines[ln] ?? "";
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (OPEN_BRACKETS.has(ch)) depth++;
+      else if (ch in CLOSE_BRACKETS) depth--;
+    }
+  }
+
+  // Collect colored positions for visible lines
+  const coloredBrackets: { line: number; col: number; color: string }[] = [];
+
+  for (let ln = firstLine; ln <= lastLine && ln < lines.length; ln++) {
+    const text = lines[ln];
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (OPEN_BRACKETS.has(ch)) {
+        coloredBrackets.push({ line: ln, col: i, color: BRACKET_COLORS[depth % BRACKET_COLORS.length] });
+        depth++;
+      } else if (ch in CLOSE_BRACKETS) {
+        depth--;
+        coloredBrackets.push({ line: ln, col: i, color: BRACKET_COLORS[Math.max(0, depth) % BRACKET_COLORS.length] });
+      }
+    }
+  }
+
+  // Render colored brackets over the text
+  if (coloredBrackets.length === 0) return;
+
+  const font = ctx.font; // preserve
+  for (const bracket of coloredBrackets) {
+    for (let r = firstVisRow; r < lastVisRow; r++) {
+      const dr = displayRows[r];
+      if (dr.bufferLine === bracket.line && bracket.col >= dr.startCol && bracket.col < dr.startCol + dr.text.length) {
+        const localCol = bracket.col - dr.startCol;
+        const x = gutterW + PADDING_LEFT + colToPixel(dr.text, localCol, charW);
+        const y = (r - firstVisRow) * lineHeight + offsetY;
+        const ch = dr.text[localCol];
+        const baselineY = lineHeight - Math.floor(parseInt(font) * 0.35);
+        // Overdraw the bracket character in color
+        ctx.fillStyle = bracket.color;
+        ctx.fillText(ch, x, y + baselineY);
+        break;
+      }
+    }
   }
 }

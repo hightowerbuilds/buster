@@ -83,6 +83,8 @@ export interface AppSettings {
   keybindings?: Record<string, string>;
   vim_mode: boolean;
   blog_theme: string;
+  show_indent_guides: boolean;
+  show_whitespace: boolean;
 }
 
 export const loadSettings = () =>
@@ -325,6 +327,9 @@ export const lspHover = (filePath: string, line: number, col: number) =>
 
 export const lspDefinition = (filePath: string, line: number, col: number) =>
   invoke<LspLocation[]>("lsp_definition", { filePath, line, col });
+
+export const lspTypeDefinition = (filePath: string, line: number, col: number) =>
+  invoke<LspLocation[]>("lsp_type_definition", { filePath, line, col });
 
 export interface LspSignatureParam {
   label: string;

@@ -28,6 +28,7 @@ interface CanvasStatusBarProps {
   onLspClick?: () => void;
   vimMode?: string | null;
   fileLoading?: boolean;
+  lineEnding?: string | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -190,6 +191,13 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     ctx.fillStyle = textOnAccent;
     ctx.fillText(fileName, rx, cy);
     rx -= ctx.measureText(fileName).width + ITEM_GAP;
+
+    // Line ending
+    if (props.lineEnding) {
+      ctx.fillStyle = textOnAccent;
+      ctx.fillText(props.lineEnding, rx, cy);
+      rx -= ctx.measureText(props.lineEnding).width + ITEM_GAP;
+    }
 
     // Total lines
     const linesText = `${props.totalLines} lines`;

@@ -305,6 +305,56 @@ pub async fn lsp_hover(
     Ok(LspHoverResult { contents })
 }
 
+/// Request go-to-type-definition from LSP.
+#[command]
+pub async fn lsp_type_definition(
+    lsp: State<'_, LspManager>,
+    file_path: String,
+    line: u32,
+    col: u32,
+) -> Result<Vec<LspLocation>, String> {
+    let ext = ext_from_path(&file_path).ok_or("No extension")?;
+    let lang_id = language_id_for_ext(&ext).ok_or("Unsupported language")?;
+    let uri = uri_from_path(&file_path);
+
+    let rx = lsp.get_client(lang_id, |client| {
+        client.type_definition(&uri, line, col)
+    })?;
+
+    let resp = timeout(Duration::from_secs(LSP_TIMEOUT_SECS), rx)
+        .await
+        .map_err(|_| "LSP type definition request timed out".to_string())?
+        .map_err(|_| "LSP type definition request failed".to_string())?;
+
+    let result = resp.get("result").unwrap_or(&serde_json::Value::Null);
+    let mut locations = Vec::new();
+
+    let parse_location = |loc: &serde_json::Value| -> Option<LspLocation> {
+        let uri = loc.get("uri")?.as_str()?;
+        let range = loc.get("range")?;
+        let start = range.get("start")?;
+        Some(LspLocation {
+            file_path: path_from_uri(uri),
+            line: start.get("line")?.as_u64()? as u32,
+            col: start.get("character")?.as_u64()? as u32,
+        })
+    };
+
+    if let Some(arr) = result.as_array() {
+        for loc in arr {
+            if let Some(l) = parse_location(loc) {
+                locations.push(l);
+            }
+        }
+    } else if result.is_object() {
+        if let Some(l) = parse_location(result) {
+            locations.push(l);
+        }
+    }
+
+    Ok(locations)
+}
+
 /// Request go-to-definition from LSP.
 #[command]
 pub async fn lsp_definition(
