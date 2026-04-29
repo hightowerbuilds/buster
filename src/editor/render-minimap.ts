@@ -7,10 +7,30 @@
 import type { DisplayRow } from "./engine-text-ops";
 import type { EditorRenderParams } from "./canvas-renderer";
 
-const MINIMAP_W = 64;
-const MINIMAP_LINE_H = 2;
-const MINIMAP_PAD = 4;
-const SCROLLBAR_W = 8;
+export const MINIMAP_W = 64;
+export const MINIMAP_LINE_H = 2;
+export const MINIMAP_PAD = 4;
+export const SCROLLBAR_W = 8;
+
+export function minimapLeft(canvasWidth: number): number {
+  return canvasWidth - MINIMAP_W - SCROLLBAR_W - MINIMAP_PAD;
+}
+
+export function minimapScrollTarget(
+  y: number,
+  totalRows: number,
+  viewportHeight: number,
+  lineHeight: number,
+): number {
+  if (totalRows <= 0 || viewportHeight <= 0 || lineHeight <= 0) return 0;
+  const scaledH = totalRows * MINIMAP_LINE_H;
+  const scale = scaledH <= viewportHeight ? 1 : viewportHeight / scaledH;
+  const rowH = MINIMAP_LINE_H * scale;
+  const clickedRow = y / rowH;
+  const visibleRows = Math.ceil(viewportHeight / lineHeight);
+  const maxScroll = Math.max(0, totalRows * lineHeight - viewportHeight);
+  return Math.max(0, Math.min(maxScroll, (clickedRow - visibleRows / 2) * lineHeight));
+}
 
 export function drawMinimap(
   ctx: CanvasRenderingContext2D,
@@ -26,7 +46,7 @@ export function drawMinimap(
   if (totalRows === 0) return;
 
   const p = params.palette;
-  const mapX = w - MINIMAP_W - SCROLLBAR_W - MINIMAP_PAD;
+  const mapX = minimapLeft(w);
   const mapW = MINIMAP_W;
   const mapH = h;
   const scrollBarX = w - SCROLLBAR_W;

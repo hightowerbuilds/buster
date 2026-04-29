@@ -1,15 +1,36 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{command, AppHandle, Manager};
 
 fn default_true() -> bool { true }
 fn default_zoom() -> u32 { 100 }
+fn default_auto_save_delay_ms() -> u32 { 1500 }
+fn default_font_family() -> String { "JetBrains Mono, Menlo, Monaco, Consolas, monospace".to_string() }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EditorLanguageSettings {
+    #[serde(default)]
+    pub tab_size: Option<u32>,
+    #[serde(default)]
+    pub use_spaces: Option<bool>,
+    #[serde(default)]
+    pub word_wrap: Option<bool>,
+    #[serde(default)]
+    pub format_on_save: Option<bool>,
+    #[serde(default)]
+    pub auto_save: Option<bool>,
+    #[serde(default)]
+    pub auto_save_delay_ms: Option<u32>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub word_wrap: bool,
     pub font_size: u32,
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
     pub tab_size: u32,
     #[serde(default = "default_true")]
     pub use_spaces: bool,
@@ -45,6 +66,18 @@ pub struct AppSettings {
     pub agent_max_commands: u32,
     #[serde(default = "default_agent_timeout")]
     pub agent_timeout_secs: u32,
+    #[serde(default)]
+    pub keybindings: HashMap<String, String>,
+    #[serde(default)]
+    pub syntax_colors: HashMap<String, String>,
+    #[serde(default)]
+    pub format_on_save: bool,
+    #[serde(default)]
+    pub auto_save: bool,
+    #[serde(default = "default_auto_save_delay_ms")]
+    pub auto_save_delay_ms: u32,
+    #[serde(default)]
+    pub language_settings: HashMap<String, EditorLanguageSettings>,
     #[serde(default)]
     pub vim_mode: bool,
     #[serde(default = "default_blog_theme")]
@@ -86,6 +119,7 @@ impl Default for AppSettings {
         Self {
             word_wrap: true,
             font_size: 14,
+            font_family: default_font_family(),
             tab_size: 4,
             use_spaces: true,
             minimap: false,
@@ -104,6 +138,12 @@ impl Default for AppSettings {
             agent_max_writes: 10,
             agent_max_commands: 5,
             agent_timeout_secs: 300,
+            keybindings: HashMap::new(),
+            syntax_colors: HashMap::new(),
+            format_on_save: false,
+            auto_save: false,
+            auto_save_delay_ms: 1500,
+            language_settings: HashMap::new(),
             vim_mode: false,
             blog_theme: "normal".to_string(),
             show_indent_guides: true,
@@ -158,4 +198,104 @@ pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String
     let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppSettings;
+
+    #[test]
+    fn settings_keybindings_round_trip() {
+        let mut settings = AppSettings::default();
+        settings
+            .keybindings
+            .insert("editor.find".to_string(), "Mod+Shift+f".to_string());
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            decoded.keybindings.get("editor.find"),
+            Some(&"Mod+Shift+f".to_string()),
+        );
+    }
+
+    #[test]
+    fn settings_missing_keybindings_defaults_empty() {
+        let json = r#"{
+            "word_wrap": true,
+            "font_size": 14,
+            "tab_size": 4,
+            "minimap": false,
+            "line_numbers": true,
+            "cursor_blink": true
+        }"#;
+
+        let decoded: AppSettings = serde_json::from_str(json).unwrap();
+
+        assert!(decoded.keybindings.is_empty());
+    }
+
+    #[test]
+    fn settings_language_overrides_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.format_on_save = true;
+        settings.auto_save = true;
+        settings.auto_save_delay_ms = 2000;
+        settings.language_settings.insert(
+            "rust".to_string(),
+            super::EditorLanguageSettings {
+                tab_size: Some(2),
+                use_spaces: Some(false),
+                word_wrap: None,
+                format_on_save: Some(false),
+                auto_save: None,
+                auto_save_delay_ms: Some(1000),
+            },
+        );
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+        let rust = decoded.language_settings.get("rust").unwrap();
+
+        assert_eq!(decoded.format_on_save, true);
+        assert_eq!(decoded.auto_save, true);
+        assert_eq!(decoded.auto_save_delay_ms, 2000);
+        assert_eq!(rust.tab_size, Some(2));
+        assert_eq!(rust.use_spaces, Some(false));
+        assert_eq!(rust.format_on_save, Some(false));
+        assert_eq!(rust.auto_save_delay_ms, Some(1000));
+    }
+
+    #[test]
+    fn settings_font_and_syntax_colors_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.font_family = "Fira Code, monospace".to_string();
+        settings.syntax_colors.insert("keyword".to_string(), "#ff00aa".to_string());
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.font_family, "Fira Code, monospace");
+        assert_eq!(decoded.syntax_colors.get("keyword"), Some(&"#ff00aa".to_string()));
+    }
+
+    #[test]
+    fn settings_missing_format_and_auto_save_defaults() {
+        let json = r#"{
+            "word_wrap": true,
+            "font_size": 14,
+            "tab_size": 4,
+            "minimap": false,
+            "line_numbers": true,
+            "cursor_blink": true
+        }"#;
+
+        let decoded: AppSettings = serde_json::from_str(json).unwrap();
+
+        assert_eq!(decoded.format_on_save, false);
+        assert_eq!(decoded.auto_save, false);
+        assert_eq!(decoded.auto_save_delay_ms, 1500);
+        assert!(decoded.language_settings.is_empty());
+    }
 }

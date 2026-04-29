@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { generatePalette, CATPPUCCIN, LIGHT_THEME, type ThemePalette } from "./theme";
+import { generatePalette, CATPPUCCIN, LIGHT_THEME, withSyntaxOverrides, type ThemePalette } from "./theme";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -125,6 +125,15 @@ describe("generatePalette", () => {
     for (const [key, color] of Object.entries(p.syntax)) {
       expect(isValidColor(color), `syntax.${key} = "${color}" is not a valid color`).toBe(true);
     }
+  });
+
+  it("applies valid syntax overrides", () => {
+    const p = withSyntaxOverrides(CATPPUCCIN, {
+      keyword: "#ff00aa",
+      string: "invalid",
+    });
+    expect(p.syntax.keyword).toBe("#ff00aa");
+    expect(p.syntax.string).toBe(CATPPUCCIN.syntax.string);
   });
 });
 

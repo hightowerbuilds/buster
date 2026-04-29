@@ -124,6 +124,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
     handleFileSelect: files.handleFileSelect,
     handleSave: save.handleSave,
     handleSaveAs: save.handleSaveAs,
+    saveTab: save.saveTab,
     handleSync: save.handleSync,
     loadFileContent: files.loadFileContent,
 
@@ -133,6 +134,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
     createTerminalTab: tabs.createTerminalTab,
     createGitTab: tabs.createGitTab,
     createSettingsTab: tabs.createSettingsTab,
+    createKeybindingsTab: tabs.createKeybindingsTab,
     createExtensionsTab: tabs.createExtensionsTab,
     createDebugTab: tabs.createDebugTab,
     createProblemsTab: tabs.createProblemsTab,

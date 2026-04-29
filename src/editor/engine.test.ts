@@ -1291,3 +1291,59 @@ describe("toggleLineComment", () => {
     expect(e.lines()).toEqual(["aaa", "", "bbb"]);
   });
 });
+
+// ── 24. Code folding commands ─────────────────────────────────────
+
+describe("code folding commands", () => {
+  const text = [
+    "function outer() {",
+    "  if (ready) {",
+    "    run();",
+    "  }",
+    "  finish();",
+    "}",
+    "after();",
+  ].join("\n");
+
+  it("folds every foldable region", () => {
+    const e = createEditorEngine(text);
+
+    expect(e.foldAll()).toBe(true);
+
+    expect(e.isFolded(0)).toBe(true);
+    expect(e.isFolded(1)).toBe(true);
+    expect(e.foldedLines().has(1)).toBe(true);
+    expect(e.foldedLines().has(4)).toBe(true);
+    expect(e.foldedLines().has(5)).toBe(false);
+  });
+
+  it("unfolds every folded region", () => {
+    const e = createEditorEngine(text);
+    e.foldAll();
+
+    expect(e.unfoldAll()).toBe(true);
+
+    expect(e.isFolded(0)).toBe(false);
+    expect(e.isFolded(1)).toBe(false);
+    expect(e.foldedLines().size).toBe(0);
+  });
+
+  it("reports no change when there is nothing to fold or unfold", () => {
+    const e = createEditorEngine("one\ntwo\nthree");
+
+    expect(e.foldAll()).toBe(false);
+    expect(e.unfoldAll()).toBe(false);
+  });
+
+  it("preserves nested folds when unfolding an outer fold", () => {
+    const e = createEditorEngine(text);
+    e.foldAll();
+
+    expect(e.toggleFold(0)).toBe(true);
+
+    expect(e.isFolded(0)).toBe(false);
+    expect(e.isFolded(1)).toBe(true);
+    expect(e.foldedLines().has(2)).toBe(true);
+    expect(e.foldedLines().has(4)).toBe(false);
+  });
+});

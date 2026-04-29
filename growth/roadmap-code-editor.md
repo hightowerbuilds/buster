@@ -1,7 +1,7 @@
 # Code Editor Roadmap
 
 > Status: In Progress
-> Last updated: 2026-04-24
+> Last updated: 2026-04-29
 
 This roadmap covers everything related to opening a file and coding in it — text editing, navigation, intelligence, visual features, and language support. The goal is a robust, professional editing experience where a developer can sit down, open any file, and start working without friction.
 
@@ -31,9 +31,10 @@ Getting around the file quickly and confidently.
 
 - [x] **Bracket matching highlight** — 1px stroke outline + subtle background fill on matching brackets
 - [x] **Bracket jump keybinding** — Cmd+Shift+\ jumps between matching brackets
-- [ ] **Breadcrumb navigation** — file path + symbol breadcrumb bar above the editor
+- [x] **File path breadcrumbs** — canvas-rendered file path breadcrumb strip above the editor
+- [x] **Symbol breadcrumbs** — show enclosing symbol/function/class path alongside the file path
 - [x] **Go to Symbol** — Cmd+Shift+O opens command palette with `@` prefix, uses lspDocumentSymbol
-- [ ] **Workspace symbol search** — Cmd+T to search symbols across all files
+- [x] **Workspace symbol search** — Cmd+Shift+T opens `@@` workspace symbol search across active LSP servers
 - [x] **Go to Type Definition** — Rust backend + frontend IPC + context menu integration
 - [ ] **Peek Definition** — inline preview window instead of navigating away from current file
 - [x] **Back/Forward navigation** — Ctrl+- / Ctrl+Shift+- with history stack, integrates with Go to Definition
@@ -83,9 +84,9 @@ Vim mode is functional but missing features that Vim users will reach for daily.
 
 The details that make an editor feel professional.
 
-- [ ] **Minimap click-to-scroll** — click a position on the minimap to jump there (verify this works; rendering exists)
+- [x] **Minimap click-to-scroll** — click a position on the minimap to jump there
 - [ ] **Minimap hover preview** — show a zoomed tooltip of the hovered region
-- [ ] **Fold all / Unfold all** — commands to collapse/expand every foldable region at once
+- [x] **Fold all / Unfold all** — commands to collapse/expand every foldable region at once
 - [ ] **Fold level controls** — fold to level 1, 2, 3, etc.
 - [ ] **Cursor blink** — configurable cursor blink (currently always solid)
 - [ ] **Cursor style options** — block, beam, underline (currently always block)
@@ -100,13 +101,15 @@ The details that make an editor feel professional.
 
 Expanding what the editor can handle.
 
-- [ ] **Language-specific snippets** — add curated snippet sets for top languages (JS/TS, Rust, Python, Go, HTML/CSS)
+- [x] **Language-specific snippets** — curated snippets exist for JS/TS, Rust, Python, Go, and HTML boilerplate
 - [ ] **File encoding detection** — detect non-UTF-8 files (Latin-1, Shift-JIS, etc.), show encoding in status bar, allow re-open with different encoding
-- [ ] **Large file optimizations** — virtual scrolling for 100k+ line files, disable features gracefully (no full syntax parse, no minimap)
-- [ ] **Image file preview** — open PNG/JPG/SVG inline instead of showing binary
-- [ ] **Markdown preview** — side-by-side rendered markdown
-- [ ] **JSON formatting** — auto-format/pretty-print JSON files
-- [ ] **Diff editor** — side-by-side diff view for comparing file versions
+- [ ] **Large file optimizations** — Rust-backed large-file buffer exists; still needs true virtual editor integration and graceful feature disabling
+- [x] **Image file preview** — open PNG/JPG/SVG and other common image formats in a zoomable canvas viewer
+- [x] **Markdown preview** — Blog Mode renders markdown preview for markdown files
+- [x] **Side-by-side Markdown preview** — Blog Mode now keeps source and rendered markdown visible in a split view
+- [x] **JSON formatting** — auto-format/pretty-print JSON files from the command palette and format-on-save path
+- [x] **Diff viewer** — side-by-side git diff view exists in the Git UI
+- [ ] **General diff editor** — compare arbitrary file versions outside the Git panel
 
 ---
 
@@ -114,11 +117,11 @@ Expanding what the editor can handle.
 
 Letting users make the editor theirs.
 
-- [ ] **Keybinding customization** — user-configurable keybindings (currently read-only from Lua)
-- [ ] **Keybinding conflict detection** — warn when two commands share the same shortcut
-- [ ] **Keybinding cheat sheet** — Cmd+K Cmd+S to show all bindings
-- [ ] **Editor settings granularity** — per-language settings (tab size, format on save, etc.)
-- [ ] **Format on save** — auto-run formatter when saving (requires LSP `formatting` support)
-- [ ] **Auto-save** — configurable auto-save with delay options
-- [ ] **Font family selection** — allow users to choose their preferred monospace font
-- [ ] **Theme-aware token colors** — full theme customization for syntax token colors beyond the current palette
+- [x] **Keybinding customization** — user-configurable hotkeys in Settings, persisted through `AppSettings.keybindings`
+- [x] **Keybinding conflict detection** — warn when two commands share the same shortcut
+- [x] **Keybinding cheat sheet** — Cmd+K Cmd+S shows a read-only Keyboard Shortcuts tab
+- [x] **Editor settings granularity** — per-language overrides for tab size, indentation, word wrap, format on save, auto-save, and auto-save delay
+- [x] **Format on save** — auto-run LSP document formatting before saving when enabled
+- [x] **Auto-save** — configurable auto-save with global and per-language delay options
+- [x] **Font family selection** — Settings can choose the editor/terminal monospace font stack
+- [x] **Theme-aware token colors** — Settings can override syntax token colors on top of generated/imported palettes

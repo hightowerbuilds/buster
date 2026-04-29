@@ -12,6 +12,7 @@ import CanvasChrome, { CHROME_FONT, type HitRegion, type PaintFn } from "./canva
 
 interface CanvasBreadcrumbsProps {
   segments: string[];
+  symbolSegments?: string[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ const CanvasBreadcrumbs: Component<CanvasBreadcrumbsProps> = (props) => {
     const bg = style.getPropertyValue("--bg-mantle").trim() || "#181825";
     const borderColor = style.getPropertyValue("--bg-surface0").trim() || "#313244";
     const textColor = style.getPropertyValue("--text").trim() || "#cdd6f4";
+    const accentColor = style.getPropertyValue("--accent").trim() || "#89b4fa";
     const textDim = style.getPropertyValue("--text-dim").trim() || "#a6adc8";
     const textMuted = style.getPropertyValue("--text-muted").trim() || "#7f849c";
 
@@ -57,6 +59,27 @@ const CanvasBreadcrumbs: Component<CanvasBreadcrumbsProps> = (props) => {
       ctx.fillStyle = isLast ? textColor : textDim;
       ctx.fillText(segs[i], x, cy);
       x += ctx.measureText(segs[i]).width + SEP_PAD;
+      if (x > w - PAD) return [];
+    }
+
+    const symbolSegs = props.symbolSegments ?? [];
+    if (symbolSegs.length > 0) {
+      ctx.fillStyle = textMuted;
+      ctx.fillText(">", x + SEP_PAD, cy);
+      x += ctx.measureText(">").width + SEP_PAD * 3;
+
+      for (let i = 0; i < symbolSegs.length; i++) {
+        if (i > 0) {
+          ctx.fillStyle = textMuted;
+          ctx.fillText(">", x, cy);
+          x += ctx.measureText(">").width + SEP_PAD;
+        }
+        const isLast = i === symbolSegs.length - 1;
+        ctx.fillStyle = isLast ? accentColor : textDim;
+        ctx.fillText(symbolSegs[i], x, cy);
+        x += ctx.measureText(symbolSegs[i]).width + SEP_PAD;
+        if (x > w - PAD) return [];
+      }
     }
 
     return [];

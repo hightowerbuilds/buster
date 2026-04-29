@@ -6,6 +6,7 @@
 import type { EditorEngine } from "./engine";
 import type { createAutocomplete } from "./editor-autocomplete";
 import type { createHover } from "./editor-hover";
+import { minimapLeft, minimapScrollTarget } from "./render-minimap";
 import { showError } from "../lib/notify";
 
 type AutocompleteHandle = ReturnType<typeof createAutocomplete>;
@@ -19,9 +20,14 @@ export interface MouseDeps {
   filePath: () => string | null;
   lineNumbers: () => boolean;
   wordWrap: () => boolean;
+  minimap: () => boolean;
   canvasWidth: () => number;
+  canvasHeight: () => number;
   scrollTop: () => number;
   fontSize: () => number;
+  lineHeight: () => number;
+  charW: () => number;
+  gutterW: () => number;
   isDragging: () => boolean;
   setIsDragging: (v: boolean) => void;
   diagnostics: () => { line: number; col: number; endLine: number; endCol: number; severity: number; message: string }[];
@@ -29,6 +35,7 @@ export interface MouseDeps {
   clearHighlightCache: () => void;
   focusInput: () => void;
   scheduleRender: () => void;
+  scrollTo: (target: number) => void;
 }
 
 function posFromMouse(e: MouseEvent, deps: MouseDeps) {
@@ -48,6 +55,25 @@ export function handleEditorMouseDown(e: MouseEvent, deps: MouseDeps) {
 
   // Gutter interactions
   const container = deps.containerRef();
+
+  if (container && deps.minimap()) {
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const displayRows = engine.computeDisplayRows(
+      deps.charW(),
+      deps.canvasWidth(),
+      deps.wordWrap(),
+      deps.gutterW(),
+    );
+    if (displayRows.length > Math.ceil(deps.canvasHeight() / deps.lineHeight()) && x >= minimapLeft(deps.canvasWidth())) {
+      e.preventDefault();
+      deps.scrollTo(minimapScrollTarget(y, displayRows.length, deps.canvasHeight(), deps.lineHeight()));
+      deps.focusInput();
+      return;
+    }
+  }
+
   if (container && deps.lineNumbers()) {
     const rect = container.getBoundingClientRect();
     const x = e.clientX - rect.left;

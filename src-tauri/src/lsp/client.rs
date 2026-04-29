@@ -90,6 +90,13 @@ impl LspClient {
             "processId": std::process::id(),
             "rootUri": root_uri,
             "capabilities": {
+                "workspace": {
+                    "symbol": {
+                        "symbolKind": {
+                            "valueSet": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]
+                        }
+                    }
+                },
                 "textDocument": {
                     "completion": {
                         "completionItem": {
@@ -104,6 +111,9 @@ impl LspClient {
                     },
                     "definition": {},
                     "typeDefinition": {},
+                    "formatting": {
+                        "dynamicRegistration": false
+                    },
                     "documentSymbol": {
                         "symbolKind": {
                             "valueSet": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26]
@@ -390,6 +400,22 @@ impl LspClient {
     pub fn document_symbol(&self, uri: &str) -> Result<oneshot::Receiver<Value>, String> {
         self.send_request("textDocument/documentSymbol", serde_json::json!({
             "textDocument": { "uri": uri }
+        }))
+    }
+
+    pub fn workspace_symbol(&self, query: &str) -> Result<oneshot::Receiver<Value>, String> {
+        self.send_request("workspace/symbol", serde_json::json!({
+            "query": query
+        }))
+    }
+
+    pub fn formatting(&self, uri: &str, tab_size: u32, insert_spaces: bool) -> Result<oneshot::Receiver<Value>, String> {
+        self.send_request("textDocument/formatting", serde_json::json!({
+            "textDocument": { "uri": uri },
+            "options": {
+                "tabSize": tab_size,
+                "insertSpaces": insert_spaces
+            }
         }))
     }
 

@@ -12,8 +12,9 @@ import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
 import BranchPicker from "./ui/BranchPicker";
 import DebugMode from "./ui/DebugMode";
-import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHotkeyDefinitions, type CommandDeps } from "./lib/app-commands";
+import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHotkeyDefinitions, resolveHotkey, type CommandDeps } from "./lib/app-commands";
 import { createHotkeys } from "@tanstack/solid-hotkeys";
+import { normalizeHotkey } from "./lib/keybinding-conflicts";
 import { useBuster } from "./lib/buster-context";
 import { createPanelRenderer } from "./ui/PanelRenderer";
 import type { PanelCount } from "./lib/panel-count";
@@ -202,6 +203,7 @@ const App: Component = () => {
       setStore("paletteInitialQuery", typeof v === "function" ? v(store.paletteInitialQuery) : v),
     createTerminalTab: actions.createTerminalTab,
     createSettingsTab: actions.createSettingsTab,
+    createKeybindingsTab: actions.createKeybindingsTab,
     createGitTab: actions.createGitTab,
     createBrowserTab: actions.createBrowserTab,
     setSidebarVisible: (v: boolean | ((prev: boolean) => boolean)) =>
@@ -261,6 +263,67 @@ const App: Component = () => {
     }),
   );
 
+  let shortcutChordPending = false;
+  let shortcutChordTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function clearShortcutChord() {
+    shortcutChordPending = false;
+    clearTimeout(shortcutChordTimer);
+    shortcutChordTimer = undefined;
+  }
+
+  function eventStroke(e: KeyboardEvent): string {
+    if (["Meta", "Control", "Shift", "Alt"].includes(e.key)) return "";
+
+    const parts: string[] = [];
+    if (e.metaKey || e.ctrlKey) parts.push("Mod");
+    if (e.shiftKey) parts.push("Shift");
+    if (e.altKey) parts.push("Alt");
+    parts.push(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+    return normalizeHotkey(parts.join("+"));
+  }
+
+  function shortcutChord(): [string, string] | null {
+    const hotkey = normalizeHotkey(resolveHotkey("view.keybindings", store.settings.keybindings) ?? "");
+    const parts = hotkey.split(" ").filter(Boolean);
+    return parts.length === 2 ? [parts[0]!, parts[1]!] : null;
+  }
+
+  function handleShortcutChord(e: KeyboardEvent) {
+    const chord = shortcutChord();
+    if (!chord) return;
+
+    const stroke = eventStroke(e);
+    if (!stroke) return;
+
+    if (stroke === chord[0]) {
+      e.preventDefault();
+      e.stopPropagation();
+      shortcutChordPending = true;
+      clearTimeout(shortcutChordTimer);
+      shortcutChordTimer = setTimeout(clearShortcutChord, 1500);
+      return;
+    }
+
+    if (shortcutChordPending && stroke === chord[1]) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearShortcutChord();
+      actions.createKeybindingsTab();
+      return;
+    }
+
+    if (shortcutChordPending) {
+      clearShortcutChord();
+    }
+  }
+
+  window.addEventListener("keydown", handleShortcutChord, true);
+  onCleanup(() => {
+    window.removeEventListener("keydown", handleShortcutChord, true);
+    clearShortcutChord();
+  });
+
   // ── Panel rendering ─────────────────────────────────────
 
   const { renderPanel } = createPanelRenderer({
@@ -286,6 +349,8 @@ const App: Component = () => {
     openWorkspace: actions.openWorkspace,
     changeDirectory: actions.changeDirectory,
     closeDirectory: actions.closeDirectory,
+    cursorLine: () => store.cursorLine,
+    cursorCol: () => store.cursorCol,
     setCursorLine: (line: number) => setStore("cursorLine", line),
     setCursorCol: (col: number) => setStore("cursorCol", col),
     setTabs: (fn) => setStore("tabs", fn(store.tabs)),

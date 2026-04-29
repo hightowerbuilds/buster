@@ -6,14 +6,17 @@
  * (breadcrumbs, blog mode, editor engine lifecycle).
  */
 
-import { createSignal, createEffect, createRoot, Show, type Accessor, type JSX } from "solid-js";
+import { createSignal, createEffect, createMemo, createRoot, Show, type Accessor, type JSX } from "solid-js";
 import CanvasEditor from "../editor/CanvasEditor";
 import BlogPreview from "./BlogPreview";
 import CanvasBreadcrumbs from "./CanvasBreadcrumbs";
 import type { Tab } from "../lib/tab-types";
 import type { PanelDeps, FileTabDeps } from "../lib/panel-registry";
 import { getPanel } from "../lib/panel-registry";
+import { lspDocumentSymbol, type LspDocumentSymbol } from "../lib/ipc";
+import { symbolBreadcrumbChain } from "../editor/symbol-breadcrumbs";
 import { relativeTo } from "buster-path";
+import { resolveEditorSettings } from "../lib/editor-settings";
 
 // Ensure all panel types are registered
 import "../lib/panel-definitions";
@@ -92,6 +95,40 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
 
     const isMd = tab.path?.endsWith(".md") || tab.path?.endsWith(".markdown");
     const blogActive = () => blogModeSet().has(tab.id);
+    const editorSettings = () => resolveEditorSettings(deps.settings(), tab.path || null);
+    const previewText = () => {
+      const engine = deps.engineMap.get(tab.id);
+      engine?.editSeq();
+      return engine?.getText() ?? initialText;
+    };
+    const [symbols, setSymbols] = createSignal<LspDocumentSymbol[]>([]);
+    let symbolRequestSeq = 0;
+
+    createEffect(() => {
+      const active = isActive();
+      const root = deps.workspaceRoot();
+      const fp = currentTab().path;
+      if (!active || !root || !fp) {
+        setSymbols([]);
+        return;
+      }
+
+      const requestSeq = ++symbolRequestSeq;
+      lspDocumentSymbol(fp, root)
+        .then((next) => {
+          if (requestSeq === symbolRequestSeq) setSymbols(next);
+        })
+        .catch(() => {
+          if (requestSeq === symbolRequestSeq) setSymbols([]);
+        });
+    });
+
+    const symbolSegments = createMemo(() => {
+      if (!isActive()) return [];
+      return symbolBreadcrumbChain(symbols(), deps.cursorLine(), deps.cursorCol())
+        .map((symbol) => symbol.name);
+    });
+
     const toggleBlog = () => {
       setBlogModeSet(prev => {
         const next = new Set(prev);
@@ -112,7 +149,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
     return wrapPanel(tab.id, (
       <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", "flex-direction": "column" }}>
         <Show when={breadcrumbs().length > 1}>
-          <CanvasBreadcrumbs segments={breadcrumbs()} />
+          <CanvasBreadcrumbs segments={breadcrumbs()} symbolSegments={symbolSegments()} />
         </Show>
         {isMd && (
           <button
@@ -123,7 +160,13 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             Blog Mode
           </button>
         )}
-        <div style={{ width: "100%", height: "100%", flex: "1", "min-height": "0", display: blogActive() ? "none" : "flex" }}>
+        <div style={{ width: "100%", height: "100%", flex: "1", "min-height": "0", display: "flex" }}>
+          <div style={{
+            width: blogActive() ? "50%" : "100%",
+            height: "100%",
+            "min-width": "0",
+            display: "flex",
+          }}>
           <CanvasEditor
             initialText={initialText}
             filePath={tab.path || null}
@@ -145,7 +188,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             }}
             searchMatches={isActive() ? deps.searchMatches() : []}
             currentSearchIdx={isActive() ? deps.currentSearchIdx() : -1}
-            wordWrap={deps.settings().word_wrap}
+            wordWrap={editorSettings().word_wrap}
             fontSize={deps.settings().font_size}
             lineNumbers={deps.settings().line_numbers}
             autocomplete={deps.settings().autocomplete}
@@ -158,14 +201,17 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
               deps.setCursorCol(col);
             }}
           />
+          </div>
+          <Show when={blogActive()}>
+            <div class="markdown-side-preview">
+              <BlogPreview
+                text={previewText()}
+                fontSize={deps.settings().font_size}
+                theme={deps.settings().blog_theme}
+              />
+            </div>
+          </Show>
         </div>
-        <Show when={blogActive()}>
-          <BlogPreview
-            text={deps.engineMap.get(tab.id)?.getText() ?? initialText}
-            fontSize={deps.settings().font_size}
-            theme={deps.settings().blog_theme}
-          />
-        </Show>
       </div>
     ));
   }

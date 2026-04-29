@@ -29,6 +29,7 @@ export interface BusterActions {
   handleFileSelect(path: string): Promise<void>;
   handleSave(): Promise<void>;
   handleSaveAs(): Promise<void>;
+  saveTab(tabId: string, options?: { silent?: boolean; requirePath?: boolean }): Promise<void>;
   handleSync(): Promise<void>;
   loadFileContent(path: string): Promise<{ content: string; fileName: string; filePath: string }>;
 
@@ -38,6 +39,7 @@ export interface BusterActions {
   createTerminalTab(): void;
   createGitTab(): void;
   createSettingsTab(): void;
+  createKeybindingsTab(): void;
   createExtensionsTab(): void;
   createDebugTab(): void;
   createProblemsTab(): void;

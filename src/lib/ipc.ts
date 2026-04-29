@@ -64,9 +64,19 @@ export const setTerminalTheme = (colors: Record<string, string>) =>
   invoke<void>("set_terminal_theme", { colors });
 
 // Settings
+export interface EditorLanguageSettings {
+  tab_size?: number | null;
+  use_spaces?: boolean | null;
+  word_wrap?: boolean | null;
+  format_on_save?: boolean | null;
+  auto_save?: boolean | null;
+  auto_save_delay_ms?: number | null;
+}
+
 export interface AppSettings {
   word_wrap: boolean;
   font_size: number;
+  font_family: string;
   tab_size: number;
   use_spaces: boolean;
   minimap: boolean;
@@ -81,6 +91,11 @@ export interface AppSettings {
   effect_vignette: number;
   effect_grain: number;
   keybindings?: Record<string, string>;
+  syntax_colors?: Record<string, string>;
+  format_on_save: boolean;
+  auto_save: boolean;
+  auto_save_delay_ms: number;
+  language_settings?: Record<string, EditorLanguageSettings>;
   vim_mode: boolean;
   blog_theme: string;
   show_indent_guides: boolean;
@@ -326,6 +341,9 @@ export const lspDidChangeIncremental = (filePath: string, edits: EditDelta[], ve
 export const lspDidSave = (filePath: string) =>
   invoke<void>("lsp_did_save", { filePath });
 
+export const lspFormatDocument = (filePath: string, tabSize: number, insertSpaces: boolean) =>
+  invoke<LspTextEdit[]>("lsp_format_document", { filePath, tabSize, insertSpaces });
+
 export const lspCompletion = (filePath: string, line: number, col: number) =>
   invoke<LspCompletionItem[]>("lsp_completion", { filePath, line, col });
 
@@ -386,10 +404,29 @@ export interface LspDocumentSymbol {
   kind: string;
   line: number;
   col: number;
+  start_line: number;
+  start_col: number;
+  end_line: number;
+  end_col: number;
+  selection_line: number;
+  selection_col: number;
+  depth: number;
 }
 
 export const lspDocumentSymbol = (filePath: string, workspaceRoot: string) =>
   invoke<LspDocumentSymbol[]>("lsp_document_symbol", { filePath, workspaceRoot });
+
+export interface LspWorkspaceSymbol {
+  name: string;
+  kind: string;
+  file_path: string;
+  line: number;
+  col: number;
+  container_name: string | null;
+}
+
+export const lspWorkspaceSymbol = (query: string) =>
+  invoke<LspWorkspaceSymbol[]>("lsp_workspace_symbol", { query });
 
 export interface LspTextEditResult {
   file_path: string;
@@ -639,4 +676,3 @@ export const debugStackTrace = () =>
 
 export const debugVariables = (variablesReference: number) =>
   invoke<DebugVariable[]>("debug_variables", { variablesReference });
-

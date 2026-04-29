@@ -25,13 +25,14 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
     setPaletteInitialQuery: vi.fn(),
     createTerminalTab: vi.fn(),
     createSettingsTab: vi.fn(),
+    createKeybindingsTab: vi.fn(),
     createGitTab: vi.fn(),
     createBrowserTab: vi.fn(),
     setSidebarVisible: vi.fn(),
     jumpToDiagnostic: vi.fn(),
     findVisible: () => false,
     paletteVisible: () => false,
-    settings: () => ({ word_wrap: true, font_size: 14, tab_size: 4, use_spaces: true, minimap: false, line_numbers: true, cursor_blink: true, autocomplete: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, vim_mode: false, blog_theme: "normal", show_indent_guides: true, show_whitespace: false, ai_completion_enabled: false, ai_provider: "ollama", ai_api_key: "", ai_model: "claude-haiku-4-5-20250514", ai_local_model: "gemma3:4b", ai_ollama_url: "http://localhost:11434" }),
+    settings: () => ({ word_wrap: true, font_size: 14, font_family: "JetBrains Mono, Menlo, Monaco, Consolas, monospace", tab_size: 4, use_spaces: true, minimap: false, line_numbers: true, cursor_blink: true, autocomplete: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, syntax_colors: {}, format_on_save: false, auto_save: false, auto_save_delay_ms: 1500, language_settings: {}, vim_mode: false, blog_theme: "normal", show_indent_guides: true, show_whitespace: false, ai_completion_enabled: false, ai_provider: "ollama", ai_api_key: "", ai_model: "claude-haiku-4-5-20250514", ai_local_model: "gemma3:4b", ai_ollama_url: "http://localhost:11434" }),
     updateSettings: vi.fn(),
     tabTrapping: () => true,
     setTabTrapping: vi.fn(),
@@ -109,5 +110,25 @@ describe("tab hotkeys", () => {
     defs.find(def => def.hotkey === "Mod+Shift+[")?.callback();
 
     expect(switchToTab).toHaveBeenCalledWith("tab-c");
+  });
+});
+
+describe("keybinding cheat sheet hotkey", () => {
+  it("does not register the default two-step chord as a single hotkey", () => {
+    const deps = makeDeps();
+    const defs = buildHotkeyDefinitions(deps);
+
+    expect(DEFAULT_KEYBINDINGS["view.keybindings"]).toBe("Mod+k Mod+s");
+    expect(defs.some(def => def.hotkey === "Mod+k Mod+s")).toBe(false);
+  });
+
+  it("registers a single-stroke custom shortcut for the keyboard shortcuts tab", () => {
+    const createKeybindingsTab = vi.fn();
+    const deps = makeDeps({ createKeybindingsTab });
+    const defs = buildHotkeyDefinitions(deps, { "view.keybindings": "Mod+/" });
+
+    defs.find(def => def.hotkey === "Mod+/")?.callback();
+
+    expect(createKeybindingsTab).toHaveBeenCalledOnce();
   });
 });

@@ -190,6 +190,57 @@ pub fn lsp_did_save(
     })
 }
 
+/// Request whole-document formatting from LSP.
+#[command]
+pub async fn lsp_format_document(
+    lsp: State<'_, LspManager>,
+    file_path: String,
+    tab_size: u32,
+    insert_spaces: bool,
+) -> Result<Vec<LspTextEdit>, String> {
+    let ext = ext_from_path(&file_path).ok_or("No extension")?;
+    let lang_id = language_id_for_ext(&ext).ok_or("Unsupported language")?;
+    let uri = uri_from_path(&file_path);
+
+    let rx = lsp.get_client(lang_id, |client| {
+        client.formatting(&uri, tab_size, insert_spaces)
+    })?;
+
+    let resp = timeout(Duration::from_secs(LSP_TIMEOUT_SECS), rx)
+        .await
+        .map_err(|_| "LSP format document request timed out".to_string())?
+        .map_err(|_| "LSP format document request failed".to_string())?;
+
+    let result = resp.get("result").unwrap_or(&serde_json::Value::Null);
+    let mut edits = Vec::new();
+
+    if let Some(items) = result.as_array() {
+        for item in items {
+            if let Some(edit) = parse_text_edit(&file_path, item) {
+                edits.push(edit);
+            }
+        }
+    }
+
+    Ok(edits)
+}
+
+fn parse_text_edit(file_path: &str, item: &serde_json::Value) -> Option<LspTextEdit> {
+    let range = item.get("range")?;
+    let new_text = item.get("newText").and_then(|v| v.as_str())?;
+    let start = range.get("start").unwrap_or(&serde_json::Value::Null);
+    let end = range.get("end").unwrap_or(&serde_json::Value::Null);
+
+    Some(LspTextEdit {
+        file_path: file_path.to_string(),
+        start_line: start.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        start_col: start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        end_line: end.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        end_col: end.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        new_text: new_text.to_string(),
+    })
+}
+
 /// Notify LSP that a document was closed. Removes the tracked DocumentState.
 #[command]
 pub fn lsp_did_close(
@@ -758,6 +809,23 @@ pub struct LspDocumentSymbol {
     pub kind: String,
     pub line: usize,
     pub col: usize,
+    pub start_line: usize,
+    pub start_col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
+    pub selection_line: usize,
+    pub selection_col: usize,
+    pub depth: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LspWorkspaceSymbol {
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub line: usize,
+    pub col: usize,
+    pub container_name: Option<String>,
 }
 
 /// Request document symbols from LSP.
@@ -795,17 +863,27 @@ pub async fn lsp_document_symbol(
                 let loc = item.get("location").unwrap();
                 let range = loc.get("range").unwrap_or(&serde_json::Value::Null);
                 let start = range.get("start").unwrap_or(&serde_json::Value::Null);
+                let end = range.get("end").unwrap_or(&serde_json::Value::Null);
                 let line = start.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                 let col = start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let end_line = end.get("line").and_then(|v| v.as_u64()).unwrap_or(line as u64) as usize;
+                let end_col = end.get("character").and_then(|v| v.as_u64()).unwrap_or(col as u64) as usize;
                 symbols.push(LspDocumentSymbol {
                     name,
                     kind: symbol_kind_name(kind_num),
                     line,
                     col,
+                    start_line: line,
+                    start_col: col,
+                    end_line,
+                    end_col,
+                    selection_line: line,
+                    selection_col: col,
+                    depth: 0,
                 });
             } else {
                 // DocumentSymbol format (hierarchical)
-                flatten_document_symbols(item, &mut symbols);
+                flatten_document_symbols(item, 0, &mut symbols);
             }
         }
     }
@@ -814,30 +892,120 @@ pub async fn lsp_document_symbol(
     Ok(symbols)
 }
 
-fn flatten_document_symbols(item: &serde_json::Value, out: &mut Vec<LspDocumentSymbol>) {
+fn flatten_document_symbols(item: &serde_json::Value, depth: usize, out: &mut Vec<LspDocumentSymbol>) {
     let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let kind_num = item.get("kind").and_then(|v| v.as_u64()).unwrap_or(0);
-    let range = item.get("selectionRange")
+    let full_range = item.get("range").unwrap_or(&serde_json::Value::Null);
+    let selection_range = item.get("selectionRange")
         .or_else(|| item.get("range"))
         .unwrap_or(&serde_json::Value::Null);
-    let start = range.get("start").unwrap_or(&serde_json::Value::Null);
-    let line = start.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let col = start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+
+    let full_start = full_range.get("start").unwrap_or(&serde_json::Value::Null);
+    let full_end = full_range.get("end").unwrap_or(&serde_json::Value::Null);
+    let selection_start = selection_range.get("start").unwrap_or(&serde_json::Value::Null);
+
+    let line = full_start.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let col = full_start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let end_line = full_end.get("line").and_then(|v| v.as_u64()).unwrap_or(line as u64) as usize;
+    let end_col = full_end.get("character").and_then(|v| v.as_u64()).unwrap_or(col as u64) as usize;
+    let selection_line = selection_start.get("line").and_then(|v| v.as_u64()).unwrap_or(line as u64) as usize;
+    let selection_col = selection_start.get("character").and_then(|v| v.as_u64()).unwrap_or(col as u64) as usize;
 
     if !name.is_empty() {
         out.push(LspDocumentSymbol {
             name,
             kind: symbol_kind_name(kind_num),
-            line,
-            col,
+            line: selection_line,
+            col: selection_col,
+            start_line: line,
+            start_col: col,
+            end_line,
+            end_col,
+            selection_line,
+            selection_col,
+            depth,
         });
     }
 
     if let Some(children) = item.get("children").and_then(|v| v.as_array()) {
         for child in children {
-            flatten_document_symbols(child, out);
+            flatten_document_symbols(child, depth + 1, out);
         }
     }
+}
+
+/// Request workspace symbols from all active LSP clients.
+#[command]
+pub async fn lsp_workspace_symbol(
+    lsp: State<'_, LspManager>,
+    query: String,
+) -> Result<Vec<LspWorkspaceSymbol>, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut symbols = Vec::new();
+    for language in lsp.active_languages() {
+        let rx = match lsp.get_client(&language, |client| client.workspace_symbol(&query)) {
+            Ok(rx) => rx,
+            Err(_) => continue,
+        };
+
+        let resp = match timeout(Duration::from_secs(LSP_TIMEOUT_SECS), rx).await {
+            Ok(Ok(resp)) => resp,
+            _ => continue,
+        };
+
+        if let Some(arr) = resp.get("result").and_then(|v| v.as_array()) {
+            for item in arr {
+                if let Some(symbol) = parse_workspace_symbol(item) {
+                    symbols.push(symbol);
+                    if symbols.len() >= 500 {
+                        return Ok(symbols);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(symbols)
+}
+
+fn parse_workspace_symbol(item: &serde_json::Value) -> Option<LspWorkspaceSymbol> {
+    let name = item.get("name").and_then(|v| v.as_str())?.to_string();
+    let kind_num = item.get("kind").and_then(|v| v.as_u64()).unwrap_or(0);
+    let container_name = item
+        .get("containerName")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    let location = item.get("location")?;
+    let uri = location
+        .get("uri")
+        .or_else(|| location.get("targetUri"))
+        .and_then(|v| v.as_str())?;
+    let range = location
+        .get("range")
+        .or_else(|| location.get("targetSelectionRange"))
+        .or_else(|| location.get("targetRange"))
+        .unwrap_or(&serde_json::Value::Null);
+    let start = range.get("start").unwrap_or(&serde_json::Value::Null);
+    let line = start.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let col = start.get("character").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let file_path = buster_lsp_manager::lsp_uri_to_path(uri)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| uri.strip_prefix("file://").unwrap_or(uri).to_string());
+
+    Some(LspWorkspaceSymbol {
+        name,
+        kind: symbol_kind_name(kind_num),
+        file_path,
+        line,
+        col,
+        container_name,
+    })
 }
 
 fn symbol_kind_name(kind: u64) -> String {

@@ -25,6 +25,7 @@ import { lspDidChange, lspDidChangeIncremental } from "../lib/ipc";
 import { useBuster } from "../lib/buster-context";
 import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "../ui/ContextMenu";
+import { resolveEditorSettings } from "../lib/editor-settings";
 
 // ─── Props ──────────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   const workspaceRoot = () => store.workspaceRoot;
   const tabTrapping = () => store.tabTrapping;
   const languagePath = () => props.languagePath?.() ?? props.filePath ?? null;
+  const editorSettings = () => resolveEditorSettings(store.settings, languagePath());
   let canvasRef: HTMLCanvasElement | undefined;
   let hiddenInput: HTMLTextAreaElement | undefined;
   let containerRef: HTMLDivElement | undefined;
@@ -79,8 +81,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   /** Return the whitespace string for one indent level (respects tab_size and use_spaces settings). */
   function indentUnit(): string {
-    const size = store.settings.tab_size || 4;
-    return store.settings.use_spaces !== false ? " ".repeat(size) : "\t";
+    const settings = editorSettings();
+    return settings.use_spaces ? " ".repeat(settings.tab_size) : "\t";
   }
 
   // ── Vim mode ──────────────────────────────────────────────────
@@ -346,11 +348,14 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     containerRef: () => containerRef,
     filePath: () => props.filePath ?? null,
     lineNumbers: () => props.lineNumbers !== false,
-    wordWrap, canvasWidth, scrollTop, fontSize,
+    wordWrap,
+    minimap: () => props.minimap ?? false,
+    canvasWidth, canvasHeight, scrollTop, fontSize, lineHeight, charW, gutterW,
     isDragging, setIsDragging,
     diagnostics: () => props.diagnostics ?? [],
     setBreakpointSet,
     clearHighlightCache, focusInput, scheduleRender,
+    scrollTo: smoothScrollTo,
   };
 
   const keyboardDeps: KeyboardDeps = {
@@ -533,7 +538,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       breakpointLines: breakpointSet(),
       cursorStyle: vim.enabled() && vim.mode() !== "insert" ? "block" : "line",
       gpu: gpuCtx,
-      tabSize: store.settings.tab_size || 4,
+      tabSize: editorSettings().tab_size,
       showIndentGuides: store.settings.show_indent_guides ?? true,
       showWhitespace: store.settings.show_whitespace ?? false,
       renameState: rename.renameState(),
@@ -578,6 +583,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     engine.cursor();
     engine.sel();
     engine.editSeq();
+    engine.foldSeq();
     engine.lines();
     scrollTop();
     canvasWidth();

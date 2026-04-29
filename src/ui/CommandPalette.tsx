@@ -1,6 +1,6 @@
 import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
-import { listWorkspaceFiles, workspaceSearch, lspDocumentSymbol } from "../lib/ipc";
-import type { WorkspaceFile, WorkspaceSearchResult, LspDocumentSymbol } from "../lib/ipc";
+import { listWorkspaceFiles, workspaceSearch, lspDocumentSymbol, lspWorkspaceSymbol } from "../lib/ipc";
+import type { WorkspaceFile, WorkspaceSearchResult, LspDocumentSymbol, LspWorkspaceSymbol } from "../lib/ipc";
 import { registry, type Command } from "../lib/command-registry";
 import { createFocusTrap } from "../lib/a11y";
 import { basename, dirname } from "buster-path";
@@ -11,7 +11,7 @@ interface CommandPaletteProps {
   visible: boolean;
   workspaceRoot: string | null;
   onClose: () => void;
-  onFileSelect: (path: string) => void;
+  onFileSelect: (path: string) => Promise<void> | void;
   onGoToLine?: (line: number, col: number) => void;
   initialQuery?: string;
   activeFilePath?: string | null;
@@ -76,8 +76,10 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
   const [searchResults, setSearchResults] = createSignal<WorkspaceSearchResult[]>([]);
   const [isLineMode, setIsLineMode] = createSignal(false);
   const [isSymbolMode, setIsSymbolMode] = createSignal(false);
+  const [isWorkspaceSymbolMode, setIsWorkspaceSymbolMode] = createSignal(false);
   const [symbols, setSymbols] = createSignal<LspDocumentSymbol[]>([]);
   const [filteredSymbols, setFilteredSymbols] = createSignal<LspDocumentSymbol[]>([]);
+  const [workspaceSymbols, setWorkspaceSymbols] = createSignal<LspWorkspaceSymbol[]>([]);
   const [filteredCommands, setFilteredCommands] = createSignal<Command[]>([]);
   const [searching, setSearching] = createSignal(false);
   let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -98,7 +100,9 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           setIsSearchMode(false);
           setIsLineMode(initial.startsWith(":"));
           setSearchResults([]);
-          setIsSymbolMode(initial.startsWith("@"));
+          setIsWorkspaceSymbolMode(initial.startsWith("@@"));
+          setIsSymbolMode(initial.startsWith("@") && !initial.startsWith("@@"));
+          setWorkspaceSymbols([]);
           setFilteredCommands(registry.getAll());
           trap.activate();
           requestAnimationFrame(() => inputRef?.focus());
@@ -123,6 +127,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
         setIsCommand(false);
         setIsSearchMode(false);
         setIsSymbolMode(false);
+        setIsWorkspaceSymbolMode(false);
         setSelectedIdx(0);
         return;
       }
@@ -133,6 +138,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
         setIsSearchMode(true);
         setIsCommand(false);
         setSelectedIdx(0);
+        setIsWorkspaceSymbolMode(false);
 
         const searchQuery = q.slice(1).trim();
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
@@ -159,6 +165,33 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       }
 
       setIsSearchMode(false);
+      if (q.startsWith("@@")) {
+        setIsWorkspaceSymbolMode(true);
+        setIsSymbolMode(false);
+        setIsCommand(false);
+        setSelectedIdx(0);
+
+        const symQuery = q.slice(2).trim();
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        if (!symQuery || !props.workspaceRoot) {
+          setWorkspaceSymbols([]);
+          setSearching(false);
+          return;
+        }
+
+        setSearching(true);
+        searchDebounceTimer = setTimeout(async () => {
+          try {
+            setWorkspaceSymbols(await lspWorkspaceSymbol(symQuery));
+          } catch {
+            setWorkspaceSymbols([]);
+          }
+          setSearching(false);
+        }, 250);
+        return;
+      }
+
+      setIsWorkspaceSymbolMode(false);
       if (q.startsWith("@")) {
         setIsSymbolMode(true);
         setIsCommand(false);
@@ -187,6 +220,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       }
 
       setIsSymbolMode(false);
+      setIsWorkspaceSymbolMode(false);
 
       if (q.startsWith(">")) {
         setIsCommand(true);
@@ -215,13 +249,21 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
     })
   );
 
-  function handleKeyDown(e: KeyboardEvent) {
+  function resultCount(): number {
+    if (isSearchMode()) return searchResults().length;
+    if (isWorkspaceSymbolMode()) return workspaceSymbols().length;
+    if (isSymbolMode()) return filteredSymbols().length;
+    if (isCommand()) return filteredCommands().length;
+    return filtered().length;
+  }
+
+  async function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.preventDefault();
       props.onClose();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      const max = isSearchMode() ? searchResults().length : isSymbolMode() ? filteredSymbols().length : isCommand() ? filteredCommands().length : filtered().length;
+      const max = resultCount();
       setSelectedIdx(Math.min(selectedIdx() + 1, max - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -231,11 +273,11 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       setSelectedIdx(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      const max = isSearchMode() ? searchResults().length : isSymbolMode() ? filteredSymbols().length : isCommand() ? filteredCommands().length : filtered().length;
+      const max = resultCount();
       setSelectedIdx(Math.max(max - 1, 0));
     } else if (e.key === "PageDown") {
       e.preventDefault();
-      const max = isSearchMode() ? searchResults().length : isSymbolMode() ? filteredSymbols().length : isCommand() ? filteredCommands().length : filtered().length;
+      const max = resultCount();
       setSelectedIdx(Math.min(selectedIdx() + 10, max - 1));
     } else if (e.key === "PageUp") {
       e.preventDefault();
@@ -245,7 +287,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       if (isSearchMode()) {
         const result = searchResults()[selectedIdx()];
         if (result) {
-          props.onFileSelect(result.path);
+          await props.onFileSelect(result.path);
           props.onGoToLine?.(result.line_number, result.col);
           props.onClose();
         }
@@ -289,6 +331,13 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           props.onGoToLine(line, col);
           props.onClose();
         }
+      } else if (isWorkspaceSymbolMode()) {
+        const sym = workspaceSymbols()[selectedIdx()];
+        if (sym && props.onGoToLine) {
+          await props.onFileSelect(sym.file_path);
+          props.onGoToLine(sym.line, sym.col);
+          props.onClose();
+        }
       } else if (isSymbolMode()) {
         const sym = filteredSymbols()[selectedIdx()];
         if (sym && props.onGoToLine) {
@@ -301,7 +350,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       } else {
         const file = filtered()[selectedIdx()];
         if (file) {
-          props.onFileSelect(file.path);
+          await props.onFileSelect(file.path);
           props.onClose();
         }
       }
@@ -317,8 +366,10 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
       setSearchResults([]);
       setSearching(false);
       setIsSymbolMode(false);
+      setIsWorkspaceSymbolMode(false);
       setSymbols([]);
       setFilteredSymbols([]);
+      setWorkspaceSymbols([]);
       setFilteredCommands([]);
       if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null; }
     }
@@ -341,7 +392,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           ref={inputRef}
           class="palette-input"
           type="text"
-          placeholder={isSearchMode() ? "Search file contents..." : isLineMode() ? "Go to line[:column]..." : isSymbolMode() ? "Search symbols by name..." : props.workspaceRoot ? "Search files by name... (: line, # content, @ symbols, > commands)" : "Open a folder first (: line, > commands)"}
+          placeholder={isSearchMode() ? "Search file contents..." : isLineMode() ? "Go to line[:column]..." : isWorkspaceSymbolMode() ? "Search workspace symbols..." : isSymbolMode() ? "Search symbols in current file..." : props.workspaceRoot ? "Search files by name... (: line, # content, @ file symbols, @@ workspace symbols, > commands)" : "Open a folder first (: line, > commands)"}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
@@ -381,6 +432,37 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
           <Show when={isLineMode()}>
             <div class="palette-empty">line[:col] or s/find/replace/g</div>
           </Show>
+          <Show when={isWorkspaceSymbolMode()}>
+            <For each={workspaceSymbols()}>
+              {(sym, idx) => (
+                <div
+                  class={`palette-item ${idx() === selectedIdx() ? "palette-item-active" : ""}`}
+                  onClick={async () => {
+                    await props.onFileSelect(sym.file_path);
+                    props.onGoToLine?.(sym.line, sym.col);
+                    props.onClose();
+                  }}
+                >
+                  <span class="palette-item-icon">{symbolKindAbbrev(sym.kind)}</span>
+                  <div style={{ "min-width": "0", flex: "1" }}>
+                    <div class="palette-item-name">
+                      {sym.name}
+                      <Show when={sym.container_name}>
+                        <span class="palette-item-path"> {"in " + sym.container_name}</span>
+                      </Show>
+                    </div>
+                    <div class="palette-item-path">{sym.file_path}:{sym.line + 1}</div>
+                  </div>
+                </div>
+              )}
+            </For>
+            <Show when={searching()}>
+              <div class="palette-empty"><span class="spinner spinner-sm" style={{ "margin-right": "8px" }} /> Searching symbols...</div>
+            </Show>
+            <Show when={!searching() && workspaceSymbols().length === 0 && query().slice(2).trim()}>
+              <div class="palette-empty">No workspace symbols found</div>
+            </Show>
+          </Show>
           <Show when={isSymbolMode()}>
             <For each={filteredSymbols()}>
               {(sym, idx) => (
@@ -403,7 +485,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
               <div class="palette-empty">No symbols found</div>
             </Show>
           </Show>
-          <Show when={isCommand() && !isSearchMode() && !isLineMode() && !isSymbolMode()}>
+          <Show when={isCommand() && !isSearchMode() && !isLineMode() && !isWorkspaceSymbolMode() && !isSymbolMode()}>
             <For each={filteredCommands()}>
               {(cmd, idx) => (
                 <div
@@ -419,7 +501,7 @@ const CommandPalette: Component<CommandPaletteProps> = (props) => {
               )}
             </For>
           </Show>
-          <Show when={!isCommand() && !isSearchMode() && !isLineMode() && !isSymbolMode()}>
+          <Show when={!isCommand() && !isSearchMode() && !isLineMode() && !isWorkspaceSymbolMode() && !isSymbolMode()}>
             {/* Recent files — shown when query is empty */}
             <Show when={!query() && props.recentFiles && props.recentFiles.length > 0}>
               <div class="palette-section-label">Recent</div>

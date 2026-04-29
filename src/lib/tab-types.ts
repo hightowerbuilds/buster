@@ -5,6 +5,7 @@ export type TabType =
   | "image"
   | "terminal"
   | "settings"
+  | "keybindings"
   | "git"
   | "extensions"
   | "debug"

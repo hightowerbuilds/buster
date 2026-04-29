@@ -266,6 +266,39 @@
   border-color: var(--accent);
 }
 
+.settings-font-content {
+  align-items: flex-start;
+}
+
+.settings-font-controls {
+  width: min(520px, 58vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-font-input {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--text);
+  background: var(--bg-surface0);
+  border: 1px solid var(--border);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+}
+
+.settings-font-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.settings-font-presets .settings-theme-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
 /* ── Keybinding section ── */
 
 .settings-section-divider {
@@ -283,6 +316,131 @@
   margin: 0;
 }
 
+.settings-language-overrides {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 16px;
+  padding: 0 16px 8px;
+}
+
+.settings-language-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+}
+
+.settings-language-btn {
+  min-height: 28px;
+  padding: 0 8px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.settings-language-btn:last-child {
+  border-bottom: 0;
+}
+
+.settings-language-btn:hover,
+.settings-language-btn-active {
+  color: var(--text);
+  background: var(--bg-surface0);
+}
+
+.settings-language-btn small {
+  color: var(--accent);
+}
+
+.settings-language-controls {
+  min-width: 0;
+  border: 1px solid var(--border);
+}
+
+.language-override-row {
+  min-height: 38px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.language-override-row:last-child {
+  border-bottom: 0;
+}
+
+.language-override-row > span {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.language-override-row .settings-theme-btns {
+  flex-wrap: wrap;
+}
+
+.language-override-row .settings-theme-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.settings-token-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
+.settings-token-row {
+  min-height: 34px;
+  padding: 5px 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px 48px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+}
+
+.settings-token-row span {
+  min-width: 0;
+  color: var(--text-dim);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-token-row input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.settings-token-reset {
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.settings-token-reset:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .keybinding-row {
   display: flex;
   align-items: center;
@@ -291,12 +449,26 @@
   min-height: 32px;
 }
 
+.keybinding-row-conflict {
+  background: color-mix(in srgb, var(--red, #f38ba8) 8%, transparent);
+}
+
 .keybinding-label {
   font-family: "Courier New", Courier, monospace;
   font-size: 13px;
   color: var(--text-dim);
   flex: 1;
   text-transform: capitalize;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.keybinding-conflict-text {
+  color: var(--red, #f38ba8);
+  font-size: 11px;
+  text-transform: none;
 }
 
 .keybinding-value {
@@ -327,6 +499,11 @@
   border-color: var(--accent);
 }
 
+.keybinding-conflict {
+  color: var(--red, #f38ba8);
+  border-color: var(--red, #f38ba8);
+}
+
 .keybinding-input {
   font-family: "Courier New", Courier, monospace;
   font-size: 12px;
@@ -351,4 +528,127 @@
 
 .keybinding-reset:hover {
   color: var(--red, #f38ba8);
+}
+
+.keybinding-conflict-summary {
+  margin: 0 16px 8px;
+  padding: 6px 8px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  color: var(--red, #f38ba8);
+  background: color-mix(in srgb, var(--red, #f38ba8) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red, #f38ba8) 40%, transparent);
+}
+
+/* Keyboard Shortcuts panel */
+.keybindings-panel {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: "Courier New", Courier, monospace;
+}
+
+.keybindings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.keybindings-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: normal;
+}
+
+.keybindings-chord {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.keybindings-warning {
+  margin: 10px 20px 0;
+  padding: 7px 9px;
+  font-size: 12px;
+  color: var(--red, #f38ba8);
+  background: color-mix(in srgb, var(--red, #f38ba8) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red, #f38ba8) 40%, transparent);
+}
+
+.keybindings-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  max-width: 760px;
+  padding: 10px 0 24px;
+}
+
+.keybindings-section h3 {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: normal;
+  margin: 14px 20px 5px;
+  text-transform: uppercase;
+}
+
+.keybindings-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 20px;
+  border-left: 2px solid transparent;
+}
+
+.keybindings-item:hover {
+  background: var(--bg-surface0);
+}
+
+.keybindings-item-conflict {
+  border-left-color: var(--red, #f38ba8);
+  background: color-mix(in srgb, var(--red, #f38ba8) 8%, transparent);
+}
+
+.keybindings-command {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.keybindings-command span {
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keybindings-command small {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.keybindings-item kbd {
+  color: var(--text);
+  background: var(--bg-surface0);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  min-width: 70px;
+  text-align: center;
+  font: inherit;
+  font-size: 12px;
+}
+
+.markdown-side-preview {
+  width: 50%;
+  height: 100%;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
 }

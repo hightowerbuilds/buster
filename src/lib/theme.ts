@@ -188,6 +188,38 @@ export function generatePalette(hue: number, fx: ThemeEffects): ThemePalette {
   };
 }
 
+export const EDITABLE_SYNTAX_KEYS = [
+  "keyword",
+  "function",
+  "string",
+  "number",
+  "type",
+  "comment",
+  "variable",
+  "variable.parameter",
+  "property",
+  "operator",
+  "punctuation",
+  "tag",
+] as const;
+
+export function withSyntaxOverrides(
+  palette: ThemePalette,
+  overrides?: Record<string, string>,
+): ThemePalette {
+  const valid = Object.entries(overrides ?? {})
+    .filter(([, value]) => /^#[0-9a-fA-F]{6}$/.test(value));
+  if (valid.length === 0) return palette;
+
+  return {
+    ...palette,
+    syntax: {
+      ...palette.syntax,
+      ...Object.fromEntries(valid),
+    },
+  };
+}
+
 // --- Catppuccin Mocha (the default) ---
 
 export const CATPPUCCIN: ThemePalette = {

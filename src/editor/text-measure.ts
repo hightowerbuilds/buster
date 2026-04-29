@@ -7,25 +7,34 @@
 
 import { prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 
-const FONT_FAMILY = "JetBrains Mono, Menlo, Monaco, Consolas, monospace";
+export const DEFAULT_FONT_FAMILY = "JetBrains Mono, Menlo, Monaco, Consolas, monospace";
+export let FONT_FAMILY = DEFAULT_FONT_FAMILY;
+
+export function setEditorFontFamily(fontFamily: string | null | undefined) {
+  const next = fontFamily?.trim() || DEFAULT_FONT_FAMILY;
+  if (next === FONT_FAMILY) return;
+  FONT_FAMILY = next;
+  charWidthCache.clear();
+}
 
 // ─── Monospace character width (cached per font size) ────────────────
 
-const charWidthCache = new Map<number, number>();
+const charWidthCache = new Map<string, number>();
 
 /**
  * Get the width of a single monospace character at the given font size.
  * Uses Pretext's prepare() for measurement instead of raw OffscreenCanvas.
  */
 export function getCharWidth(fontSize: number = 14): number {
-  let w = charWidthCache.get(fontSize);
+  const key = `${FONT_FAMILY}:${fontSize}`;
+  let w = charWidthCache.get(key);
   if (w !== undefined) return w;
 
   const font = `${fontSize}px ${FONT_FAMILY}`;
   const seg = prepareWithSegments("M", font);
   const lines = layoutWithLines(seg, Infinity, fontSize);
   w = lines.lines.length > 0 ? Math.floor(lines.lines[0].width) : Math.floor(fontSize * 0.6);
-  charWidthCache.set(fontSize, w);
+  charWidthCache.set(key, w);
   return w;
 }
 
@@ -109,5 +118,3 @@ export function pixelToCol(text: string, pixelX: number, charW: number): number 
   }
   return text.length;
 }
-
-export { FONT_FAMILY };

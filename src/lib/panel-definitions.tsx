@@ -11,6 +11,7 @@ import { registerPanel } from "./panel-registry";
 // Lazy imports — components are only loaded when first rendered
 import CanvasTerminal from "../ui/CanvasTerminal";
 import SettingsPanel from "../ui/SettingsPanel";
+import KeybindingsPanel from "../ui/KeybindingsPanel";
 import GitPage from "../ui/GitPage";
 import ExtensionsPage from "../ui/ExtensionsPage";
 import DebugPanel from "../ui/DebugPanel";
@@ -45,6 +46,14 @@ registerPanel("settings", {
       settings={deps.settings()}
       onChange={deps.updateSettings}
     />
+  ),
+});
+
+// ── Keyboard Shortcuts ─────────────────────────────────────────────
+
+registerPanel("keybindings", {
+  render: (_tab, _isActive, deps) => (
+    <KeybindingsPanel settings={deps.settings()} />
   ),
 });
 

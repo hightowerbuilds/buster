@@ -76,6 +76,7 @@ export function createTabActions(
 
   function createGitTab() { openSingletonTab("git", "git_tab", "Git"); }
   function createSettingsTab() { openSingletonTab("settings", "settings_tab", "Settings"); }
+  function createKeybindingsTab() { openSingletonTab("keybindings", "keybindings_tab", "Keyboard Shortcuts"); }
   function createExtensionsTab() { openSingletonTab("extensions", "extensions_tab", "Extensions"); }
   function createDebugTab() { openSingletonTab("debug", "debug_tab", "Debug"); }
   function createProblemsTab() { openSingletonTab("problems", "problems_tab", "Problems"); }
@@ -202,7 +203,7 @@ export function createTabActions(
 
   return {
     switchToTab, createNewFile, createTerminalTab,
-    createGitTab, createSettingsTab, createExtensionsTab,
+    createGitTab, createSettingsTab, createKeybindingsTab, createExtensionsTab,
     createDebugTab, createProblemsTab, createConsoleTab, createAiTab,
     createBrowserTab, popOutSidebar,
     handleTermIdReady, handleTermTitleChange,

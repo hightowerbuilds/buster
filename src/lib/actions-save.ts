@@ -4,10 +4,13 @@ import type { EngineMap } from "./buster-context";
 import type { Tab } from "./tab-types";
 import type { EditorEngine } from "../editor/engine";
 import { basename } from "buster-path";
-import { writeFile, lspDidSave } from "./ipc";
+import { writeFile, lspDidChange, lspDidSave, lspFormatDocument } from "./ipc";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { showError, showSuccess } from "./notify";
 import { setRefreshDir } from "../ui/SidebarTree";
+import { resolveEditorSettings } from "./editor-settings";
+import { applyTextEdits } from "../editor/apply-text-edits";
+import { formatJsonEngine } from "../editor/json-format";
 
 export function createSaveActions(
   store: BusterStoreState,
@@ -19,6 +22,8 @@ export function createSaveActions(
   loadFileContent: (path: string) => Promise<{ content: string; fileName: string; filePath: string }>,
   refreshGitBranch: (root: string) => Promise<void>,
 ) {
+  const savingTabs = new Set<string>();
+
   async function writeFileSmart(path: string, content: string): Promise<void> {
     const root = store.workspaceRoot;
     if (root && path.startsWith(root)) {
@@ -28,7 +33,41 @@ export function createSaveActions(
     }
   }
 
-  async function doSave(tab: Tab, engine: EditorEngine, savePath: string): Promise<void> {
+  async function syncLspDocument(savePath: string, engine: EditorEngine) {
+    try {
+      await lspDidChange(savePath, engine.getText(), engine.editSeq());
+      engine.takeEditDeltas();
+    } catch {
+      // Some file types have no running LSP server. Saving should still proceed.
+    }
+  }
+
+  async function formatBeforeSave(tab: Tab, engine: EditorEngine, savePath: string) {
+    const editorSettings = resolveEditorSettings(store.settings, savePath);
+    if (!editorSettings.format_on_save) return;
+
+    try {
+      if (editorSettings.languageId === "json") {
+        const indent = editorSettings.use_spaces ? " ".repeat(editorSettings.tab_size) : "\t";
+        formatJsonEngine(engine, indent);
+        await syncLspDocument(savePath, engine);
+        return;
+      }
+
+      await syncLspDocument(savePath, engine);
+      const edits = await lspFormatDocument(savePath, editorSettings.tab_size, editorSettings.use_spaces);
+      const fileEdits = edits.filter(edit => edit.file_path === savePath);
+      if (applyTextEdits(engine, fileEdits)) {
+        await syncLspDocument(savePath, engine);
+      }
+    } catch (error) {
+      console.warn(`Format on save failed for ${tab.name}:`, error);
+    }
+  }
+
+  async function doSave(tab: Tab, engine: EditorEngine, savePath: string, options: { silent?: boolean } = {}): Promise<void> {
+    await formatBeforeSave(tab, engine, savePath);
+
     const lines = engine.lines();
     const trimmed = lines.map(l => l.trimEnd());
     const needsTrim = lines.some((l, i) => l !== trimmed[i]);
@@ -37,6 +76,7 @@ export function createSaveActions(
       engine.loadText(trimmed.join("\n"));
       engine.setCursor({ line: cursor.line, col: Math.min(cursor.col, trimmed[cursor.line]?.length ?? 0) });
     }
+    await syncLspDocument(savePath, engine);
     const text = engine.getText();
     await writeFileSmart(savePath, text);
     engine.markClean();
@@ -49,18 +89,20 @@ export function createSaveActions(
     lspDidSave(savePath).catch(e => console.warn("LSP didSave failed:", e));
     addRecentFile(savePath, fileName);
     fetchDiffHunks(tab.id, savePath);
-    showSuccess("Saved");
+    if (!options.silent) showSuccess("Saved");
   }
 
-  async function handleSave() {
-    const tab = activeTab();
+  async function saveTab(tabId: string, options: { silent?: boolean; requirePath?: boolean } = {}) {
+    if (savingTabs.has(tabId)) return;
+
+    const tab = store.tabs.find(t => t.id === tabId);
     if (!tab || tab.type !== "file") return;
     const engine = engines.get(tab.id);
     if (!engine) return;
 
     let savePath = tab.path;
-
     if (!savePath) {
+      if (options.requirePath) return;
       const { save } = await import("@tauri-apps/plugin-dialog");
       const chosen = await save({
         title: "Save File",
@@ -70,8 +112,22 @@ export function createSaveActions(
       savePath = chosen;
     }
 
+    savingTabs.add(tabId);
     try {
-      await doSave(tab, engine, savePath);
+      await doSave(tab, engine, savePath, options);
+    } finally {
+      savingTabs.delete(tabId);
+    }
+  }
+
+  async function handleSave() {
+    const tab = activeTab();
+    if (!tab || tab.type !== "file") return;
+    const engine = engines.get(tab.id);
+    if (!engine) return;
+
+    try {
+      await saveTab(tab.id);
     } catch { showError("Failed to save"); }
   }
 
@@ -118,5 +174,5 @@ export function createSaveActions(
     finally { setStore("syncing", false); }
   }
 
-  return { writeFileSmart, handleSave, handleSaveAs, handleSync };
+  return { writeFileSmart, handleSave, handleSaveAs, handleSync, saveTab };
 }

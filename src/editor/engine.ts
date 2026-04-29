@@ -111,6 +111,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
   const [extras, setExtras]     = createSignal<Pos[]>([]);
   const [sel, setSel]           = createSignal<Selection | null>(null);
   const [editSeq, setEditSeq]   = createSignal(0);
+  const [foldSeq, setFoldSeq]   = createSignal(0);
   const [dirty, setDirty]       = createSignal(false);
   const [path, setPath]         = createSignal<string | null>(filePath ?? null);
   const [lineEnding, setLineEnding] = createSignal<LineEnding>(detectedEnding);
@@ -208,6 +209,19 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     rowCacheKey = "";
   }
 
+  function rebuildFoldedLines() {
+    foldedLineSet.clear();
+    const ls = lines();
+    const sortedStarts = Array.from(foldStarts).sort((a, b) => a - b);
+    for (const start of sortedStarts) {
+      const range = computeFoldRange(ls, start);
+      if (!range) continue;
+      for (let i = range.start; i <= range.end; i++) foldedLineSet.add(i);
+    }
+    invalidateCache();
+    setFoldSeq((s) => s + 1);
+  }
+
   // ── Vim operations dependency bridge ───────────────────────────
   const vimDeps: VimOpsDeps = {
     lines, cursor, sel,
@@ -231,6 +245,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     extras,
     sel,
     editSeq,
+    foldSeq,
     dirty,
     filePath: path,
     lineEnding,
@@ -914,13 +929,8 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     toggleFold(line: number): boolean {
       const ls = lines();
       if (foldStarts.has(line)) {
-        // Unfold
-        const range = computeFoldRange(ls, line);
-        if (range) {
-          for (let i = range.start; i <= range.end; i++) foldedLineSet.delete(i);
-        }
         foldStarts.delete(line);
-        invalidateCache();
+        rebuildFoldedLines();
         return true;
       }
       // Fold
@@ -928,8 +938,30 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       const range = computeFoldRange(ls, line);
       if (!range) return false;
       foldStarts.add(line);
-      for (let i = range.start; i <= range.end; i++) foldedLineSet.add(i);
-      invalidateCache();
+      rebuildFoldedLines();
+      return true;
+    },
+
+    /** Fold every foldable region in the document. Returns true if state changed. */
+    foldAll(): boolean {
+      const ls = lines();
+      let changed = false;
+      for (let i = 0; i < ls.length; i++) {
+        if (isFoldable(ls, i) && !foldStarts.has(i)) {
+          foldStarts.add(i);
+          changed = true;
+        }
+      }
+      if (!changed) return false;
+      rebuildFoldedLines();
+      return true;
+    },
+
+    /** Unfold every folded region in the document. Returns true if state changed. */
+    unfoldAll(): boolean {
+      if (foldStarts.size === 0) return false;
+      foldStarts.clear();
+      rebuildFoldedLines();
       return true;
     },
 

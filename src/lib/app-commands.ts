@@ -8,8 +8,10 @@
 
 import { registry, type Command } from "./command-registry";
 import { announce } from "./a11y";
+import { showError, showSuccess } from "./notify";
 import type { Accessor, Setter } from "solid-js";
 import type { EditorEngine } from "../editor/engine";
+import { formatJsonEngine } from "../editor/json-format";
 import type { CreateHotkeyDefinition } from "@tanstack/solid-hotkeys";
 import type { RegisterableHotkey } from "@tanstack/hotkeys";
 
@@ -72,6 +74,7 @@ export interface CommandDeps {
   setPaletteInitialQuery: Setter<string>;
   createTerminalTab: () => void;
   createSettingsTab: () => void;
+  createKeybindingsTab: () => void;
   createGitTab: () => void;
   createBrowserTab: () => void;
   setSidebarVisible: Setter<boolean>;
@@ -123,10 +126,14 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "view.commandPalette": "Mod+p",
   "view.showCommands": "Mod+Shift+p",
   "view.settings": "Mod+,",
+  "view.keybindings": "Mod+k Mod+s",
   "view.toggleSidebar": "Mod+b",
   "editor.find": "Mod+f",
   "editor.goToLine": "Ctrl+g",
   "editor.goToSymbol": "Mod+Shift+o",
+  "editor.workspaceSymbol": "Mod+Shift+t",
+  "editor.foldAll": "Mod+Alt+[",
+  "editor.unfoldAll": "Mod+Alt+]",
   "editor.navigateBack": "Ctrl+-",
   "editor.navigateForward": "Ctrl+Shift+-",
   "editor.zoomIn": "Mod+=",
@@ -168,6 +175,21 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "file.closeTab", label: "Close Tab", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
     { id: "editor.goToLine", label: "Go to Line...", category: "Editor", keybinding: "Ctrl+G", execute: () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); } },
+    { id: "editor.goToSymbol", label: "Go to Symbol in File...", category: "Editor", keybinding: "Mod+Shift+O", execute: () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); } },
+    { id: "editor.workspaceSymbol", label: "Go to Symbol in Workspace...", category: "Editor", keybinding: "Mod+Shift+T", execute: () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); } },
+    { id: "editor.foldAll", label: "Fold All", category: "Editor", keybinding: "Mod+Alt+[", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.foldAll() },
+    { id: "editor.unfoldAll", label: "Unfold All", category: "Editor", keybinding: "Mod+Alt+]", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.unfoldAll() },
+    { id: "editor.formatJson", label: "Format JSON", category: "Editor", when: () => !!deps.activeEngine(), execute: () => {
+      const engine = deps.activeEngine();
+      if (!engine) return;
+      try {
+        const indent = deps.settings().use_spaces !== false ? " ".repeat(deps.settings().tab_size || 2) : "\t";
+        formatJsonEngine(engine, indent);
+        showSuccess("JSON formatted");
+      } catch {
+        showError("Invalid JSON");
+      }
+    } },
     { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }) },
     { id: "editor.zoomOut", label: "Zoom Out", category: "View", keybinding: "Mod+-", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }) },
     { id: "editor.zoomReset", label: "Reset Zoom", category: "View", keybinding: "Mod+0", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }) },
@@ -175,6 +197,7 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "view.commandPalette", label: "Command Palette", category: "View", keybinding: "Mod+P", execute: () => { deps.setPaletteInitialQuery(""); deps.setPaletteVisible(true); } },
     { id: "view.showCommands", label: "Show All Commands", category: "View", keybinding: "Mod+Shift+P", execute: () => { deps.setPaletteInitialQuery(">"); deps.setPaletteVisible(true); } },
     { id: "view.settings", label: "Settings", category: "View", keybinding: "Mod+,", execute: () => deps.createSettingsTab() },
+    { id: "view.keybindings", label: "Keyboard Shortcuts", category: "View", keybinding: "Mod+K Mod+S", execute: () => deps.createKeybindingsTab() },
     { id: "view.toggleSidebar", label: "Toggle Sidebar", category: "View", keybinding: "Mod+B", execute: () => deps.setSidebarVisible(v => !v) },
     { id: "git.open", label: "Git", category: "Git", keybinding: "Mod+Shift+G", execute: () => deps.createGitTab() },
     { id: "browser.open", label: "Open Browser", category: "Browser", keybinding: "Mod+Shift+B", execute: () => deps.createBrowserTab() },
@@ -238,12 +261,13 @@ export function buildHotkeyDefinitions(
   userOverrides?: Record<string, string>,
 ): CreateHotkeyDefinition[] {
   const hk = (id: string) => resolveHotkey(id, userOverrides);
+  const isChord = (hotkey: string) => hotkey.trim().split(/\s+/).length > 1;
 
   const defs: CreateHotkeyDefinition[] = [];
 
   const add = (id: string, callback: () => void) => {
     const hotkey = hk(id);
-    if (hotkey) defs.push({ hotkey: hotkey as RegisterableHotkey, callback: () => callback() });
+    if (hotkey && !isChord(hotkey)) defs.push({ hotkey: hotkey as RegisterableHotkey, callback: () => callback() });
   };
 
   add("file.save", () => deps.handleSave());
@@ -257,6 +281,7 @@ export function buildHotkeyDefinitions(
   add("view.commandPalette", () => { deps.setPaletteInitialQuery(""); deps.setPaletteVisible(true); });
   add("view.showCommands", () => { deps.setPaletteInitialQuery(">"); deps.setPaletteVisible(true); });
   add("view.settings", () => deps.createSettingsTab());
+  add("view.keybindings", () => deps.createKeybindingsTab());
   add("view.toggleSidebar", () => deps.setSidebarVisible(v => !v));
   add("view.splitRight", () => deps.splitRight());
   add("view.splitDown", () => deps.splitDown());
@@ -264,6 +289,9 @@ export function buildHotkeyDefinitions(
   add("editor.find", () => { if (deps.activeEngine()) deps.setFindVisible(true); });
   add("editor.goToLine", () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); });
   add("editor.goToSymbol", () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); });
+  add("editor.workspaceSymbol", () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); });
+  add("editor.foldAll", () => deps.activeEngine()?.foldAll());
+  add("editor.unfoldAll", () => deps.activeEngine()?.unfoldAll());
   add("editor.navigateBack", () => deps.navigateBack());
   add("editor.navigateForward", () => deps.navigateForward());
   add("editor.zoomIn", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }));

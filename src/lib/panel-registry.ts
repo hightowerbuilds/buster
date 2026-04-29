@@ -25,6 +25,8 @@ export interface PanelDeps {
   openWorkspace: (path: string) => void;
   changeDirectory: () => void;
   closeDirectory: () => void;
+  cursorLine: () => number;
+  cursorCol: () => number;
   setCursorLine: (line: number) => void;
   setCursorCol: (col: number) => void;
   diagnosticsMap: () => Map<string, { line: number; col: number; endLine: number; endCol: number; severity: number; message: string }[]>;

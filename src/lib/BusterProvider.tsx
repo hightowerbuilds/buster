@@ -30,12 +30,15 @@ import { setupMenuHandlers } from "./menu-handlers";
 import { parsePanelCount, type PanelCount } from "./panel-count";
 import { listen } from "@tauri-apps/api/event";
 import { CATPPUCCIN } from "./theme";
+import { resolveEditorSettings } from "./editor-settings";
+import { DEFAULT_FONT_FAMILY, setEditorFontFamily } from "../editor/text-measure";
 
 // ── Default settings ─────────────────────────────────────────
 
 const DEFAULT_SETTINGS: AppSettings = {
   word_wrap: true,
   font_size: 14,
+  font_family: DEFAULT_FONT_FAMILY,
   tab_size: 4,
   use_spaces: true,
   minimap: false,
@@ -49,6 +52,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   effect_cursor_glow: 0,
   effect_vignette: 0,
   effect_grain: 0,
+  keybindings: {},
+  syntax_colors: {},
+  format_on_save: false,
+  auto_save: false,
+  auto_save_delay_ms: 1500,
+  language_settings: {},
   vim_mode: false,
   blog_theme: "normal",
   show_indent_guides: true,
@@ -155,6 +164,42 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   const autoSaveInterval = setInterval(actions.saveSessionNow, 30_000);
   onCleanup(() => clearInterval(autoSaveInterval));
 
+  const dirtySinceByTab = new Map<string, number>();
+  const editSeqByTab = new Map<string, number>();
+  const fileAutoSaveInterval = setInterval(() => {
+    const now = Date.now();
+    for (const tab of store.tabs) {
+      if (tab.type !== "file" || !tab.path) {
+        dirtySinceByTab.delete(tab.id);
+        editSeqByTab.delete(tab.id);
+        continue;
+      }
+
+      const engine = engines.get(tab.id);
+      if (!engine || !engine.dirty()) {
+        dirtySinceByTab.delete(tab.id);
+        editSeqByTab.delete(tab.id);
+        continue;
+      }
+
+      const seq = engine.editSeq();
+      if (editSeqByTab.get(tab.id) !== seq) {
+        editSeqByTab.set(tab.id, seq);
+        dirtySinceByTab.set(tab.id, now);
+      }
+
+      const editorSettings = resolveEditorSettings(store.settings, tab.path);
+      if (!editorSettings.auto_save) continue;
+
+      const dirtySince = dirtySinceByTab.get(tab.id) ?? now;
+      if (now - dirtySince >= editorSettings.auto_save_delay_ms) {
+        dirtySinceByTab.set(tab.id, now);
+        actions.saveTab(tab.id, { silent: true, requirePath: true }).catch(() => {});
+      }
+    }
+  }, 500);
+  onCleanup(() => clearInterval(fileAutoSaveInterval));
+
   const handleVisibility = () => { if (document.hidden) actions.saveSessionNow(); };
   document.addEventListener("visibilitychange", handleVisibility);
   onCleanup(() => document.removeEventListener("visibilitychange", handleVisibility));
@@ -171,6 +216,10 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   // Sync workspace root to Rust backend
   createEffect(() => {
     setWorkspaceRootIpc(store.workspaceRoot ?? null).catch(() => {});
+  });
+
+  createEffect(() => {
+    setEditorFontFamily(store.settings.font_family);
   });
 
   // Keep activeFilePath in sync with active tab
