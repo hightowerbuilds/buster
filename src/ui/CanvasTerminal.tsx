@@ -11,7 +11,7 @@ import ContextMenu, { type ContextMenuState } from "./ContextMenu";
 import { TerminalGLContext } from "./terminal-webgl";
 import { mapSpecialKey, mapCtrlKey, mapAltKey, encodeSgrMouse, encodeDefaultMouse } from "./terminal-keys";
 import { searchTerminalRows, scrollToMatch } from "./terminal-search";
-import { decodeBinaryDelta, type TermCell, type TermScreenDelta } from "./terminal-binary";
+import { decodeBinaryDelta, type TermCell, type TermScreenDelta, type TerminalCursorStyle } from "./terminal-binary";
 import { renderWebGL as doRenderWebGL, renderCanvas2D as doRenderCanvas2D, type TermRenderState, type TermRenderDeps } from "./terminal-render";
 import {
   findTerminalWordBounds,
@@ -67,6 +67,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   let cells: TermCell[][] = [];
   let cursorRow = 0;
   let cursorCol = 0;
+  let cursorStyle: TerminalCursorStyle = "block";
   let charWidth = 0;
   let charHeight = 0;
   let termRows = 24;
@@ -216,6 +217,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     // Render state bridge for the extracted render module
     const rs: TermRenderState = {
       cells, cursorRow, cursorCol, charWidth, charHeight,
+      cursorStyle,
       termRows, termCols, isFocused: isFocused && (!settings().cursor_blink || cursorBlinkVisible), scrollOffset,
       searchVisible, searchMatches, searchMatchIdx,
       bellFlashUntil, sixelImages, sixelBitmapCache,
@@ -582,6 +584,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     }
     cursorRow = d.cursor_row;
     cursorCol = d.cursor_col;
+    cursorStyle = d.cursor_style ?? "block";
     mouseMode = d.mouse_mode ?? "none";
     mouseEncoding = d.mouse_encoding ?? "default";
     bracketedPaste = d.bracketed_paste ?? false;

@@ -5,13 +5,14 @@
 
 import { FONT_FAMILY, measureTextWidth } from "../editor/text-measure";
 import type { TerminalGLContext, FontVariant } from "./terminal-webgl";
-import type { TermCell } from "./terminal-binary";
+import type { TermCell, TerminalCursorStyle } from "./terminal-binary";
 import type { ThemePalette } from "../lib/theme";
 
 export interface TermRenderState {
   cells: TermCell[][];
   cursorRow: number;
   cursorCol: number;
+  cursorStyle: TerminalCursorStyle;
   charWidth: number;
   charHeight: number;
   termRows: number;
@@ -40,6 +41,18 @@ export interface TermRenderDeps {
 }
 
 const MAX_SIXEL_CACHE = 64;
+
+function cursorRect(
+  style: TerminalCursorStyle,
+  cx: number,
+  cy: number,
+  cursorW: number,
+  ch: number,
+): { x: number; y: number; w: number; h: number } {
+  if (style === "bar") return { x: cx, y: cy, w: 2, h: ch };
+  if (style === "underline") return { x: cx, y: cy + ch - 2, w: cursorW, h: 2 };
+  return { x: cx, y: cy, w: cursorW, h: ch };
+}
 
 export function renderWebGL(w: number, h: number, gpu: TerminalGLContext, deps: TermRenderDeps) {
   const { state } = deps;
@@ -144,9 +157,10 @@ export function renderWebGL(w: number, h: number, gpu: TerminalGLContext, deps: 
     const cy = Math.round(state.cursorRow * ch);
     const cursorCell = state.cells[state.cursorRow]?.[state.cursorCol];
     const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
-    gpu.addOverlayCss(cx, cy, cursorW, ch, p.cursor);
+    const r = cursorRect(state.cursorStyle, cx, cy, cursorW, ch);
+    gpu.addOverlayCss(r.x, r.y, r.w, r.h, p.cursor);
     gpu.flushQuads();
-    if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
+    if (state.cursorStyle === "block" && cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
       gpu.addCharHex(cursorCell.ch, 0, cx, cy, p.editorBg);
       gpu.flushText();
     }
@@ -336,9 +350,10 @@ export function renderCanvas2D(w: number, h: number, canvas: HTMLCanvasElement, 
     const cy = Math.round(state.cursorRow * ch);
     const cursorCell = state.cells[state.cursorRow]?.[state.cursorCol];
     const cursorW = cursorCell?.width === 2 ? cw * 2 : cw;
+    const r = cursorRect(state.cursorStyle, cx, cy, cursorW, ch);
     ctx.fillStyle = p.cursor;
-    ctx.fillRect(cx, cy, cursorW, ch);
-    if (cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    if (state.cursorStyle === "block" && cursorCell && cursorCell.ch !== " " && cursorCell.ch !== "") {
       ctx.font = baseFont;
       ctx.fillStyle = p.editorBg;
       ctx.fillText(cursorCell.ch, cx, cy);

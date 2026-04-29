@@ -177,6 +177,79 @@ fn idx_to_rgb(i: u8) -> [u8; 3] {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalCursorStyle {
+    Block,
+    Underline,
+    Bar,
+}
+
+impl TerminalCursorStyle {
+    fn as_str(self) -> &'static str {
+        match self {
+            TerminalCursorStyle::Block => "block",
+            TerminalCursorStyle::Underline => "underline",
+            TerminalCursorStyle::Bar => "bar",
+        }
+    }
+
+    fn from_decscusr_param(param: u16) -> Self {
+        match param {
+            3 | 4 => TerminalCursorStyle::Underline,
+            5 | 6 => TerminalCursorStyle::Bar,
+            _ => TerminalCursorStyle::Block,
+        }
+    }
+}
+
+fn update_cursor_style_from_output(
+    data: &[u8],
+    cursor_style: &mut TerminalCursorStyle,
+    scan_tail: &mut Vec<u8>,
+) {
+    let mut scan = Vec::with_capacity(scan_tail.len() + data.len());
+    scan.extend_from_slice(scan_tail);
+    scan.extend_from_slice(data);
+
+    let mut i = 0;
+    while i < scan.len() {
+        let csi_start = if scan[i] == 0x9b {
+            Some(i + 1)
+        } else if scan[i] == 0x1b && scan.get(i + 1) == Some(&b'[') {
+            Some(i + 2)
+        } else {
+            None
+        };
+
+        let Some(mut j) = csi_start else {
+            i += 1;
+            continue;
+        };
+
+        let param_start = j;
+        while j < scan.len() && (scan[j].is_ascii_digit() || scan[j] == b';') {
+            j += 1;
+        }
+
+        if j + 1 < scan.len() && scan[j] == b' ' && scan[j + 1] == b'q' {
+            let param = std::str::from_utf8(&scan[param_start..j])
+                .ok()
+                .and_then(|s| s.split(';').next())
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(0);
+            *cursor_style = TerminalCursorStyle::from_decscusr_param(param);
+            i = j + 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    let keep_from = scan.len().saturating_sub(32);
+    scan_tail.clear();
+    scan_tail.extend_from_slice(&scan[keep_from..]);
+}
+
 fn extract_screen(parser: &vt100::Parser) -> TermScreen {
     let screen = parser.screen();
     let (rows, cols) = screen.size();
@@ -263,6 +336,8 @@ pub struct TermScreenDelta {
     pub bell: bool,
     /// True when terminal is in alternate screen mode (vim, less, etc.)
     pub alt_screen: bool,
+    /// "block", "underline", or "bar" from DECSCUSR.
+    pub cursor_style: String,
 }
 
 fn compute_delta(
@@ -271,6 +346,7 @@ fn compute_delta(
     parser: &vt100::Parser,
     last_bell_count: &mut u32,
     last_title: &mut String,
+    cursor_style: TerminalCursorStyle,
 ) -> TermScreenDelta {
     let rows = new_screen.rows;
     let cols = new_screen.cols;
@@ -336,6 +412,7 @@ fn compute_delta(
         title,
         bell,
         alt_screen,
+        cursor_style: cursor_style.as_str().to_string(),
     }
 }
 
@@ -344,6 +421,7 @@ pub struct PtyInstance {
     _master: Box<dyn MasterPty + Send>,
     _child: Box<dyn Child + Send + Sync>,
     parser: Arc<Mutex<vt100::Parser>>,
+    cursor_style: TerminalCursorStyle,
     /// PID of the shell process — used to kill the entire process group on close.
     child_pid: Option<u32>,
 }
@@ -351,10 +429,11 @@ pub struct PtyInstance {
 /// Encode a TermScreenDelta as a compact binary buffer.
 ///
 /// Layout:
-///   Header (15+ bytes):
+///   Header (16+ bytes):
 ///     u16 rows, u16 cols, u16 cursor_row, u16 cursor_col,
 ///     u8  meta_flags (full|bell|alt_screen|bracketed_paste),
 ///     u8  mouse_mode (0‒4), u8 mouse_encoding (0‒2),
+///     u8  cursor_style (0 block, 1 underline, 2 bar),
 ///     u16 num_changed_rows, u16 title_len,
 ///     [title_len bytes UTF-8 title]
 ///   Per changed row:
@@ -366,7 +445,7 @@ pub fn encode_delta_binary(delta: &TermScreenDelta) -> Vec<u8> {
     let title_len = title_bytes.len().min(u16::MAX as usize);
 
     let cols = delta.cols as usize;
-    let header_size = 15 + title_len;
+    let header_size = 16 + title_len;
     let row_size = 2 + cols * 12;
     let total = header_size + delta.changed_rows.len() * row_size;
 
@@ -395,6 +474,12 @@ pub fn encode_delta_binary(delta: &TermScreenDelta) -> Vec<u8> {
     buf.push(match delta.mouse_encoding.as_str() {
         "utf8" => 1,
         "sgr" => 2,
+        _ => 0,
+    });
+
+    buf.push(match delta.cursor_style.as_str() {
+        "underline" => 1,
+        "bar" => 2,
         _ => 0,
     });
 
@@ -495,6 +580,7 @@ impl TerminalManager {
             _master: pair.master,
             _child: child,
             parser: parser.clone(),
+            cursor_style: TerminalCursorStyle::Block,
             child_pid,
         }));
 
@@ -528,6 +614,7 @@ impl TerminalManager {
                 title: None,
                 bell: false,
                 alt_screen: false,
+                cursor_style: TerminalCursorStyle::Block.as_str().to_string(),
             };
             on_screen(term_id.clone(), initial_delta);
         }
@@ -547,6 +634,8 @@ impl TerminalManager {
             let mut last_cells: Vec<Vec<TermCell>> = Vec::new();
             let mut last_bell_count: u32 = 0;
             let mut last_title = String::new();
+            let mut cursor_style = TerminalCursorStyle::Block;
+            let mut cursor_style_scan_tail: Vec<u8> = Vec::new();
             let mut sixel_parser = term_pro::SixelParser::new();
             let mut sixel_buf: Vec<u8> = Vec::new();
             let mut in_sixel = false;
@@ -619,6 +708,7 @@ impl TerminalManager {
                                     inst.writer = new_writer;
                                     inst._master = pair.master;
                                     inst._child = new_child;
+                                    inst.cursor_style = TerminalCursorStyle::Block;
                                     inst.child_pid = new_child_pid;
                                     // Reset the vt100 parser for the new session
                                     let mut p = inst.parser.lock()
@@ -630,6 +720,8 @@ impl TerminalManager {
                                 last_cells.clear();
                                 last_bell_count = 0;
                                 last_title.clear();
+                                cursor_style = TerminalCursorStyle::Block;
+                                cursor_style_scan_tail.clear();
                                 eprintln!(
                                     "[terminal] PTY {} respawned (restart #{})",
                                     term_id_for_reader, count
@@ -652,6 +744,12 @@ impl TerminalManager {
                     }
                     Ok(n) => {
                         let data = &buf[..n];
+                        update_cursor_style_from_output(data, &mut cursor_style, &mut cursor_style_scan_tail);
+                        {
+                            let mut inst = instance_for_reader.lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            inst.cursor_style = cursor_style;
+                        }
 
                         // Detect sixel sequences in the raw PTY output
                         let mut i = 0;
@@ -696,7 +794,14 @@ impl TerminalManager {
                         let mut p = parser_for_reader.lock().unwrap_or_else(|e| e.into_inner());
                         p.process(data);
                         let screen = extract_screen(&p);
-                        let delta = compute_delta(screen, &mut last_cells, &p, &mut last_bell_count, &mut last_title);
+                        let delta = compute_delta(
+                            screen,
+                            &mut last_cells,
+                            &p,
+                            &mut last_bell_count,
+                            &mut last_title,
+                            cursor_style,
+                        );
                         drop(p);
                         on_screen_for_reader(term_id_for_reader.clone(), delta);
                     }
@@ -759,6 +864,7 @@ impl TerminalManager {
             title: None,
             bell: false,
             alt_screen: p.screen().alternate_screen(),
+            cursor_style: inst.cursor_style.as_str().to_string(),
         })
     }
 
@@ -923,11 +1029,12 @@ mod tests {
             title: None,
             bell: false,
             alt_screen: false,
+            cursor_style: "bar".into(),
         };
 
         let buf = encode_delta_binary(&delta);
-        // Header: 15 bytes (no title) + 1 row × (2 + 3×12) = 15 + 38 = 53
-        assert_eq!(buf.len(), 53);
+        // Header: 16 bytes (no title) + 1 row × (2 + 3×12) = 16 + 38 = 54
+        assert_eq!(buf.len(), 54);
         // rows=2 LE
         assert_eq!(buf[0], 2);
         assert_eq!(buf[1], 0);
@@ -936,8 +1043,10 @@ mod tests {
         assert_eq!(buf[3], 0);
         // meta_flags: full=1
         assert_eq!(buf[8], 1);
+        // cursor_style: bar=2
+        assert_eq!(buf[11], 2);
         // First cell codepoint = 'A' = 65
-        let cell_start = 15 + 2; // header + row_index
+        let cell_start = 16 + 2; // header + row_index
         assert_eq!(buf[cell_start], 65);
         // First cell bold flag = 1
         assert_eq!(buf[cell_start + 10], 1);
@@ -945,5 +1054,31 @@ mod tests {
         let cell3 = cell_start + 24;
         assert_eq!(buf[cell3], 66);
         assert_eq!(buf[cell3 + 10], 2);
+    }
+
+    #[test]
+    fn cursor_style_tracks_decscusr_sequences() {
+        let mut style = TerminalCursorStyle::Block;
+        let mut tail = Vec::new();
+
+        update_cursor_style_from_output(b"\x1b[5 q", &mut style, &mut tail);
+        assert_eq!(style, TerminalCursorStyle::Bar);
+
+        update_cursor_style_from_output(b"\x1b[3 q", &mut style, &mut tail);
+        assert_eq!(style, TerminalCursorStyle::Underline);
+
+        update_cursor_style_from_output(b"\x1b[2 q", &mut style, &mut tail);
+        assert_eq!(style, TerminalCursorStyle::Block);
+    }
+
+    #[test]
+    fn cursor_style_handles_split_sequences() {
+        let mut style = TerminalCursorStyle::Block;
+        let mut tail = Vec::new();
+
+        update_cursor_style_from_output(b"\x1b[", &mut style, &mut tail);
+        update_cursor_style_from_output(b"6 q", &mut style, &mut tail);
+
+        assert_eq!(style, TerminalCursorStyle::Bar);
     }
 }

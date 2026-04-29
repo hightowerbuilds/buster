@@ -6,9 +6,9 @@
  * instead of ~140 bytes of JSON. ~9× reduction in IPC payload size.
  *
  * Binary layout (little-endian):
- *   Header (15 + title_len bytes):
+ *   Header (16 + title_len bytes):
  *     u16 rows, u16 cols, u16 cursor_row, u16 cursor_col,
- *     u8  meta_flags, u8 mouse_mode, u8 mouse_encoding,
+ *     u8  meta_flags, u8 mouse_mode, u8 mouse_encoding, u8 cursor_style,
  *     u16 num_changed_rows, u16 title_len, [title bytes]
  *   Per changed row: u16 row_index, then cols × 12 bytes
  *   Per cell: u32 codepoint, u8×3 fg, u8×3 bg, u8 attr_flags, u8 width
@@ -48,12 +48,16 @@ export interface TermScreenDelta {
   title?: string;
   bell?: boolean;
   alt_screen?: boolean;
+  cursor_style?: TerminalCursorStyle;
 }
+
+export type TerminalCursorStyle = "block" | "underline" | "bar";
 
 // ── Lookup tables ─────────────────────────────────────────────
 
 const MOUSE_MODES = ["none", "press", "press_release", "button_motion", "any_motion"] as const;
 const MOUSE_ENCODINGS = ["default", "utf8", "sgr"] as const;
+const CURSOR_STYLES = ["block", "underline", "bar"] as const;
 
 // ── Decoder ───────────────────────────────────────────────────
 
@@ -82,6 +86,7 @@ export function decodeBinaryDelta(base64: string): TermScreenDelta {
 
   const mouse_mode = MOUSE_MODES[bytes[off++]] ?? "none";
   const mouse_encoding = MOUSE_ENCODINGS[bytes[off++]] ?? "default";
+  const cursor_style = CURSOR_STYLES[bytes[off++]] ?? "block";
 
   const numRows = view.getUint16(off, true); off += 2;
   const titleLen = view.getUint16(off, true); off += 2;
@@ -131,6 +136,6 @@ export function decodeBinaryDelta(base64: string): TermScreenDelta {
     rows, cols, cursor_row, cursor_col,
     changed_rows, full,
     mouse_mode, mouse_encoding, bracketed_paste,
-    title, bell, alt_screen,
+    title, bell, alt_screen, cursor_style,
   };
 }

@@ -12,7 +12,7 @@ The terminal is in solid shape — PTY management, crash recovery, 256/truecolor
 Addressing known limitations in the current implementation.
 
 - [ ] **Strikethrough / faint text rendering** — the backend hardcodes these to `false` (vt100 crate v0.15 limitation); upgrade the vt100 crate or parse SGR 2/9 manually
-- [ ] **Cursor style support (DECSCUSR)** — parse cursor style escape sequences so shells/apps can request block, beam, or underline cursors; currently always renders block
+- [x] **Cursor style support (DECSCUSR)** — parses cursor style escape sequences so shells/apps can request block, beam/bar, or underline cursors
 - [x] **Double/triple-click word/line selection** — double-click selects a word, triple-click selects the full line
 - [x] **Selection preservation on output** — copied text is snapshotted after selection so new output does not change what copy returns
 - [ ] **WebGL rendering evaluation** — code exists but is disabled (`TERMINAL_WEBGL_ENABLED = false`); evaluate performance benefit, fix issues, or remove dead code
