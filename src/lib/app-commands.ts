@@ -88,6 +88,9 @@ export interface CommandDeps {
   splitRight: () => void;
   splitDown: () => void;
   closeSplit: () => void;
+  navigatePane: (direction: import("./writing-panes").PaneDirection) => void;
+  resizePane: (direction: import("./writing-panes").PaneDirection) => void;
+  zoomPane: () => void;
   closeTabOrSplit: () => void;
   navigateBack: () => void;
   navigateForward: () => void;
@@ -148,6 +151,12 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "view.splitRight": "Mod+d",
   "view.splitDown": "Mod+Shift+d",
   "view.closeSplit": "Mod+w",
+  "pane.close": "Mod+Shift+w",
+  "pane.zoom": "Mod+Shift+Enter",
+  ...Object.fromEntries(["left", "right", "up", "down"].flatMap(direction => [
+    [`pane.focus.${direction}`, `Mod+Alt+Arrow${direction[0].toUpperCase() + direction.slice(1)}`],
+    [`pane.resize.${direction}`, `Mod+Alt+Shift+Arrow${direction[0].toUpperCase() + direction.slice(1)}`],
+  ])),
   "editor.toggleTabTrapping": "Ctrl+m",
   "tabs.prev": "Mod+Shift+[",
   "tabs.next": "Mod+Shift+]",
@@ -168,12 +177,18 @@ export function resolveHotkey(commandId: string, userOverrides?: Record<string, 
 
 export function createAppCommands(deps: CommandDeps): Command[] {
   return [
-    { id: "file.newFile", label: "New File", category: "File", keybinding: "Mod+N", execute: () => deps.createNewFile() },
+    { id: "file.newFile", label: "New Note", category: "File", keybinding: "Mod+N", execute: () => deps.createNewFile() },
     { id: "file.save", label: "Save", category: "File", keybinding: "Mod+S", execute: () => deps.handleSave() },
     { id: "file.saveAs", label: "Save As...", category: "File", keybinding: "Mod+Shift+S", execute: () => deps.handleSaveAs() },
     { id: "file.openFolder", label: "Open Folder", category: "File", keybinding: "Mod+O", execute: () => deps.changeDirectory() },
     { id: "file.closeTab", label: "Close Tab", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
+    { id: "pane.close", label: "Close Pane (Keep Content)", category: "Panes", execute: deps.closeSplit },
+    { id: "pane.zoom", label: "Maximize / Restore Pane", category: "Panes", execute: deps.zoomPane },
+    ...(["left", "right", "up", "down"] as const).flatMap(direction => [
+      { id: `pane.focus.${direction}`, label: `Focus ${direction}`, category: "Panes", execute: () => deps.navigatePane(direction) },
+      { id: `pane.resize.${direction}`, label: `Grow ${direction}`, category: "Panes", execute: () => deps.resizePane(direction) },
+    ]),
     { id: "editor.goToLine", label: "Go to Line...", category: "Editor", keybinding: "Ctrl+G", execute: () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); } },
     { id: "editor.goToSymbol", label: "Go to Symbol in File...", category: "Editor", keybinding: "Mod+Shift+O", execute: () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); } },
     { id: "editor.workspaceSymbol", label: "Go to Symbol in Workspace...", category: "Editor", keybinding: "Mod+Shift+T", execute: () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); } },
@@ -283,10 +298,24 @@ export function buildHotkeyDefinitions(
   add("view.settings", () => deps.createSettingsTab());
   add("view.keybindings", () => deps.createKeybindingsTab());
   add("view.toggleSidebar", () => deps.setSidebarVisible(v => !v));
+  add("pane.close", () => deps.closeSplit());
+  add("pane.zoom", () => deps.zoomPane());
+  for (const direction of ["left", "right", "up", "down"] as const) {
+    add(`pane.focus.${direction}`, () => deps.navigatePane(direction));
+    add(`pane.resize.${direction}`, () => deps.resizePane(direction));
+  }
   add("view.splitRight", () => deps.splitRight());
   add("view.splitDown", () => deps.splitDown());
-  add("view.closeSplit", () => deps.closeSplit());
-  add("editor.find", () => { if (deps.activeEngine()) deps.setFindVisible(true); });
+  add("view.closeSplit", () => deps.closeTabOrSplit());
+  // Root hotkeys run before Solid's delegated terminal key handler. Disable the
+  // editor binding outside documents so Cmd+F can reach terminal search.
+  const findHotkey = hk("editor.find");
+  if (findHotkey && !isChord(findHotkey)) {
+    defs.push({ hotkey: findHotkey as RegisterableHotkey,
+      callback: () => { if (deps.activeEngine()) deps.setFindVisible(true); },
+      options: { enabled: !!deps.activeEngine() },
+    });
+  }
   add("editor.goToLine", () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); });
   add("editor.goToSymbol", () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); });
   add("editor.workspaceSymbol", () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); });
@@ -299,9 +328,6 @@ export function buildHotkeyDefinitions(
   add("editor.zoomReset", () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }));
   add("git.open", () => deps.createGitTab());
   add("browser.open", () => deps.createBrowserTab());
-  add("view.splitRight", () => deps.splitRight());
-  add("view.splitDown", () => deps.splitDown());
-  add("view.closeSplit", () => deps.closeSplit());
   add("editor.nextProblem", () => deps.jumpToDiagnostic(1));
   add("editor.prevProblem", () => deps.jumpToDiagnostic(-1));
   add("view.focusNextRegion", () => cycleRegion(1));
@@ -328,7 +354,7 @@ export function buildHotkeyDefinitions(
       if (deps.findVisible()) deps.setFindVisible(false);
       else if (deps.paletteVisible()) deps.setPaletteVisible(false);
     },
-    options: { preventDefault: false },
+    options: { preventDefault: false, stopPropagation: false },
   });
 
   return defs;

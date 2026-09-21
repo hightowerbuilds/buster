@@ -1,7 +1,7 @@
 {
-  "name": "buster",
+  "name": "bustermark",
   "version": "0.1.0",
-  "description": "A canvas-rendered IDE powered by Tauri, Rust, and Pretext",
+  "description": "A writing workbench with AI integration, built with Tauri, Rust, and SolidJS",
   "type": "module",
   "scripts": {
     "start": "vite",

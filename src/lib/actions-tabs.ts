@@ -1,3 +1,6 @@
+import { batch } from "solid-js";
+import { showTabInPane } from "./writing-panes";
+import { focusTabPanel } from "./focus-service";
 import { produce } from "solid-js/store";
 import type { SetStoreFunction } from "solid-js/store";
 import type { BusterStoreState } from "./store-types";
@@ -7,8 +10,7 @@ import type { DirtyCloseResult } from "../ui/DirtyCloseDialog";
 import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
 import { basename, extname } from "buster-path";
 import { unwatchFile, lspStop, lspStatus, terminalKill, extUnload, browserModuleClose } from "./ipc";
-import { showInfo } from "./notify";
-import { autoDemotePanelCount } from "./panel-count";
+import { showInfo, showError } from "./notify";
 
 const EXT_TO_LANG: Record<string, string> = {
   rs: "rust", ts: "typescript", tsx: "typescriptreact",
@@ -29,7 +31,12 @@ export function createTabActions(
 ) {
   function switchToTab(tabId: string) {
     const tab = store.tabs.find(t => t.id === tabId);
-    setStore("activeTabId", tabId);
+    if (!tab) return;
+    batch(() => {
+      setStore("paneWorkspace", showTabInPane(store.paneWorkspace, tabId));
+      setStore("activeTabId", tabId);
+    });
+    focusTabPanel(tabId);
     if (tab?.type === "file") {
       const engine = engines.get(tabId);
       const cursor = engine?.cursor();
@@ -44,11 +51,12 @@ export function createTabActions(
   function createNewFile() {
     setStore("fileTabCounter", c => c + 1);
     const tabId = `file_${store.fileTabCounter}`;
-    const name = `Untitled-${store.fileTabCounter}`;
+    const name = `Note-${store.fileTabCounter}.md`;
     const newTab: Tab = { id: tabId, name, path: "", dirty: false, type: "file" };
     setStore("fileTexts", tabId, "");
     setStore("tabs", [...store.tabs, newTab]);
     switchToTab(tabId);
+    return tabId;
   }
 
   function createTerminalTab() {
@@ -64,6 +72,7 @@ export function createTabActions(
     };
     setStore("tabs", [...store.tabs, newTab]);
     switchToTab(tabId);
+    return tabId;
   }
 
   function openSingletonTab(type: Exclude<Tab["type"], "file" | "terminal">, id: string, name: string) {
@@ -78,7 +87,6 @@ export function createTabActions(
   function createSettingsTab() { openSingletonTab("settings", "settings_tab", "Settings"); }
   function createKeybindingsTab() { openSingletonTab("keybindings", "keybindings_tab", "Keyboard Shortcuts"); }
   function createExtensionsTab() { openSingletonTab("extensions", "extensions_tab", "Extensions"); }
-  function createDebugTab() { openSingletonTab("debug", "debug_tab", "Debug"); }
   function createProblemsTab() { openSingletonTab("problems", "problems_tab", "Problems"); }
   function createConsoleTab() { openSingletonTab("console", "console_tab", "Console"); }
   function createAiTab() { openSingletonTab("ai", "ai_tab", "AI"); }
@@ -137,7 +145,10 @@ export function createTabActions(
     if (result === "save") {
       const tab = store.tabs.find(t => t.id === tabId);
       const engine = engines.get(tabId);
-      if (tab && engine) {
+      if (tab) {
+        const text = engine?.getText() ?? store.fileTexts[tabId];
+        if (text === undefined) { showError("Draft text is unavailable; the tab remains open"); return; }
+        const savedRevision = engine?.editSeq();
         let savePath = tab.path;
         if (!savePath) {
           const { save } = await import("@tauri-apps/plugin-dialog");
@@ -145,8 +156,14 @@ export function createTabActions(
           if (!chosen) return;
           savePath = chosen;
         }
-        await writeFileSmart(savePath, engine.getText());
-        engine.markClean();
+        try { await writeFileSmart(savePath, text); }
+        catch { showError("Failed to save; the draft remains open"); return; }
+        if (engine && engine.editSeq() !== savedRevision) {
+          setStore("tabs", store.tabs.map(t => t.id === tabId ? { ...t, path: savePath, name: basename(savePath) } : t));
+          showInfo("New changes remain unsaved; the draft stays open");
+          return;
+        }
+        engine?.markClean();
         setStore("tabs", store.tabs.map(t => t.id === tabId ? { ...t, path: savePath, name: basename(savePath), dirty: false } : t));
       }
     }
@@ -193,7 +210,7 @@ export function createTabActions(
 
     const newTabs = store.tabs.filter(t => t.id !== tabId);
     setStore("tabs", newTabs);
-    setStore("panelCount", autoDemotePanelCount(store.panelCount, newTabs.length));
+    setStore("paneWorkspace", "panes", store.paneWorkspace.panes.map(p => p.tabId === tabId ? { ...p, tabId: null } : p));
 
     if (store.activeTabId === tabId) {
       if (newTabs.length > 0) switchToTab(newTabs[newTabs.length - 1].id);
@@ -204,7 +221,7 @@ export function createTabActions(
   return {
     switchToTab, createNewFile, createTerminalTab,
     createGitTab, createSettingsTab, createKeybindingsTab, createExtensionsTab,
-    createDebugTab, createProblemsTab, createConsoleTab, createAiTab,
+    createProblemsTab, createConsoleTab, createAiTab,
     createBrowserTab, popOutSidebar,
     handleTermIdReady, handleTermTitleChange,
     handleTabClose, handleExternalChangeResult, handleDirtyCloseResult,

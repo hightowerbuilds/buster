@@ -4,11 +4,10 @@
  */
 
 import type { Tab } from "./tab-types";
-import type { SearchMatch, DiffHunk, AppSettings, DebugStackFrame, DebugVariable } from "./ipc";
-import type { DebugSessionState } from "./debug-events";
+import type { SearchMatch, DiffHunk, AppSettings } from "./ipc";
 import type { ThemePalette } from "./theme";
 import type { PanelCount } from "./panel-count";
-import type { PanelLayoutNode } from "../ui/panel-layout-tree";
+import type { PaneWorkspace } from "./writing-panes";
 
 export type LspState = "inactive" | "starting" | "active" | "error" | "crashed";
 
@@ -51,7 +50,7 @@ export interface BusterStoreState {
   // ── Layout ──────────────────────────────────────────────
   panelCount: PanelCount;
   splitDirection: "row" | "column";
-  layoutTree: PanelLayoutNode;
+  paneWorkspace: PaneWorkspace;
   sidebarWidth: number;
   sidebarVisible: boolean;
 
@@ -76,14 +75,6 @@ export interface BusterStoreState {
   // ── Workspace ──────────────────────────────────────────
   workspaceRoot: string | null;
   activeFilePath: string | null;
-
-  // ── Debug ──────────────────────────────────────────────
-  debugModeVisible: boolean;
-  debugSessionState: DebugSessionState;
-  debugStackFrames: DebugStackFrame[];
-  debugVariables: DebugVariable[];
-  debugOutput: string[];
-  debugSelectedFrameId: number | null;
 
   // ── Navigation history ──────────────────────────────────
   navHistory: NavHistoryEntry[];

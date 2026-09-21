@@ -290,6 +290,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
     setFilePath: setPath,
     markClean: () => setDirty(false),
+    markDirty: () => setDirty(true),
 
     // ── Cursor mutations ────────────────────────────────────────
 
@@ -1040,6 +1041,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
     endUndoGroup() {
       inUndoGroup = false;
+      flushPending();
     },
 
     // ── Display rows (cached) ───────────────────────────────────

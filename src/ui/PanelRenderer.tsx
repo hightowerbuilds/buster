@@ -168,7 +168,13 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             display: "flex",
           }}>
           <CanvasEditor
+            tabId={tab.id}
             initialText={initialText}
+            initialDirty={tab.dirty}
+            initialCursor={existingEngine?.cursor() ?? tab.restoredCursor}
+            initialSelection={existingEngine?.sel() ?? tab.restoredSelection}
+            initialScrollTop={deps.scrollPositions()[tab.id] ?? 0}
+            onScrollChange={top => deps.onScrollChange(tab.id, top)}
             filePath={tab.path || null}
             languagePath={languagePath}
             active={isActive()}

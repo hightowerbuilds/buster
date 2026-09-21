@@ -1,0 +1,18 @@
+.writing-review { height: 100%; overflow: auto; padding: 18px; box-sizing: border-box; color: var(--text-primary, #cdd6f4); font-size: 13px; line-height: 1.5; }
+.writing-review header, .writing-review-provider { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.writing-review h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.writing-review label { display: block; margin: 14px 0 5px; font-size: 12px; font-weight: 600; }
+.writing-review input, .writing-review textarea, .writing-review select { display: block; box-sizing: border-box; width: 100%; margin-top: 5px; padding: 8px; border: 1px solid var(--border, #45475a); border-radius: 5px; background: var(--bg-secondary, #181825); color: inherit; font: inherit; }
+.writing-review textarea { resize: vertical; min-height: 72px; }
+.writing-review button { padding: 6px 10px; border: 1px solid var(--border, #45475a); border-radius: 5px; background: var(--bg-secondary, #181825); color: inherit; cursor: pointer; font: inherit; }
+.writing-review button:hover:not(:disabled) { background: var(--bg-hover, #313244); }
+.writing-review button:disabled { opacity: .45; cursor: default; }
+.writing-review :is(button, input, textarea, select, pre):focus-visible { outline: 2px solid var(--accent, #89b4fa); outline-offset: 2px; }
+.writing-review button.primary { border-color: var(--accent, #89b4fa); color: var(--accent, #89b4fa); }
+.writing-review blockquote, .writing-review-result { margin: 6px 0 12px; padding: 12px; background: var(--bg-secondary, #181825); border-radius: 5px; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.writing-review blockquote { border-left: 3px solid var(--accent, #89b4fa); max-height: 180px; overflow: auto; }
+.writing-review-provider { margin-top: 20px; }
+.writing-review-meta { color: var(--text-secondary, #a6adc8); font-size: 12px; }
+.writing-review-status { margin: 16px 0 8px; }
+.writing-review-error { color: var(--red, #f38ba8); white-space: pre-wrap; overflow-wrap: anywhere; }
+.writing-review-buttons { display: flex; gap: 8px; flex-wrap: wrap; }

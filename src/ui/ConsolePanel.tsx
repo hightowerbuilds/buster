@@ -207,7 +207,7 @@ const ConsolePanel: Component<{ active: boolean }> = (props) => {
           "flex-shrink": "0",
         }}
       >
-        <span>Buster Console</span>
+        <span>BusterMark Console</span>
         <button
           onClick={handleClear}
           style={{

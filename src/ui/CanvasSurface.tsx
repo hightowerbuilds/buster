@@ -14,7 +14,7 @@ interface CanvasSurfaceProps {
   onMouseUp?: JSX.EventHandlerUnion<HTMLDivElement, MouseEvent>;
   onWheel?: JSX.EventHandlerUnion<HTMLDivElement, WheelEvent>;
   onContextMenu?: JSX.EventHandlerUnion<HTMLDivElement, MouseEvent>;
-  textareaProps?: JSX.TextareaHTMLAttributes<HTMLTextAreaElement>;
+  textareaProps?: JSX.TextareaHTMLAttributes<HTMLTextAreaElement> & { "data-tab-focus-target"?: string };
   children?: JSX.Element;
 }
 

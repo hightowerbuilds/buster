@@ -41,6 +41,8 @@ export interface FileTabDeps {
   diffHunksMap: () => Record<string, DiffHunk[]>;
   engineMap: Map<string, EditorEngine>;
   getFileTextForTab: (tabId: string) => string | null;
+  scrollPositions: () => Record<string, number>;
+  onScrollChange: (tabId: string, top: number) => void;
   switchToTab: (id: string) => void;
 }
 

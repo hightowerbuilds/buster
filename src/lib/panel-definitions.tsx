@@ -14,7 +14,6 @@ import SettingsPanel from "../ui/SettingsPanel";
 import KeybindingsPanel from "../ui/KeybindingsPanel";
 import GitPage from "../ui/GitPage";
 import ExtensionsPage from "../ui/ExtensionsPage";
-import DebugPanel from "../ui/DebugPanel";
 import ProblemsPanel from "../ui/ProblemsPanel";
 import SearchResultsPanel from "../ui/SearchResultsPanel";
 import Sidebar from "../ui/Sidebar";
@@ -23,6 +22,11 @@ import DisplayListSurface from "../ui/DisplayListSurface";
 import CanvasBrowserPanel from "../ui/CanvasBrowserPanel";
 import ConsolePanel from "../ui/ConsolePanel";
 import AiSettingsPanel from "../ui/AiSettingsPanel";
+import WritingReviewPanel from "../ui/WritingReviewPanel";
+
+registerPanel("writing-review", {
+  render: tab => <WritingReviewPanel reviewId={tab.path} />,
+});
 
 // ── Terminal ─────────────────────────────────────────────────────────
 
@@ -103,12 +107,6 @@ registerPanel("problems", {
       }}
     />
   ),
-});
-
-// ── Debug ────────────────────────────────────────────────────────────
-
-registerPanel("debug", {
-  render: () => <DebugPanel />,
 });
 
 // ── Explorer (popped out sidebar) ────────────────────────────────────

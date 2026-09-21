@@ -3,7 +3,6 @@ mod terminal;
 mod syntax;
 mod lsp;
 mod extensions;
-mod debugger;
 pub mod workspace;
 pub mod watcher;
 mod browser;
@@ -13,7 +12,6 @@ pub mod filebuffer;
 use terminal::TerminalManager;
 use syntax::SyntaxService;
 use lsp::LspManager;
-use debugger::DebugManager;
 use browser::BrowserManager;
 use tauri::menu::{Menu, Submenu, MenuItem, PredefinedMenuItem};
 use tauri::{Emitter, Manager};
@@ -36,9 +34,9 @@ pub fn run() {
         .manage(watcher::FileWatcher::new())
         .manage(Arc::new(BrowserManager::new()))
         .manage(filebuffer::FileBufferManager::new())
-        .manage(DebugManager::new())
         .manage(tokio::sync::Mutex::new(Option::<browser_module::BrowserModule>::None))
         .manage(commands::ai_completion::AiCompletionState::new())
+        .manage(commands::writing_ai::WritingAiState::default())
         .setup(|app| {
             // Build the native menu bar
             let change_dir = MenuItem::with_id(app, "change_directory", "Change Directory", true, None::<&str>)?;
@@ -46,21 +44,14 @@ pub fn run() {
             let view_extensions = MenuItem::with_id(
                 app,
                 "view_extensions",
-                "Extensions (Ctrl+` then E)",
-                true,
-                None::<&str>,
-            )?;
-            let view_debug = MenuItem::with_id(
-                app,
-                "view_debug",
-                "Debug (Ctrl+` then D)",
+                "Extensions",
                 true,
                 None::<&str>,
             )?;
             let view_settings = MenuItem::with_id(
                 app,
                 "view_settings",
-                "Settings (Cmd+, / Ctrl+` then S)",
+                "Settings (Cmd+,)",
                 true,
                 None::<&str>,
             )?;
@@ -86,15 +77,17 @@ pub fn run() {
                 &close_tab,
             ])?;
 
-            // Use PredefinedMenuItems so macOS registers native selectors (undo:, cut:, copy:, paste:, selectAll:).
+            // Keep native cut/copy/paste selectors for dictation and clipboard integration.
             // This is critical for compatibility with voice dictation tools (Wispr Flow, macOS Dictation)
             // which inject text via simulated Cmd+V through the macOS responder chain.
             // PredefinedMenuItems route through the native NSResponder paste: selector,
             // while custom MenuItems with accelerators only intercept the key combo from real keyboard events.
             let select_all = MenuItem::with_id(app, "select_all", "Select All", true, Some("CmdOrCtrl+A"))?;
+            let undo = MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?;
+            let redo = MenuItem::with_id(app, "redo", "Redo", true, Some("CmdOrCtrl+Shift+Z"))?;
             let edit_menu = Submenu::with_items(app, "Edit", true, &[
-                &PredefinedMenuItem::undo(app, Some("Undo"))?,
-                &PredefinedMenuItem::redo(app, Some("Redo"))?,
+                &undo,
+                &redo,
                 &PredefinedMenuItem::separator(app)?,
                 &PredefinedMenuItem::cut(app, Some("Cut"))?,
                 &PredefinedMenuItem::copy(app, Some("Copy"))?,
@@ -106,10 +99,16 @@ pub fn run() {
                 app,
                 "View",
                 true,
-                &[&view_extensions, &view_debug, &view_settings],
+                &[&view_extensions, &view_settings],
             )?;
 
-            let menu = Menu::with_items(app, &[&file_menu, &edit_menu, &view_menu])?;
+            // macOS reserves the first submenu for the application menu.
+            let app_menu = Submenu::with_items(app, "BusterMark", true, &[
+                &PredefinedMenuItem::hide(app, None)?,
+                &PredefinedMenuItem::hide_others(app, None)?,
+                &PredefinedMenuItem::show_all(app, None)?,
+            ])?;
+            let menu = Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu])?;
             app.set_menu(menu)?;
 
             // Handle menu events
@@ -144,9 +143,6 @@ pub fn run() {
                     }
                     "view_extensions" => {
                         let _ = app_handle.emit("menu-open-extensions", ());
-                    }
-                    "view_debug" => {
-                        let _ = app_handle.emit("menu-open-debug", ());
                     }
                     "view_settings" => {
                         let _ = app_handle.emit("menu-open-settings", ());
@@ -221,19 +217,6 @@ pub fn run() {
                 });
             }
 
-            // Spawn debug event forwarding thread (DAP → frontend)
-            {
-                let debug_mgr = app.state::<debugger::DebugManager>();
-                if let Some(rx) = debug_mgr.take_event_rx() {
-                    let debug_handle = app.handle().clone();
-                    std::thread::spawn(move || {
-                        while let Ok(event) = rx.recv() {
-                            let _ = debug_handle.emit("debug-event", &event);
-                        }
-                    });
-                }
-            }
-
             // Wire surface event sink
             {
                 let surface_handle = app.handle().clone();
@@ -276,19 +259,6 @@ pub fn run() {
             commands::syntax::syntax_close,
             commands::syntax::syntax_edit,
             commands::syntax::syntax_languages,
-            // Debugger
-            commands::debugger::debug_toggle_breakpoint,
-            commands::debugger::debug_get_breakpoints,
-            commands::debugger::debug_state,
-            commands::debugger::debug_launch,
-            commands::debugger::debug_continue,
-            commands::debugger::debug_step_over,
-            commands::debugger::debug_step_into,
-            commands::debugger::debug_step_out,
-            commands::debugger::debug_pause,
-            commands::debugger::debug_stop,
-            commands::debugger::debug_stack_trace,
-            commands::debugger::debug_variables,
             // Search
             commands::search::list_workspace_files,
             commands::search::workspace_search,
@@ -406,6 +376,12 @@ pub fn run() {
             commands::filebuffer::large_file_line_count,
             commands::filebuffer::large_file_close,
             // AI Completion
+            commands::writing_ai::writing_ai_generate,
+            commands::lookup::lookup_selection_text,
+            commands::speech::speech_voices,
+            commands::speech::speech_start,
+            commands::speech::speech_control,
+            commands::writing_ai::writing_ai_cancel,
             commands::ai_completion::ai_completion_request,
             commands::ai_completion::ai_completion_cancel,
             commands::ai_completion::ai_completion_ollama_models,
@@ -416,6 +392,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
+                commands::speech::shutdown();
                 let lsp = app_handle.state::<LspManager>();
                 lsp.stop_all();
             }

@@ -18,6 +18,35 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+.command-line-shell button {
+  border: 1px solid var(--border);
+  background: var(--bg-crust);
+  color: var(--text);
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.command-line-shell button:focus-visible,
+.command-line-input:focus-visible,
+.command-line-result:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.command-line-shell button:disabled { opacity: 0.5; cursor: default; }
+.command-line-examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.command-line-result {
+  margin: 0;
+  max-height: 36vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font: 12px/1.5 "JetBrains Mono", monospace;
 }
 
 .command-line-bar {

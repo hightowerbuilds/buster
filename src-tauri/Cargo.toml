@@ -1,10 +1,10 @@
 [workspace]
-members = [".", "crates/*"]
+members = [".", "crates/sandbox", "crates/lsp-manager", "crates/syntax", "crates/terminal-pro"]
 
 [package]
-name = "buster"
+name = "bustermark"
 version = "0.1.0"
-description = "A canvas-rendered IDE powered by Tauri, Rust, and Pretext"
+description = "A writing workbench with AI integration"
 authors = ["Luke Hightower"]
 edition = "2021"
 
@@ -14,6 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["unstable", "image-png"] }
@@ -105,7 +106,6 @@ security-framework = "3.7.0"
 buster-sandbox = { path = "crates/sandbox" }
 buster-lsp-manager = { path = "crates/lsp-manager" }
 buster-syntax = { path = "crates/syntax" }
-buster-dap = { path = "crates/dap" }
 buster-terminal-pro = { path = "crates/terminal-pro" }
 
 [dev-dependencies]

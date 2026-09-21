@@ -624,6 +624,7 @@ export interface SessionTab {
   cursor_col: number;
   scroll_top: number;
   backup_key: string | null;
+  selection?: import("../editor/engine").Selection | null;
 }
 
 export interface SessionState {
@@ -631,6 +632,7 @@ export interface SessionState {
   workspace_root: string | null;
   active_tab_id: string | null;
   layout_mode: string;
+  pane_workspace?: import("./writing-panes").PaneWorkspace | null;
   sidebar_visible: boolean;
   sidebar_width: number;
   tabs: SessionTab[];
@@ -667,50 +669,3 @@ export const largeFileReadLines = (path: string, start: number, count: number) =
 
 export const largeFileClose = (path: string) =>
   invoke<void>("large_file_close", { path });
-
-// ── Debugger ────────────────────────────────────────────────
-
-export interface DebugBreakpoint {
-  line: number;
-  condition: string | null;
-}
-
-export interface DebugStackFrame {
-  id: number;
-  name: string;
-  file_path: string | null;
-  line: number;
-  col: number;
-}
-
-export interface DebugVariable {
-  name: string;
-  value: string;
-  var_type: string | null;
-  variables_reference: number;
-}
-
-export const debugToggleBreakpoint = (filePath: string, line: number) =>
-  invoke<boolean>("debug_toggle_breakpoint", { filePath, line });
-
-export const debugGetBreakpoints = (filePath: string) =>
-  invoke<DebugBreakpoint[]>("debug_get_breakpoints", { filePath });
-
-export const debugState = () =>
-  invoke<string>("debug_state");
-
-export const debugLaunch = (adapterCmd: string, adapterArgs: string[], program: string, workspaceRoot: string) =>
-  invoke<void>("debug_launch", { adapterCmd, adapterArgs, program, workspaceRoot });
-
-export const debugContinue = () => invoke<void>("debug_continue");
-export const debugStepOver = () => invoke<void>("debug_step_over");
-export const debugStepInto = () => invoke<void>("debug_step_into");
-export const debugStepOut = () => invoke<void>("debug_step_out");
-export const debugPause = () => invoke<void>("debug_pause");
-export const debugStop = () => invoke<void>("debug_stop");
-
-export const debugStackTrace = () =>
-  invoke<DebugStackFrame[]>("debug_stack_trace");
-
-export const debugVariables = (variablesReference: number) =>
-  invoke<DebugVariable[]>("debug_variables", { variablesReference });

@@ -81,7 +81,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
   let folderY = 0;         // Y position of the folder links (platform)
   let lastTitleSize = 320; // actual title font size after scaling
 
-  const SUBTITLE = "canvas-rendered ide";
+  const SUBTITLE = "writing workbench with AI";
   const DRAG_RADIUS = 40;  // how close the drag must be to knock particles loose
   const GRAVITY = 0.35;
 
@@ -135,11 +135,11 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
     let titleSize = 320;
     const maxWidth = w * 0.85;
     while (titleSize > 48) {
-      if (measureTextWidth("Buster", `${titleSize}px ${titleFontFamily}`) <= maxWidth) break;
+      if (measureTextWidth("BusterMark", `${titleSize}px ${titleFontFamily}`) <= maxWidth) break;
       titleSize -= 8;
     }
 
-    const titleW = measureTextWidth("Buster", `${titleSize}px ${titleFontFamily}`);
+    const titleW = measureTextWidth("BusterMark", `${titleSize}px ${titleFontFamily}`);
     const offsetX = (w - titleW) / 2 - 10;
     // Center the whole block (title + subtitle + folders ~= titleSize + 60px)
     // vertically, biased slightly upward (45% from top)
@@ -148,7 +148,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
 
     lastTitleSize = titleSize;
 
-    const points = sampleTextPixels("Buster", titleSize, titleFontFamily, offsetX, offsetY, 5);
+    const points = sampleTextPixels("BusterMark", titleSize, titleFontFamily, offsetX, offsetY, 5);
 
     particles = points.map((p) => ({
       tx: p.x, ty: p.y,

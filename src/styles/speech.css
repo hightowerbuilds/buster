@@ -1,0 +1,26 @@
+.speech-dock { flex-shrink: 0; max-height: 45vh; overflow: auto; padding: 12px 16px; background: var(--bg-mantle); border-top: 1px solid var(--accent); font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.45; }
+.speech-dock header, .speech-dock footer, .speech-options, .speech-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.speech-dock header { margin-bottom: 8px; }
+.speech-dock header strong { font-size: 14px; }
+.speech-source { flex: 1; min-width: 70px; overflow-wrap: anywhere; color: var(--text-dim); }
+.speech-dock button, .speech-dock select { color: var(--text); background: var(--bg-base); border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; font: inherit; }
+.speech-dock button { cursor: pointer; }
+.speech-dock button:hover:not(:disabled) { background: var(--bg-surface0); }
+.speech-dock :disabled { opacity: .5; cursor: default; }
+.speech-dock :is(button, select, input, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.speech-dock .speech-play { border-color: var(--accent); }
+.speech-options { align-items: flex-start; }
+.speech-options label { display: flex; flex-direction: column; gap: 4px; }
+.speech-voice { min-width: 190px; max-width: 400px; flex: 2; }
+.speech-voice select { max-width: 100%; }
+.speech-slider { flex: 1; min-width: 100px; max-width: 150px; }
+.speech-slider input { width: 100%; accent-color: var(--accent); }
+.speech-slider > span { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); }
+.speech-buttons { align-self: center; }
+.speech-status { margin: 6px 0; color: var(--text-dim); }
+.speech-preview { max-height: 76px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 10px; background: var(--bg-base); border-radius: 5px; }
+.speech-preview mark { background: var(--yellow); color: var(--bg-crust); border-radius: 2px; }
+.speech-preview mark:empty { display: none; }
+.speech-error { color: var(--red); white-space: pre-wrap; overflow-wrap: anywhere; }
+.speech-hint { color: var(--text-dim); margin-top: 6px; }
+.speech-dock footer { justify-content: space-between; color: var(--text-dim); font-size: 11px; margin-top: 6px; }

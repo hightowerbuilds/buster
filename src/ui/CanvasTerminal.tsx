@@ -82,19 +82,18 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   let inAltScreen = false;
   let scrollOffset = 0;
   let isComposingInput = false;
-  const MAX_SIXEL_CACHE = 64;
   let mouseMode = "none";
   let mouseEncoding = "default";
   let bracketedPaste = false;
   let sixelImages: SixelImageData[] = [];
   let sixelBitmapCache: Map<string, ImageData> = new Map();
   let bellFlashUntil = 0;
-  let searchVisible = false;
-  let searchQuery = "";
-  let searchUseRegex = false;
-  let searchCaseSensitive = false;
-  let searchMatches: { row: number; col: number; len: number }[] = [];
-  let searchMatchIdx = -1;
+  const [searchVisible, setSearchVisible] = createSignal(false);
+  const [searchQuery, setSearchQuery] = createSignal("");
+  const [searchUseRegex, setSearchUseRegex] = createSignal(false);
+  const [searchCaseSensitive, setSearchCaseSensitive] = createSignal(false);
+  const [searchMatches, setSearchMatches] = createSignal<{ row: number; col: number; len: number }[]>([]);
+  const [searchMatchIdx, setSearchMatchIdx] = createSignal(-1);
   let hoverUrl: string | null = null;
   let suppressNextClick = false;
 
@@ -179,21 +178,21 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   }
 
   function runTermSearch(query: string) {
-    if (!query) { searchMatches = []; needsRedraw = true; scheduleTermRender(); return; }
+    if (!query) { setSearchMatches([]); needsRedraw = true; scheduleTermRender(); return; }
     const allRows = [...scrollback(), ...cells];
-    searchMatches = searchTerminalRows(allRows, query, { useRegex: searchUseRegex, caseSensitive: searchCaseSensitive });
-    searchMatchIdx = searchMatches.length > 0 ? searchMatches.length - 1 : -1;
-    if (searchMatchIdx >= 0) {
-      const newOffset = scrollToMatch(searchMatches[searchMatchIdx].row, scrollback().length, cells.length || termRows, scrollOffset);
+    setSearchMatches(searchTerminalRows(allRows, query, { useRegex: searchUseRegex(), caseSensitive: searchCaseSensitive() }));
+    setSearchMatchIdx(searchMatches().length > 0 ? searchMatches().length - 1 : -1);
+    if (searchMatchIdx() >= 0) {
+      const newOffset = scrollToMatch(searchMatches()[searchMatchIdx()].row, scrollback().length, cells.length || termRows, scrollOffset);
       if (newOffset !== null) scrollOffset = newOffset;
     }
     needsRedraw = true; scheduleTermRender();
   }
 
   function jumpToSearchMatch(dir: 1 | -1) {
-    if (searchMatches.length === 0) return;
-    searchMatchIdx = (searchMatchIdx + dir + searchMatches.length) % searchMatches.length;
-    const newOffset = scrollToMatch(searchMatches[searchMatchIdx].row, scrollback().length, cells.length || termRows, scrollOffset);
+    if (searchMatches().length === 0) return;
+    setSearchMatchIdx((searchMatchIdx() + dir + searchMatches().length) % searchMatches().length);
+    const newOffset = scrollToMatch(searchMatches()[searchMatchIdx()].row, scrollback().length, cells.length || termRows, scrollOffset);
     if (newOffset !== null) scrollOffset = newOffset;
     needsRedraw = true; scheduleTermRender();
   }
@@ -210,7 +209,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     renderScheduled = false;
     if (!containerRef) return;
     if (!needsRedraw) return;
-    if (!props.active) return;
     needsRedraw = false;
 
     const w = containerRef.clientWidth;
@@ -222,7 +220,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       cells, cursorRow, cursorCol, charWidth, charHeight,
       cursorStyle, fontFamily: terminalFontFamily(),
       termRows, termCols, isFocused: isFocused && (!settings().cursor_blink || cursorBlinkVisible), scrollOffset,
-      searchVisible, searchMatches, searchMatchIdx,
+      searchVisible: searchVisible(), searchMatches: searchMatches(), searchMatchIdx: searchMatchIdx(),
       bellFlashUntil, sixelImages, sixelBitmapCache,
     };
     const rd: TermRenderDeps = {
@@ -445,10 +443,10 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     if (e.metaKey && e.key === "f") {
       e.preventDefault();
       e.stopPropagation();
-      searchVisible = true;
-      searchQuery = "";
-      searchMatches = [];
-      searchMatchIdx = -1;
+      setSearchVisible(true);
+      setSearchQuery("");
+      setSearchMatches([]);
+      setSearchMatchIdx(-1);
       needsRedraw = true; scheduleTermRender();
       // Focus the search input after it renders
       requestAnimationFrame(() => {
@@ -772,7 +770,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
     }
 
     resizeObs = new ResizeObserver(() => {
-      if (props.active) handleResize();
+      handleResize();
     });
     resizeObs.observe(containerRef);
 
@@ -828,10 +826,10 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   }
 
   function closeSearch() {
-    searchVisible = false;
-    searchQuery = "";
-    searchMatches = [];
-    searchMatchIdx = -1;
+    setSearchVisible(false);
+    setSearchQuery("");
+    setSearchMatches([]);
+    setSearchMatchIdx(-1);
     needsRedraw = true; scheduleTermRender();
     hiddenInput?.focus();
   }
@@ -845,8 +843,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   }
 
   function handleSearchInput(e: InputEvent) {
-    searchQuery = (e.target as HTMLInputElement).value;
-    runTermSearch(searchQuery);
+    setSearchQuery((e.target as HTMLInputElement).value);
+    runTermSearch(searchQuery());
   }
 
   // ── Context menu ─────────────────────────────────────────────────
@@ -879,8 +877,8 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       containerRef={(el) => { containerRef = el; }}
       class="canvas-terminal"
       onContextMenu={handleTermContextMenu}
-      searchOverlay={searchVisible ? (
-        <div class="term-search-bar" style={{
+      searchOverlay={searchVisible() ? (
+        <div class="term-search-bar" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{
           position: "absolute", top: "4px", right: "8px", "z-index": "10",
           display: "flex", "align-items": "center", gap: "4px",
           background: "var(--surface0, #313244)", padding: "4px 8px",
@@ -892,7 +890,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
             class="term-search-input"
             type="text"
             placeholder="Search..."
-            value={searchQuery}
+            value={searchQuery()}
             onInput={handleSearchInput}
             onKeyDown={handleSearchKeyDown}
             style={{
@@ -902,10 +900,10 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
               outline: "none", width: "160px",
             }}
           />
-          <button onClick={() => { searchUseRegex = !searchUseRegex; runTermSearch(searchQuery); }} style={{ background: searchUseRegex ? "var(--surface2, #585b70)" : "none", border: "none", color: "var(--text, #cdd6f4)", cursor: "pointer", padding: "1px 4px", "border-radius": "2px", "font-size": "11px" }} title="Use regex">.*</button>
-          <button onClick={() => { searchCaseSensitive = !searchCaseSensitive; runTermSearch(searchQuery); }} style={{ background: searchCaseSensitive ? "var(--surface2, #585b70)" : "none", border: "none", color: "var(--text, #cdd6f4)", cursor: "pointer", padding: "1px 4px", "border-radius": "2px", "font-size": "11px" }} title="Match case">Aa</button>
+          <button onClick={() => { setSearchUseRegex(!searchUseRegex()); runTermSearch(searchQuery()); }} style={{ background: searchUseRegex() ? "var(--surface2, #585b70)" : "none", border: "none", color: "var(--text, #cdd6f4)", cursor: "pointer", padding: "1px 4px", "border-radius": "2px", "font-size": "11px" }} title="Use regex">.*</button>
+          <button onClick={() => { setSearchCaseSensitive(!searchCaseSensitive()); runTermSearch(searchQuery()); }} style={{ background: searchCaseSensitive() ? "var(--surface2, #585b70)" : "none", border: "none", color: "var(--text, #cdd6f4)", cursor: "pointer", padding: "1px 4px", "border-radius": "2px", "font-size": "11px" }} title="Match case">Aa</button>
           <span style={{ opacity: "0.6", "font-size": "11px" }}>
-            {searchMatches.length > 0 ? `${searchMatchIdx + 1}/${searchMatches.length}` : "0/0"}
+            {searchMatches().length > 0 ? `${searchMatchIdx() + 1}/${searchMatches().length}` : "0/0"}
           </span>
           <button onClick={() => jumpToSearchMatch(-1)} style={{ background: "none", border: "none", color: "var(--text, #cdd6f4)", cursor: "pointer", padding: "0 2px" }} title="Previous">↑</button>
           <button onClick={() => jumpToSearchMatch(1)} style={{ background: "none", border: "none", color: "var(--text, #cdd6f4)", cursor: "pointer", padding: "0 2px" }} title="Next">↓</button>

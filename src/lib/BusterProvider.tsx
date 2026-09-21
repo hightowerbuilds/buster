@@ -6,19 +6,29 @@
  * This file handles: store creation, effects, event listeners, initialization.
  */
 
-import { type Component, type JSX, createEffect, onCleanup } from "solid-js";
+import { type Component, type JSX, batch, untrack, createEffect, createSignal, Show, onCleanup } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { BusterContext, type BusterContextValue, type EngineMap } from "./buster-context";
 import type { BusterStoreState } from "./store-types";
 import type { Tab } from "./tab-types";
 import type { EditorEngine } from "../editor/engine";
-import { showInfo } from "./notify";
-import { setupDebugEventListener } from "./debug-events";
+import { showInfo, showError } from "./notify";
 import { createBusterActions } from "./buster-actions";
+import { createWorkbenchCommands } from "./workbench-commands";
+import { focusTabPanel } from "./focus-service";
+import { registerSelectionCommands } from "./selection-commands";
+import { clipboardWrite } from "./clipboard";
+import { createWritingReview, registerWritingReviewCommands } from "./writing-review";
+import { generateWriting } from "./writing-ai-transport";
+import { lookupSelection } from "./selection-lookup";
+import { createSpeech, nativeSpeechTransport, registerSpeechCommands } from "./speech";
+import { CommandFailure } from "./feature-commands";
 
-import { setWorkspaceRootIpc } from "./ipc";
+import { setWorkspaceRootIpc, loadBackupBuffer, watchFile } from "./ipc";
 import type { AppSettings } from "./ipc";
 import { loadSessionFromDisk } from "./session";
+import { MAX_PANES, newPaneWorkspace } from "./writing-panes";
+import { prepareSessionRestore } from "./session-restore";
 import { setupFileWatcher } from "./file-watcher";
 import { setupSurfaceMeasureListener } from "./surface-measure";
 // Surface events use a different shape than the IPC SurfaceEvent type
@@ -27,7 +37,7 @@ interface SurfaceTabEvent {
   data: { tab_id: string; label?: string; extension_id?: string; tab_type?: string };
 }
 import { setupMenuHandlers } from "./menu-handlers";
-import { parsePanelCount, type PanelCount } from "./panel-count";
+import { type PanelCount } from "./panel-count";
 import { listen } from "@tauri-apps/api/event";
 import { CATPPUCCIN } from "./theme";
 import { resolveEditorSettings } from "./editor-settings";
@@ -107,7 +117,7 @@ const INITIAL_STATE: BusterStoreState = {
 
   panelCount: 1 as PanelCount,
   splitDirection: "row" as "row" | "column",
-  layoutTree: { kind: "leaf" as const, tabIndex: 0 },
+  paneWorkspace: newPaneWorkspace(),
   sidebarWidth: 220,
   sidebarVisible: true,
 
@@ -128,12 +138,6 @@ const INITIAL_STATE: BusterStoreState = {
   workspaceRoot: null,
   activeFilePath: null,
 
-  debugModeVisible: false,
-  debugSessionState: "idle",
-  debugStackFrames: [],
-  debugVariables: [],
-  debugOutput: [],
-  debugSelectedFrameId: null,
 
   navHistory: [],
   navHistoryIdx: -1,
@@ -148,6 +152,7 @@ const INITIAL_STATE: BusterStoreState = {
 // ── Provider component ───────────────────────────────────────
 
 const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
+  const [initialized, setInitialized] = createSignal(false);
   const [store, setStore] = createStore<BusterStoreState>({ ...INITIAL_STATE });
 
   // Engine map (non-reactive — EditorEngine instances can't be proxied)
@@ -170,8 +175,71 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
   const allActions = createBusterActions({ store, setStore, engines, extChangeDiskContent });
   const actions = allActions; // allActions includes internal methods too
+  const commands = createWorkbenchCommands({
+    tabs: () => store.tabs,
+    activeTabId: () => store.activeTabId,
+    workspaceRoot: () => store.workspaceRoot,
+    terminalId: (id) => store.termPtyIds[id],
+    document: (id) => {
+      const engine = engines.get(id);
+      return engine ? { text: engine.getText(), revision: engine.editSeq(), dirty: engine.dirty() } : null;
+    },
+    createTerminal: actions.createTerminalTab,
+    focusTab: (id) => { actions.switchToTab(id); focusTabPanel(id); },
+    paneWorkspace: () => store.paneWorkspace,
+    panes: actions.panes,
+    createNote: actions.createNewFile,
+  });
 
   // ── Session persistence ─────────────────────────────────────
+  registerSelectionCommands(commands, {
+    workspace: () => store.paneWorkspace, engine: id => engines.get(id),
+    readClipboard: () => navigator.clipboard.readText(), writeClipboard: clipboardWrite,
+  });
+  const writing = createWritingReview({
+    workspace: () => store.paneWorkspace,
+    engine: id => engines.get(id),
+    hasTab: id => store.tabs.some(tab => tab.id === id),
+    openPanel: (id, kind, sourcePaneId) => batch(() => {
+      const empty = store.paneWorkspace.panes.find(p => p.id !== sourcePaneId && !p.tabId);
+      if (!empty && store.paneWorkspace.panes.length >= MAX_PANES)
+        throw new CommandFailure("LIMIT_REACHED", "Close a pane view to make room for the review. Its note will remain open in a tab.");
+      const paneId = empty?.id ?? actions.panes.splitPane("right", "empty", sourcePaneId);
+      const tabId = `review_${id}`;
+      setStore("tabs", tabs => [...tabs, { id: tabId, name: kind === "lookup" ? "Look up" : "AI review", path: id, type: "writing-review", dirty: false }]);
+      setStore("paneWorkspace", "zoomedPaneId", null);
+      actions.panes.showDocument(tabId, paneId);
+      return tabId;
+    }),
+    createNote: (text, reviewTabId) => batch(() => {
+      actions.switchToTab(reviewTabId);
+      const id = actions.createNewFile();
+      setStore("fileTexts", id, text);
+      const engine = engines.get(id);
+      if (engine) { engine.loadText(text); engine.markDirty(); }
+      setStore("tabs", tab => tab.id === id, "dirty", true);
+      return id;
+    }),
+    focusSource: target => { actions.switchToTab(target.tabId); focusTabPanel(target.tabId); },
+    closePanel: actions.handleTabClose,
+    generate: generateWriting,
+    lookup: lookupSelection,
+  });
+  registerWritingReviewCommands(commands, writing);
+  createEffect(() => {
+    store.tabs.map(tab => tab.id);
+    untrack(() => writing.reconcile());
+  });
+  onCleanup(writing.dispose);
+  const speech = createSpeech({
+    workspace: () => store.paneWorkspace,
+    engine: id => engines.get(id),
+    hasTab: id => store.tabs.some(tab => tab.id === id),
+    focusSource: target => { actions.switchToTab(target.tabId); focusTabPanel(target.tabId); },
+    transport: nativeSpeechTransport,
+  });
+  registerSpeechCommands(commands, speech);
+  onCleanup(speech.dispose);
 
   const autoSaveInterval = setInterval(actions.saveSessionNow, 30_000);
   onCleanup(() => clearInterval(autoSaveInterval));
@@ -238,6 +306,9 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   createEffect(() => {
     const tab = actions.activeTab();
     setStore("activeFilePath", tab?.type === "file" ? tab.path : null);
+    const cursor = tab ? engines.get(tab.id)?.cursor() : null;
+    setStore("cursorLine", cursor?.line ?? 0);
+    setStore("cursorCol", cursor?.col ?? 0);
   });
 
   // ── Initialization ──────────────────────────────────────────
@@ -245,7 +316,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   // Crash detection
   import("./ipc").then(({ setRunningFlag }) => {
     setRunningFlag().then(wasDirty => {
-      if (wasDirty) showInfo("Recovered unsaved changes from last session");
+      if (wasDirty) console.info("Previous session did not exit cleanly; checking recovery data.");
     }).catch(() => {});
   });
 
@@ -300,26 +371,12 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   // Surface text-measurement listener
   setupSurfaceMeasureListener().then(u => menuListeners.push(u));
 
-  // Debug event forwarding
-  setupDebugEventListener({
-    onStateChange: (state) => setStore("debugSessionState", state),
-    onStackFrames: (frames) => setStore("debugStackFrames", frames),
-    onVariables: (vars) => setStore("debugVariables", vars),
-    onOutput: (_cat, text) => setStore("debugOutput", produce(o => o.push(text))),
-    onSessionEnd: () => {
-      setStore("debugSessionState", "idle");
-      setStore("debugStackFrames", []);
-      setStore("debugVariables", []);
-    },
-  }).then(u => menuListeners.push(u));
-
   // Menu handlers (Cmd+Z, Cmd+C, etc.)
   setupMenuHandlers({
     activeEngine: actions.activeEngine,
     changeDirectory: actions.changeDirectory,
     closeDirectory: actions.closeDirectory,
     openExtensions: actions.createExtensionsTab,
-    openDebug: actions.createDebugTab,
     openSettings: actions.createSettingsTab,
     closeActiveTab: () => {
       const id = store.activeTabId;
@@ -333,59 +390,60 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   // ── Restore session ─────────────────────────────────────────
 
   (async () => {
+    let restoredPaneId: string | null = null;
     try {
       const session = await loadSessionFromDisk();
-      if (!session) return;
-      setStore("panelCount", parsePanelCount(session.layout_mode));
-      setStore("sidebarVisible", session.sidebar_visible ?? true);
-      const sw = session.sidebar_width;
-      setStore("sidebarWidth", sw && sw >= 140 && sw <= 600 ? sw : 220);
-
-      for (const stab of session.tabs) {
-        if (stab.type === "file" || stab.type === "image") {
-          continue;
-        } else if (stab.type === "terminal") {
-          setStore("terminalCounter", c => c + 1);
-          const tabId = `term_tab_${store.terminalCounter}`;
-          const cwd = stab.path || session.workspace_root || "";
-          setStore("tabs", produce(tabs => {
-            tabs.push({
-              id: tabId,
-              name: `Terminal ${store.terminalCounter}`,
-              path: cwd,
-              dirty: false,
-              type: "terminal",
-            });
-          }));
-        } else if (["settings", "git", "extensions", "debug", "explorer"].includes(stab.type)) {
-          setStore("tabs", produce(tabs => {
-            tabs.push({ id: stab.id, name: stab.name, path: "", dirty: false, type: stab.type as Tab["type"] });
-          }));
+      if (session) {
+        await setWorkspaceRootIpc(session.workspace_root);
+        const restored = await prepareSessionRestore(session, {
+          readFile: async path => (await actions.loadFileContent(path)).content,
+          readBackup: loadBackupBuffer,
+        });
+        setStore("workspaceRoot", session.workspace_root);
+        setStore("sidebarVisible", session.sidebar_visible ?? true);
+        const sw = session.sidebar_width;
+        setStore("sidebarWidth", sw >= 140 && sw <= 600 ? sw : 220);
+        setStore("fileTexts", restored.fileTexts);
+        setStore("scrollPositions", restored.scrollPositions);
+        setStore("tabs", restored.tabs);
+        setStore("paneWorkspace", restored.paneWorkspace);
+        restoredPaneId = restored.paneWorkspace.activePaneId;
+        for (const tab of restored.tabs) {
+          const file = tab.id.match(/^file_(\d+)$/);
+          const term = tab.id.match(/^term_tab_(\d+)$/);
+          if (file) setStore("fileTabCounter", c => Math.max(c, Number(file[1])));
+          if (term) setStore("terminalCounter", c => Math.max(c, Number(term[1])));
+          if (tab.type === "file" && tab.path) {
+            watchFile(tab.path).catch(() => {});
+            if (session.workspace_root) actions.attemptLspStart(tab.path, session.workspace_root);
+          }
         }
+        setStore("activeTabId", restored.activeTabId);
+        if (restored.skipped.length) showInfo(`Skipped ${restored.skipped.length} unavailable or retired session tabs`);
+        if (restored.tabs.some(tab => tab.dirty)) showInfo("Restored unsaved writing from session backups");
       }
-
-      for (const t of store.tabs) {
-        const m = t.id.match(/^file_(\d+)$/);
-        if (m) setStore("fileTabCounter", Math.max(store.fileTabCounter, Number(m[1])));
-        const tm = t.id.match(/^term_tab_(\d+)$/);
-        if (tm) setStore("terminalCounter", Math.max(store.terminalCounter, Number(tm[1])));
-      }
-
-      if (session.active_tab_id && store.tabs.some(t => t.id === session.active_tab_id)) {
-        setStore("activeTabId", session.active_tab_id);
-      } else if (store.tabs.length > 0) {
-        setStore("activeTabId", store.tabs[0].id);
-      }
-    } catch (e) { console.warn("Session restore failed:", e); }
+      actions.finishSessionRestore();
+    } catch (error) {
+      // Keep the prior on-disk session intact if recovery is incomplete.
+      console.error("Session recovery failed:", error);
+      showError("Session recovery failed — automatic session saves are paused. Existing backups are preserved.");
+    } finally {
+      setInitialized(true);
+      // WebKit can initially focus the first mounted input. Restore the saved
+      // pane after mounting, including when the terminal is still spawning.
+      if (restoredPaneId) actions.panes.focusPane(restoredPaneId);
+    }
   })();
 
   // ── Build context value ─────────────────────────────────────
 
-  const ctx: BusterContextValue = { store, setStore, engines, actions };
+  const ctx: BusterContextValue = { store, setStore, engines, actions, commands, writing, speech };
 
   return (
     <BusterContext.Provider value={ctx}>
-      {props.children}
+      <Show when={initialized()} fallback={<div role="status">Restoring your workspace…</div>}>
+        {props.children}
+      </Show>
     </BusterContext.Provider>
   );
 };

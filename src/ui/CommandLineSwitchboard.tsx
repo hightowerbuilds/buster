@@ -1,10 +1,11 @@
-import { Component, For, Show, createEffect, on } from "solid-js";
+import { Component, For, Show, createEffect, createSignal, on } from "solid-js";
+import { useBuster } from "../lib/buster-context";
+import type { CommandResult } from "../lib/feature-commands";
 
 interface CommandLineSwitchboardProps {
   visible: boolean;
   onClose: () => void;
   onOpenExtensions: () => void;
-  onOpenDebug: () => void;
   onOpenSettings: () => void;
   onOpenGit: () => void;
   onOpenBrowser: () => void;
@@ -12,106 +13,68 @@ interface CommandLineSwitchboardProps {
   onOpenAi: () => void;
 }
 
-interface CommandOption {
-  key: string;
-  description: string;
-  action: string;
-}
-
-const COMMAND_OPTIONS: CommandOption[] = [
-  { key: "a", description: "AI", action: "ai" },
-  { key: "e", description: "Extensions", action: "extensions" },
-  { key: "g", description: "Git", action: "git" },
-  { key: "b", description: "Browser", action: "browser" },
-  { key: "l", description: "Console", action: "console" },
-  { key: "s", description: "Settings", action: "settings" },
-];
-
-const VALID_COMMAND_KEYS = new Set(COMMAND_OPTIONS.map((o) => o.key));
-
 const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) => {
+  const { commands } = useBuster();
+  const [line, setLine] = createSignal("");
+  const [result, setResult] = createSignal<CommandResult | null>(null);
+  const [busy, setBusy] = createSignal(false);
   let inputRef: HTMLInputElement | undefined;
+  const shortcuts = [
+    { label: "AI", run: props.onOpenAi },
+    { label: "Extensions", run: props.onOpenExtensions },
+    { label: "Git", run: props.onOpenGit },
+    { label: "Browser", run: props.onOpenBrowser },
+    { label: "Console", run: props.onOpenConsole },
+    { label: "Settings", run: props.onOpenSettings },
+  ];
 
-  createEffect(
-    on(
-      () => props.visible,
-      (visible) => {
-        if (!inputRef) return;
-        if (visible) {
-          inputRef.value = "";
-          requestAnimationFrame(() => inputRef?.focus({ preventScroll: true }));
-        } else {
-          inputRef.value = "";
-        }
-      },
-    ),
-  );
+  createEffect(on(() => props.visible, visible => {
+    if (visible) requestAnimationFrame(() => inputRef?.focus());
+  }));
 
-  function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      props.onClose();
-      return;
-    }
-    if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
-    if (["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Home", "End", "Tab"].includes(e.key)) return;
-    if (e.key === "Enter") { e.preventDefault(); return; }
-
-    const key = e.key.toLowerCase();
-    if (!VALID_COMMAND_KEYS.has(key)) e.preventDefault();
-  }
-
-  function handleInput(e: InputEvent & { currentTarget: HTMLInputElement }) {
-    const key = e.currentTarget.value.toLowerCase().replace(/[^aegblsf]/g, "").slice(-1);
-    e.currentTarget.value = key;
-    if (!key) return;
-
-    const option = COMMAND_OPTIONS.find((c) => c.key === key);
-    if (!option) return;
-
-    switch (option.action) {
-      case "ai": props.onOpenAi(); break;
-      case "extensions": props.onOpenExtensions(); break;
-      case "debug": props.onOpenDebug(); break;
-      case "git": props.onOpenGit(); break;
-      case "browser": props.onOpenBrowser(); break;
-      case "console": props.onOpenConsole(); break;
-      case "settings": props.onOpenSettings(); break;
+  async function runLine(commandLine = line()) {
+    if (busy() || !commandLine.trim()) return;
+    setBusy(true);
+    try {
+      const outcome = await commands.executeLine(commandLine, crypto.randomUUID());
+      setResult(outcome);
+      if (outcome.ok && ["terminal create", "terminal focus", "panel focus", "panel split", "document create", "panel zoom", "panel swap", "panel close", "selection lookup", "selection ai", "selection voice", "speech source", "review source", "review discard", "review apply"].includes(outcome.command)) {
+        props.onClose();
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <Show when={props.visible}>
-      <div
-        class="command-line-backdrop"
-        onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClose(); }}
-      >
-        <div class="command-line-shell" role="dialog" aria-label="Command switchboard">
-          <div class="command-line-bar">
-            <span class="command-line-prompt" aria-hidden="true">~~~</span>
-            <input
-              ref={inputRef}
-              class="command-line-input"
-              type="text"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck={false}
-              aria-label="Command line input"
-              placeholder="A / E / G / B / L / S"
-              onKeyDown={handleKeyDown}
-              onInput={handleInput}
-            />
+      <div class="command-line-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) props.onClose(); }}>
+        <div class="command-line-shell" role="dialog" aria-label="BusterMark command line"
+          onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); props.onClose(); } }}>
+          <form class="command-line-bar" onSubmit={e => { e.preventDefault(); void runLine(); }}>
+            <span class="command-line-prompt" aria-hidden="true">&gt;</span>
+            <input ref={inputRef} class="command-line-input" value={line()}
+              onInput={e => setLine(e.currentTarget.value)}
+              autocomplete="off" autocapitalize="off" spellcheck={false}
+              aria-label="App command" placeholder="help, app status, terminal create…" />
+            <button type="submit" disabled={busy() || !line().trim()}>{busy() ? "Running…" : "Run"}</button>
+          </form>
+          <div class="command-line-caption">
+            App commands accept an optional JSON object. Press Enter to run, Escape to close.
           </div>
-          <div class="command-line-caption">A=AI, E=Extensions, G=Git, B=Browser, L=Console, S=Settings</div>
-          <div class="command-line-options" role="list">
-            <For each={COMMAND_OPTIONS}>
-              {(option) => (
-                <div class="command-line-option" role="listitem">
-                  <span class="command-line-option-key">{option.key.toUpperCase()}</span>
-                  <span class="command-line-option-desc">{option.description}</span>
-                </div>
-              )}
+          <div class="command-line-examples">
+            <For each={["help", "document create", 'panel split {"direction":"right"}', "layout inspect", "terminal create"]}>
+              {example => <button type="button" disabled={busy()} onClick={() => { setLine(example); void runLine(example); }}>{example}</button>}
             </For>
+          </div>
+          <Show when={result()}>
+            <pre class="command-line-result" tabindex={0} aria-label="Command result">{JSON.stringify(result(), null, 2)}</pre>
+          </Show>
+          <div class="command-line-caption" role="status" aria-live="polite">
+            {busy() ? "Running command" : result() ? (result()!.ok ? "Command completed" : "Command failed — see result") : "Ready"}
+          </div>
+          <div class="command-line-options" role="group" aria-label="Open a tool">
+            <For each={shortcuts}>{shortcut => <button type="button" class="command-line-option" onClick={shortcut.run}>{shortcut.label}</button>}</For>
           </div>
         </div>
       </div>

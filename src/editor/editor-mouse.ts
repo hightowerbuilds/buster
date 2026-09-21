@@ -7,7 +7,7 @@ import type { EditorEngine } from "./engine";
 import type { createAutocomplete } from "./editor-autocomplete";
 import type { createHover } from "./editor-hover";
 import { minimapLeft, minimapScrollTarget } from "./render-minimap";
-import { showError } from "../lib/notify";
+import { wordSelectionBounds } from "./word-selection";
 
 type AutocompleteHandle = ReturnType<typeof createAutocomplete>;
 type HoverHandle = ReturnType<typeof createHover>;
@@ -31,7 +31,6 @@ export interface MouseDeps {
   isDragging: () => boolean;
   setIsDragging: (v: boolean) => void;
   diagnostics: () => { line: number; col: number; endLine: number; endCol: number; severity: number; message: string }[];
-  setBreakpointSet: (v: Set<number>) => void;
   clearHighlightCache: () => void;
   focusInput: () => void;
   scheduleRender: () => void;
@@ -49,6 +48,7 @@ function posFromMouse(e: MouseEvent, deps: MouseDeps) {
 }
 
 export function handleEditorMouseDown(e: MouseEvent, deps: MouseDeps) {
+  if (e.button !== 0) return;
   const { engine, ac, hover } = deps;
   ac.dismiss();
   hover.dismiss();
@@ -85,22 +85,6 @@ export function handleEditorMouseDown(e: MouseEvent, deps: MouseDeps) {
         deps.focusInput();
         return;
       }
-      if (x >= 20 && deps.filePath()) {
-        e.preventDefault();
-        import("../lib/ipc").then(({ debugToggleBreakpoint }) => {
-          debugToggleBreakpoint(deps.filePath()!, pos.line).then(() => {
-            import("../lib/ipc").then(({ debugGetBreakpoints }) => {
-              debugGetBreakpoints(deps.filePath()!).then(bps => {
-                deps.setBreakpointSet(new Set(bps.map(bp => bp.line)));
-                deps.scheduleRender();
-              }).catch(() => showError("Failed to refresh breakpoints"));
-            });
-          }).catch(() => showError("Failed to toggle breakpoint"));
-        });
-        deps.focusInput();
-        return;
-      }
-
       const diag = deps.diagnostics();
       if (diag.length > 0) {
         const hit = diag.find(d => d.line === pos.line);
@@ -132,6 +116,21 @@ export function handleEditorMouseDown(e: MouseEvent, deps: MouseDeps) {
   }
 
   engine.clearExtras();
+  e.preventDefault();
+  if (e.detail >= 2) {
+    const line = engine.getLine(pos.line);
+    const bounds = e.detail >= 3 ? { start: 0, end: line.length } : wordSelectionBounds(line, pos.col);
+    engine.setSelection({ line: pos.line, col: bounds.start }, { line: pos.line, col: bounds.end });
+    deps.setIsDragging(false);
+    deps.focusInput();
+    return;
+  }
+  if (e.shiftKey) {
+    engine.setSelection(engine.sel()?.anchor ?? engine.cursor(), pos);
+    deps.setIsDragging(true);
+    deps.focusInput();
+    return;
+  }
   engine.setCursor(pos);
   engine.setSelection(pos, pos);
   deps.setIsDragging(true);

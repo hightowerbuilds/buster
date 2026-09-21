@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Buster, please report it responsibly.
+If you discover a security vulnerability in BusterMark, please report it responsibly.
 
 **Email:** security@hightowerbuilds.com
 
@@ -24,7 +24,7 @@ If you discover a security vulnerability in Buster, please report it responsibly
 ### Scope
 
 This policy covers:
-- The Buster desktop application (Tauri + Rust backend)
+- The BusterMark desktop application (Tauri + Rust backend)
 - The frontend (SolidJS + TypeScript)
 - The WASM extension runtime
 - The debug adapter protocol (DAP) integration

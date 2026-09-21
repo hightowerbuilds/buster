@@ -11,6 +11,7 @@ import type { Tab } from "./tab-types";
 import type { AppSettings } from "./ipc";
 import type { DirtyCloseResult } from "../ui/DirtyCloseDialog";
 import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
+import type { FeatureCommands } from "./feature-commands";
 
 // ── Engine map (non-reactive, opaque refs) ──────────────────
 
@@ -24,8 +25,9 @@ export interface EngineMap {
 // ── Actions ─────────────────────────────────────────────────
 
 export interface BusterActions {
+  panes: import("./actions-panes").PaneActions;
   // File operations
-  createNewFile(): void;
+  createNewFile(): string;
   handleFileSelect(path: string): Promise<void>;
   handleSave(): Promise<void>;
   handleSaveAs(): Promise<void>;
@@ -36,12 +38,11 @@ export interface BusterActions {
   // Tab management
   switchToTab(tabId: string): void;
   handleTabClose(tabId: string): void;
-  createTerminalTab(): void;
+  createTerminalTab(): string;
   createGitTab(): void;
   createSettingsTab(): void;
   createKeybindingsTab(): void;
   createExtensionsTab(): void;
-  createDebugTab(): void;
   createProblemsTab(): void;
   createBrowserTab(): void;
   createConsoleTab(): void;
@@ -96,6 +97,9 @@ export interface BusterContextValue {
   setStore: SetStoreFunction<BusterStoreState>;
   engines: EngineMap;
   actions: BusterActions;
+  commands: FeatureCommands;
+  writing: import("./writing-review").WritingReviewService;
+  speech: ReturnType<typeof import("./speech").createSpeech>;
 }
 
 // ── Context + hook ──────────────────────────────────────────

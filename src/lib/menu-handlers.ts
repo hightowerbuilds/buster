@@ -20,7 +20,6 @@ interface MenuHandlerDeps {
   changeDirectory: () => void;
   closeDirectory: () => void;
   openExtensions: () => void;
-  openDebug: () => void;
   openSettings: () => void;
   closeActiveTab: () => void;
   createNewFile: () => void;
@@ -39,7 +38,6 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
     listen("menu-change-directory", () => deps.changeDirectory()) as unknown as Promise<() => void>,
     listen("menu-close-directory", () => deps.closeDirectory()) as unknown as Promise<() => void>,
     listen("menu-open-extensions", () => deps.openExtensions()) as unknown as Promise<() => void>,
-    listen("menu-open-debug", () => deps.openDebug()) as unknown as Promise<() => void>,
     listen("menu-open-settings", () => deps.openSettings()) as unknown as Promise<() => void>,
     listen("menu-close-tab", () => deps.closeActiveTab()) as unknown as Promise<() => void>,
     listen("menu-new-file", () => deps.createNewFile()) as unknown as Promise<() => void>,
@@ -48,9 +46,17 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
   );
 
   // Undo / Redo
+  const historyAction = (action: "undo" | "redo") => {
+    const focused = document.activeElement;
+    if ((focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement) && !focused.closest(".canvas-editor")) {
+      document.execCommand(action);
+      return;
+    }
+    deps.activeEngine()?.[action]();
+  };
   handles.push(
-    listen("menu-undo", () => { deps.activeEngine()?.undo(); }) as unknown as Promise<() => void>,
-    listen("menu-redo", () => { deps.activeEngine()?.redo(); }) as unknown as Promise<() => void>,
+    listen("menu-undo", () => historyAction("undo")) as unknown as Promise<() => void>,
+    listen("menu-redo", () => historyAction("redo")) as unknown as Promise<() => void>,
   );
 
   // Cut
@@ -142,7 +148,20 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
 
   // Select All
   handles.push(
-    listen("menu-select-all", () => { deps.activeEngine()?.selectAll(); }) as unknown as Promise<() => void>,
+    listen("menu-select-all", () => {
+      const target = document.activeElement;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+        if (target.matches('textarea[aria-roledescription="terminal"]')) {
+          target.dispatchEvent(new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true }));
+        } else if (target.closest(".canvas-editor")) {
+          deps.activeEngine()?.selectAll();
+        } else {
+          target.select();
+        }
+        return;
+      }
+      deps.activeEngine()?.selectAll();
+    }) as unknown as Promise<() => void>,
   );
 
   return Promise.all(handles);

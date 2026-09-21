@@ -91,7 +91,6 @@ export interface EditorRenderParams {
   foldedLines: Set<number>;
   foldStartLines: Set<number>;
   isFoldable: (line: number) => boolean;
-  breakpointLines: Set<number>;
   cursorStyle: "line" | "block";
   gpu?: WebGLTextContext | null;
   tabSize: number;
@@ -201,23 +200,8 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   }
   drawCursors(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW, p);
 
-  // Breakpoint dots + fold markers
+  // Fold markers
   if (showLineNums) {
-    if (params.breakpointLines.size > 0) {
-      let lastBpLine = -1;
-      for (let r = firstVisRow; r < lastVisRow; r++) {
-        const dr = displayRows[r];
-        if (dr.bufferLine === lastBpLine) continue;
-        lastBpLine = dr.bufferLine;
-        if (params.breakpointLines.has(dr.bufferLine)) {
-          const y = (r - firstVisRow) * lineHeight + offsetY + lineHeight / 2;
-          ctx.fillStyle = "#f38ba8";
-          ctx.beginPath();
-          ctx.arc(24, y, 5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    }
     drawFoldMarkers(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, charW);
   }
 

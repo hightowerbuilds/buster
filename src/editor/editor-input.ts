@@ -41,7 +41,7 @@ export interface TextInsertionDeps {
 }
 
 export function handleEditorInput(deps: InputDeps) {
-  const { engine, vim, ac, sigHelp, ghost } = deps;
+  const { vim } = deps;
   const hi = deps.hiddenInput();
   if (!hi || deps.isComposing()) return;
   const text = hi.value;

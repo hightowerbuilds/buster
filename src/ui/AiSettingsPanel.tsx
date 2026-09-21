@@ -75,15 +75,15 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
   return (
     <div class="ai-settings-panel">
       <div class="ai-settings-header">
-        <h2>AI Completion</h2>
-        <p class="ai-settings-subtitle">Configure inline code suggestions powered by local or cloud AI models.</p>
+        <h2>AI Settings</h2>
+        <p class="ai-settings-subtitle">Configure the connection used by writing review and optional inline suggestions. Writing review sends a selection only when you choose Generate.</p>
       </div>
 
       <div class="ai-settings-section">
         <div class="ai-settings-row">
           <div class="ai-settings-label">
-            <span class="ai-settings-title">Enable AI Completion</span>
-            <span class="ai-settings-desc">Show inline suggestions as you type</span>
+            <span class="ai-settings-title">Enable inline suggestions</span>
+            <span class="ai-settings-desc">Automatically send surrounding text as you type. Writing review works with this off.</span>
           </div>
           <button
             class={`ai-toggle ${props.settings.ai_completion_enabled ? "ai-toggle-on" : ""}`}
@@ -94,14 +94,15 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
         </div>
       </div>
 
-      <Show when={props.settings.ai_completion_enabled}>
         <div class="ai-settings-section">
           <h3>Provider</h3>
           <div class="ai-provider-buttons">
             {PROVIDERS.map(p => (
               <button
                 class={`ai-provider-btn ${props.settings.ai_provider === p.id ? "ai-provider-active" : ""}`}
-                onClick={() => update({ ai_provider: p.id })}
+                onClick={() => {
+                  if (props.settings.ai_provider !== p.id) update({ ai_provider: p.id, ai_api_key: "", ai_model: "" });
+                }}
               >
                 {p.label}
               </button>
@@ -179,7 +180,7 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
             <div class="ai-settings-row">
               <div class="ai-settings-label">
                 <span class="ai-settings-title">API Key</span>
-                <span class="ai-settings-desc">Your Anthropic API key</span>
+                <span class="ai-settings-desc">Enter to replace your Anthropic key. Saved keys remain in macOS Keychain.</span>
               </div>
               <input
                 class="ai-input ai-input-key"
@@ -193,16 +194,14 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
             <div class="ai-settings-row">
               <div class="ai-settings-label">
                 <span class="ai-settings-title">Model</span>
-                <span class="ai-settings-desc">Haiku is fastest, Sonnet is highest quality</span>
+                <span class="ai-settings-desc">Model ID available to your account</span>
               </div>
-              <select
-                class="ai-select"
+              <input
+                class="ai-input"
                 value={props.settings.ai_model}
-                onChange={(e) => update({ ai_model: e.currentTarget.value })}
-              >
-                <option value="claude-haiku-4-5-20250514">Haiku 4.5 (fast, cheap)</option>
-                <option value="claude-sonnet-4-6-20250514">Sonnet 4.6 (high quality)</option>
-              </select>
+                onInput={(e) => update({ ai_model: e.currentTarget.value })}
+                placeholder="Enter model ID"
+              />
             </div>
           </div>
         </Show>
@@ -214,7 +213,7 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
             <div class="ai-settings-row">
               <div class="ai-settings-label">
                 <span class="ai-settings-title">API Key</span>
-                <span class="ai-settings-desc">Your OpenAI API key</span>
+                <span class="ai-settings-desc">Enter to replace your OpenAI key. Saved keys remain in macOS Keychain.</span>
               </div>
               <input
                 class="ai-input ai-input-key"
@@ -229,20 +228,19 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
               <div class="ai-settings-label">
                 <span class="ai-settings-title">Model</span>
               </div>
-              <select
-                class="ai-select"
+              <input
+                class="ai-input"
                 value={props.settings.ai_model}
-                onChange={(e) => update({ ai_model: e.currentTarget.value })}
-              >
-                <option value="gpt-4o-mini">GPT-4o Mini (fast, cheap)</option>
-                <option value="gpt-4o">GPT-4o (high quality)</option>
-              </select>
+                onInput={(e) => update({ ai_model: e.currentTarget.value })}
+                placeholder="Enter model ID"
+              />
             </div>
           </div>
         </Show>
 
+      <Show when={props.settings.ai_completion_enabled}>
         <div class="ai-settings-section">
-          <h3>Behavior</h3>
+          <h3>Inline suggestion behavior</h3>
 
           <div class="ai-settings-row">
             <div class="ai-settings-label">
@@ -380,11 +378,11 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
 
           <div class="ai-settings-row">
             <div class="ai-settings-label">
-              <span class="ai-settings-title">Monthly Budget</span>
+              <span class="ai-settings-title">Monthly inline suggestion budget</span>
               <span class="ai-settings-desc">
                 {usage()
                   ? `${usage()!.estimated_tokens} estimated tokens used`
-                  : "Estimated from streamed completion text"}
+                  : "Estimated from streamed completion text"}. Writing review requests are excluded.
               </span>
             </div>
             <input
@@ -400,9 +398,9 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
 
         <div class="ai-settings-section ai-settings-info">
           <h3>How it works</h3>
-          <p>After you stop typing, Buster sends the surrounding code context to your chosen AI provider. Suggestions appear as ghost text — press <kbd>Tab</kbd> to accept or keep typing to dismiss.</p>
+          <p>After you stop typing, BusterMark sends the surrounding code context to your chosen AI provider. Suggestions appear as ghost text — press <kbd>Tab</kbd> to accept or keep typing to dismiss.</p>
           <p>
-            <strong>Local models</strong> run entirely on your machine via Ollama. No data leaves your computer.
+            <strong>Ollama models</strong> run at your configured server address. Use a local address to keep requests on your machine.
             <br />
             <strong>Cloud models</strong> send code context to the provider's API. On macOS, your API key is stored in Keychain.
           </p>

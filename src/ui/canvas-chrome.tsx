@@ -48,7 +48,7 @@ export interface CanvasChromeProps {
   onKeyDown?: (e: KeyboardEvent) => void;
   tabIndex?: number;
   children?: JSX.Element;
-  role?: string;
+  role?: JSX.HTMLAttributes<HTMLDivElement>["role"];
   "aria-label"?: string;
 }
 

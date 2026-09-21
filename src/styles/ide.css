@@ -20,6 +20,7 @@
 @import "./diff-view.css";
 @import "./problems.css";
 @import "./search-results.css";
-@import "./debug.css";
-@import "./debug-mode.css";
 @import "./ai-settings.css";
+
+@import "./writing-panes.css";
+@import "./selection-actions.css";

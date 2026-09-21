@@ -21,6 +21,7 @@ import { createFileActions } from "./actions-files";
 import { createTabActions } from "./actions-tabs";
 import { createSaveActions } from "./actions-save";
 import { createDiagnosticActions } from "./actions-diagnostics";
+import { createPaneActions } from "./actions-panes";
 import { createSessionActions } from "./actions-session";
 
 // ── Deps interface ────────────────────────────────────────────────
@@ -36,6 +37,7 @@ export interface ActionDeps {
 
 export function createBusterActions(deps: ActionDeps): BusterActions & {
   initSettings: () => Promise<void>;
+  finishSessionRestore: () => void;
   rebuildPalette: (s: AppSettings) => void;
   attemptLspStart: (filePath: string, workspaceRoot: string) => void;
   doTabClose: (tabId: string) => void;
@@ -54,6 +56,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
   const tabs = createTabActions(store, setStore, engines, deps.extChangeDiskContent, save.writeFileSmart);
   const diagnostics = createDiagnosticActions(store, engines, activeEngine, files.handleFileSelect);
   const session = createSessionActions(store, engines);
+  const panes = createPaneActions(store, setStore, tabs.createNewFile, tabs.createTerminalTab);
 
   // ── Derived accessors (used by multiple modules) ────────────
 
@@ -119,6 +122,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
   // ── Return unified interface ────────────────────────────────
 
   return {
+    panes,
     // File operations
     createNewFile: tabs.createNewFile,
     handleFileSelect: files.handleFileSelect,
@@ -136,7 +140,6 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
     createSettingsTab: tabs.createSettingsTab,
     createKeybindingsTab: tabs.createKeybindingsTab,
     createExtensionsTab: tabs.createExtensionsTab,
-    createDebugTab: tabs.createDebugTab,
     createProblemsTab: tabs.createProblemsTab,
     createBrowserTab: tabs.createBrowserTab,
     createConsoleTab: tabs.createConsoleTab,
@@ -185,6 +188,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
 
     // Internal (exposed for BusterProvider wiring)
     initSettings: settings.initSettings,
+    finishSessionRestore: session.finishSessionRestore,
     rebuildPalette: theme.rebuildPalette,
     attemptLspStart: lsp.attemptLspStart,
     doTabClose: tabs.doTabClose,

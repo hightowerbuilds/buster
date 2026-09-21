@@ -157,20 +157,6 @@ const CanvasBrowserPanel: Component<CanvasBrowserPanelProps> = (props) => {
       }
     });
 
-    /** Create the child webview using the current URL signal (not a stale closure). */
-    async function createWebview() {
-      if (browserId || !webviewAreaRef) return;
-      const r = getWebviewRect();
-      if (r.w <= 0 || r.h <= 0) return;
-
-      const url = currentUrl() || "about:blank";
-      try {
-        browserId = await createBrowserView(url, r.x, r.y, r.w, r.h);
-        webviewVisible = true;
-      } catch (e) {
-        showToast(`Browser creation failed: ${e}`, "error");
-      }
-    }
   });
 
   // ── Render ─────────────────────────────────────────────────────────

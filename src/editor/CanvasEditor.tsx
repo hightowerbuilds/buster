@@ -20,17 +20,24 @@ import { handleEditorMouseDown, handleEditorMouseMove, handleEditorMouseUp, type
 import { handleEditorInput, type InputDeps } from "./editor-input";
 import CanvasSurface from "../ui/CanvasSurface";
 import { clipboardWrite, clipboardRead } from "../lib/clipboard";
-import { basename, extname } from "buster-path";
+import { basename } from "buster-path";
 import { lspDidChange, lspDidChangeIncremental } from "../lib/ipc";
 import { useBuster } from "../lib/buster-context";
 import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "../ui/ContextMenu";
 import { resolveEditorSettings } from "../lib/editor-settings";
+import SelectionActions from "./SelectionActions";
 
 // ─── Props ──────────────────────────────────────────────────────────
 
 interface CanvasEditorProps {
+  tabId: string;
   initialText: string;
+  initialDirty?: boolean;
+  initialSelection?: import("./engine").Selection | null;
+  initialCursor?: { line: number; col: number };
+  initialScrollTop?: number;
+  onScrollChange?: (top: number) => void;
   filePath: string | null;
   languagePath?: () => string | null;
   active?: boolean;
@@ -78,6 +85,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // ── Engine ──────────────────────────────────────────────────────
 
   const engine = createEditorEngine(props.initialText, props.filePath ?? undefined);
+  if (props.initialDirty) engine.markDirty();
+  if (props.initialCursor) engine.setCursor(props.initialCursor);
+  if (props.initialSelection) engine.setSelection(props.initialSelection.anchor, props.initialSelection.head);
 
   /** Return the whitespace string for one indent level (respects tab_size and use_spaces settings). */
   function indentUnit(): string {
@@ -165,13 +175,13 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   // ── View state (not part of engine) ─────────────────────────────
 
-  const [scrollTop, setScrollTop] = createSignal(0);
+  const [scrollTop, setScrollTop] = createSignal(props.initialScrollTop ?? 0);
+  createEffect(() => props.onScrollChange?.(scrollTop()));
   const [canvasWidth, setCanvasWidth] = createSignal(800);
   const [canvasHeight, setCanvasHeight] = createSignal(600);
   const [isDragging, setIsDragging] = createSignal(false);
   const [isFocused, setIsFocused] = createSignal(false);
   const [blameVisible, setBlameVisible] = createSignal(false);
-  const [breakpointSet, setBreakpointSet] = createSignal<Set<number>>(new Set());
   const [blameData, setBlameData] = createSignal<GitBlameLine[] | null>(null);
   const [errorPeekLine, setErrorPeekLine] = createSignal<number | null>(null);
 
@@ -340,6 +350,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // ── IME ─────────────────────────────────────────────────────────
 
   let isComposing = false;
+  const [composing, setComposing] = createSignal(false);
 
   // ── Delegated mouse/keyboard/input handlers ─────────────────────
 
@@ -353,7 +364,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     canvasWidth, canvasHeight, scrollTop, fontSize, lineHeight, charW, gutterW,
     isDragging, setIsDragging,
     diagnostics: () => props.diagnostics ?? [],
-    setBreakpointSet,
     clearHighlightCache, focusInput, scheduleRender,
     scrollTo: smoothScrollTo,
   };
@@ -462,7 +472,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   createEffect(() => {
     if (props.active !== false) {
       activeScrollTarget.apply = applyScroll;
-      requestAnimationFrame(() => focusInput());
+      requestAnimationFrame(() => { if (props.active !== false) focusInput(); });
     } else if (activeScrollTarget.apply === applyScroll) {
       activeScrollTarget.apply = null;
     }
@@ -482,7 +492,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     renderScheduled = false;
     if (!canvasRef) return;
     // Skip rendering when panel is hidden — canvas retains its last frame
-    if (props.active === false) return;
+    if (!containerRef || containerRef.clientWidth === 0 || containerRef.clientHeight === 0) return;
 
     refreshHighlights();
     inlayHints.requestHints();
@@ -535,7 +545,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       foldedLines: engine.foldedLines(),
       foldStartLines: new Set(engine.lines().map((_, i) => i).filter(i => engine.isFolded(i))),
       isFoldable: (line: number) => engine.isFoldable(line),
-      breakpointLines: breakpointSet(),
       cursorStyle: vim.enabled() && vim.mode() !== "insert" ? "block" : "line",
       gpu: gpuCtx,
       tabSize: editorSettings().tab_size,
@@ -614,6 +623,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // ── Lifecycle ───────────────────────────────────────────────────
 
   onMount(() => {
+    const finishSelectionDrag = () => { if (isDragging()) handleMouseUp(); };
+    document.addEventListener("mouseup", finishSelectionDrag);
+    onCleanup(() => document.removeEventListener("mouseup", finishSelectionDrag));
     handleResize();
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef) resizeObserver.observe(containerRef);
@@ -634,7 +646,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
     scheduleRender();
     if (props.autoFocus) {
-      requestAnimationFrame(() => focusInput());
+      requestAnimationFrame(() => { if (props.active !== false) focusInput(); });
     }
 
     onCleanup(() => {
@@ -801,8 +813,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
         },
         onFocus: () => setIsFocused(true),
         onBlur: () => setIsFocused(false),
-        onCompositionStart: () => { isComposing = true; },
-        onCompositionEnd: () => { isComposing = false; handleInput(); },
+        onCompositionStart: () => { isComposing = true; setComposing(true); },
+        onCompositionEnd: () => { isComposing = false; handleInput(); setComposing(false); },
         autocomplete: "off",
         autocapitalize: "off",
         spellcheck: false,
@@ -810,6 +822,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
         "data-tab-focus-target": "true",
       }}
     >
+      <SelectionActions tabId={props.tabId} engine={engine} active={props.active !== false}
+        dragging={isDragging()} composing={composing()} width={canvasWidth()} height={canvasHeight()}
+        scrollTop={scrollTop()} lineHeight={lineHeight()} charWidth={charW()} gutter={gutterW()} wordWrap={wordWrap()} focusEditor={focusInput} />
       <ContextMenu menu={editorCtxMenu()} onClose={() => setEditorCtxMenu(null)} />
     </CanvasSurface>
   );

@@ -6,10 +6,13 @@
  */
 
 const FOCUSABLE = 'textarea:not([disabled]), input:not([disabled]), button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+let focusRequest = 0;
 
 /** Focus the content area of a tab panel by its ID. */
 export function focusTabPanel(tabId: string): void {
+  const request = ++focusRequest;
   requestAnimationFrame(() => {
+    if (request !== focusRequest) return;
     const panel = Array.from(document.querySelectorAll<HTMLElement>("[data-tab-panel-id]"))
       .find((el) => el.dataset.tabPanelId === tabId);
     if (!panel) return;
@@ -26,7 +29,9 @@ export function focusTabPanel(tabId: string): void {
 
 /** Focus the first focusable element in the sidebar. */
 export function focusSidebarPrimary(): void {
+  const request = ++focusRequest;
   requestAnimationFrame(() => {
+    if (request !== focusRequest) return;
     const target = document.querySelector<HTMLElement>(`.sidebar button, .sidebar [tabindex]:not([tabindex='-1'])`);
     if (target && document.activeElement !== target) {
       target.focus({ preventScroll: true });
@@ -41,7 +46,9 @@ export function restorePrimaryWorkspaceFocus(activeTabId: string | null, ideRoot
     return;
   }
 
+  const request = ++focusRequest;
   requestAnimationFrame(() => {
+    if (request !== focusRequest) return;
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }

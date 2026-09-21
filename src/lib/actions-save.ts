@@ -68,22 +68,15 @@ export function createSaveActions(
   async function doSave(tab: Tab, engine: EditorEngine, savePath: string, options: { silent?: boolean } = {}): Promise<void> {
     await formatBeforeSave(tab, engine, savePath);
 
-    const lines = engine.lines();
-    const trimmed = lines.map(l => l.trimEnd());
-    const needsTrim = lines.some((l, i) => l !== trimmed[i]);
-    if (needsTrim) {
-      const cursor = engine.cursor();
-      engine.loadText(trimmed.join("\n"));
-      engine.setCursor({ line: cursor.line, col: Math.min(cursor.col, trimmed[cursor.line]?.length ?? 0) });
-    }
     await syncLspDocument(savePath, engine);
     const text = engine.getText();
+    const savedRevision = engine.editSeq();
     await writeFileSmart(savePath, text);
-    engine.markClean();
+    if (engine.editSeq() === savedRevision) engine.markClean();
 
     const fileName = basename(savePath);
     setStore("tabs", store.tabs.map(t =>
-      t.id === tab.id ? { ...t, path: savePath, name: fileName, dirty: false } : t
+      t.id === tab.id ? { ...t, path: savePath, name: fileName, dirty: engine.dirty() } : t
     ));
 
     lspDidSave(savePath).catch(e => console.warn("LSP didSave failed:", e));

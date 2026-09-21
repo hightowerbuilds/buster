@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::io::Write;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{command, AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +19,8 @@ pub struct SessionTab {
     pub cursor_col: u32,
     pub scroll_top: f64,
     pub backup_key: Option<String>,
+    #[serde(default)]
+    pub selection: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +29,8 @@ pub struct SessionState {
     pub workspace_root: Option<String>,
     pub active_tab_id: Option<String>,
     pub layout_mode: String,
+    #[serde(default)]
+    pub pane_workspace: Option<serde_json::Value>,
     pub sidebar_visible: bool,
     pub sidebar_width: u32,
     pub tabs: Vec<SessionTab>,
@@ -44,11 +50,48 @@ fn backups_dir(app: &AppHandle) -> PathBuf {
     session_dir(app).join("backups")
 }
 
-/// Compute a stable hash key for a file path (used as backup filename).
-pub fn hash_path(path: &str) -> String {
+/// Legacy backup keys remain readable; new backups include content in their identity.
+#[cfg(test)]
+fn hash_path(path: &str) -> String {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+fn backup_key(identity: &str, content: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    (identity, content).hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn validate_backup_key(key: &str) -> Result<(), String> {
+    if key.is_empty() || key.len() > 64 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("Invalid backup key".into());
+    }
+    Ok(())
+}
+
+/// Replace only after the new bytes are fully written. A failed write leaves the old file intact.
+fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
+    static NEXT_WRITE: AtomicU64 = AtomicU64::new(0);
+    let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), NEXT_WRITE.fetch_add(1, Ordering::Relaxed)));
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)
+        .map_err(|e| format!("Failed to create recovery file: {e}"))?;
+    let result = (|| -> std::io::Result<()> {
+        file.write_all(content)?;
+        file.sync_all()?;
+        fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result.map_err(|e| format!("Failed to save recovery file: {e}"))
+}
+
+fn parse_session(content: &str) -> Result<SessionState, String> {
+    let session: SessionState = serde_json::from_str(content)
+        .map_err(|e| format!("Cannot read saved session; original data preserved: {e}"))?;
+    if session.version != 1 { return Err("Unsupported session version; original data preserved".into()); }
+    Ok(session)
 }
 
 #[command]
@@ -58,7 +101,7 @@ pub fn save_session(app: AppHandle, session: SessionState) -> Result<(), String>
 
     let path = session_path(&app);
     let json = serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| format!("Failed to write session: {}", e))?;
+    atomic_write(&path, json.as_bytes())?;
     Ok(())
 }
 
@@ -69,15 +112,7 @@ pub fn load_session(app: AppHandle) -> Result<Option<SessionState>, String> {
         return Ok(None);
     }
     let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read session: {}", e))?;
-    match serde_json::from_str::<SessionState>(&content) {
-        Ok(session) => {
-            if session.version != 1 {
-                return Ok(None); // Unknown version, clean start
-            }
-            Ok(Some(session))
-        }
-        Err(_) => Ok(None), // Corrupt JSON, clean start
-    }
+    parse_session(&content).map(Some)
 }
 
 #[command]
@@ -85,14 +120,15 @@ pub fn save_backup_buffer(app: AppHandle, file_path: String, content: String) ->
     let dir = backups_dir(&app);
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create backups dir: {}", e))?;
 
-    let key = hash_path(&file_path);
+    let key = backup_key(&file_path, &content);
     let buf_path = dir.join(format!("{}.buf", key));
-    fs::write(&buf_path, &content).map_err(|e| format!("Failed to write backup: {}", e))?;
+    atomic_write(&buf_path, content.as_bytes())?;
     Ok(key)
 }
 
 #[command]
 pub fn load_backup_buffer(app: AppHandle, backup_key: String) -> Result<Option<String>, String> {
+    validate_backup_key(&backup_key)?;
     let buf_path = backups_dir(&app).join(format!("{}.buf", backup_key));
     if !buf_path.exists() {
         return Ok(None);
@@ -103,6 +139,7 @@ pub fn load_backup_buffer(app: AppHandle, backup_key: String) -> Result<Option<S
 
 #[command]
 pub fn delete_backup_buffer(app: AppHandle, backup_key: String) -> Result<(), String> {
+    validate_backup_key(&backup_key)?;
     let buf_path = backups_dir(&app).join(format!("{}.buf", backup_key));
     if buf_path.exists() {
         fs::remove_file(&buf_path).map_err(|e| format!("Failed to delete backup: {}", e))?;
@@ -151,11 +188,7 @@ pub fn clear_running_flag(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
 
-    fn temp_session_dir() -> PathBuf {
-        env::temp_dir().join(format!("buster_session_test_{}", std::process::id()))
-    }
 
     #[test]
     fn hash_path_produces_consistent_keys() {
@@ -179,6 +212,7 @@ mod tests {
             workspace_root: Some("/Users/luke/project".into()),
             active_tab_id: Some("file_1".into()),
             layout_mode: "tabs".into(),
+            pane_workspace: None,
             sidebar_visible: true,
             sidebar_width: 240,
             tabs: vec![
@@ -191,6 +225,7 @@ mod tests {
                     cursor_line: 42,
                     cursor_col: 8,
                     scroll_top: 320.0,
+                    selection: None,
                     backup_key: Some("abc123".into()),
                 },
                 SessionTab {
@@ -202,6 +237,7 @@ mod tests {
                     cursor_line: 0,
                     cursor_col: 0,
                     scroll_top: 0.0,
+                    selection: None,
                     backup_key: None,
                 },
             ],
@@ -228,7 +264,8 @@ mod tests {
 
     #[test]
     fn backup_buffer_roundtrip_via_filesystem() {
-        let dir = temp_session_dir();
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         let backups = dir.join("backups");
         fs::create_dir_all(&backups).unwrap();
 
@@ -247,12 +284,13 @@ mod tests {
         fs::remove_file(&buf_path).unwrap();
         assert!(!buf_path.exists());
 
-        let _ = fs::remove_dir_all(&dir);
+
     }
 
     #[test]
     fn session_json_roundtrip_via_filesystem() {
-        let dir = temp_session_dir();
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
         fs::create_dir_all(&dir).unwrap();
 
         let session = SessionState {
@@ -260,6 +298,7 @@ mod tests {
             workspace_root: None,
             active_tab_id: None,
             layout_mode: "tabs".into(),
+            pane_workspace: None,
             sidebar_visible: true,
             sidebar_width: 240,
             tabs: vec![],
@@ -275,6 +314,43 @@ mod tests {
         assert_eq!(restored.version, 1);
         assert_eq!(restored.tabs.len(), 0);
 
-        let _ = fs::remove_dir_all(&dir);
+
     }
+    #[test]
+    fn backups_distinguish_drafts_and_revisions() {
+        assert_ne!(backup_key("untitled:file_1", "draft"), backup_key("untitled:file_2", "draft"));
+        assert_ne!(backup_key("/draft.md", "before"), backup_key("/draft.md", "after"));
+        assert_eq!(backup_key("/draft.md", "same"), backup_key("/draft.md", "same"));
+    }
+
+    #[test]
+    fn rejects_unsafe_backup_paths() {
+        for key in ["", "../session", "/tmp/backup", "ab/cd", "nope"] {
+            assert!(validate_backup_key(key).is_err());
+        }
+        assert!(validate_backup_key("01abcdefABCDEF").is_ok());
+    }
+
+    #[test]
+    fn atomic_replace_preserves_previous_revision_backup() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.json");
+        atomic_write(&path, b"before").unwrap();
+        atomic_write(&path, b"after").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "after");
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+        let old_backup = temp.path().join(backup_key("draft", "old"));
+        atomic_write(&old_backup, b"old").unwrap();
+        atomic_write(&temp.path().join(backup_key("draft", "new")), b"new").unwrap();
+        assert_eq!(fs::read_to_string(old_backup).unwrap(), "old");
+    }
+
+    #[test]
+    fn corrupt_and_future_sessions_fail_instead_of_becoming_empty() {
+        assert!(parse_session("broken").is_err());
+        let json = r#"{"version":2,"workspace_root":null,"active_tab_id":null,"layout_mode":"tabs","sidebar_visible":true,"sidebar_width":240,"tabs":[],"timestamp":""}"#;
+        assert!(parse_session(json).is_err());
+        assert!(parse_session(&json.replace("\"version\":2", "\"version\":1")).is_ok());
+    }
+
 }

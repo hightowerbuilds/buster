@@ -40,6 +40,18 @@ export function split(
   return { kind: "split", direction, children, sizes };
 }
 
+/** Default layouts used by the layout picker previews. */
+export function createPanelLayoutTree(count: number): PanelLayoutNode {
+  const size = Math.max(1, Math.min(6, Math.round(Number.isFinite(count) ? count : 1)));
+  if (size === 1) return leaf(0);
+  if (size <= 3) return split("row", Array.from({ length: size }, (_, index) => leaf(index)));
+  const topCount = Math.ceil(size / 2);
+  return split("column", [
+    split("row", Array.from({ length: topCount }, (_, index) => leaf(index))),
+    split("row", Array.from({ length: size - topCount }, (_, index) => leaf(topCount + index))),
+  ]);
+}
+
 /** Count the number of leaves in the tree. */
 export function countLeaves(node: PanelLayoutNode): number {
   if (node.kind === "leaf") return 1;

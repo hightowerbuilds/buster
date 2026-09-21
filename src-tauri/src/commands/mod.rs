@@ -11,5 +11,7 @@ pub mod browser;
 pub mod surface;
 pub mod keymap;
 pub mod filebuffer;
-pub mod debugger;
 pub mod ai_completion;
+pub mod writing_ai;
+pub mod lookup;
+pub mod speech;

@@ -6,21 +6,20 @@ import FindReplace from "./ui/FindReplace";
 import CommandPalette from "./ui/CommandPalette";
 import CommandLineSwitchboard from "./ui/CommandLineSwitchboard";
 import PanelLayout from "./ui/PanelLayout";
-import WelcomeCanvas from "./ui/WelcomeCanvas";
+import SpeechDock from "./ui/SpeechDock";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
 import BranchPicker from "./ui/BranchPicker";
-import DebugMode from "./ui/DebugMode";
 import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHotkeyDefinitions, resolveHotkey, type CommandDeps } from "./lib/app-commands";
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { normalizeHotkey } from "./lib/keybinding-conflicts";
 import { useBuster } from "./lib/buster-context";
 import { createPanelRenderer } from "./ui/PanelRenderer";
-import type { PanelCount } from "./lib/panel-count";
-import { splitLeaf, removeLeaf, reindexAfterRemoval, countLeaves, leaf } from "./ui/panel-layout-tree";
+
 import { focusTabPanel, focusSidebarPrimary, restorePrimaryWorkspaceFocus, sidebarHasFocus } from "./lib/focus-service";
 import "./styles/ide.css";
+import { showError } from "./lib/notify";
 
 const App: Component = () => {
   const { store, setStore, engines, actions } = useBuster();
@@ -53,108 +52,22 @@ const App: Component = () => {
     }
   }
 
-  function applyPanelCount(count: PanelCount, options?: { restoreFocus?: boolean }) {
-    setStore("panelCount", count);
-    if (options?.restoreFocus !== false) restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
-  }
-
-  let splitGuard = false;
-
-  /** Create a terminal that lives inside a split — hidden from tab bar. */
-  function createSplitTerminal(): number {
-    const tabId = `split_term_${Date.now()}_${store.tabs.length}`;
-    const cwd = store.workspaceRoot ?? "";
-    const newTab = {
-      id: tabId,
-      name: "Terminal",
-      path: cwd,
-      dirty: false,
-      type: "terminal" as const,
-      splitChild: true,
-    };
-    setStore("tabs", [...store.tabs, newTab]);
-    return store.tabs.length - 1; // index of the just-added tab
-  }
-
-  function splitRight() {
-    if (splitGuard || countLeaves(store.layoutTree) >= 6) return;
-    splitGuard = true;
-
-    const activeIdx = store.tabs.findIndex((t) => t.id === store.activeTabId);
-    const targetIdx = activeIdx >= 0 ? activeIdx : 0;
-    const newIdx = createSplitTerminal();
-
-    const newTree = splitLeaf(store.layoutTree, targetIdx, "row", newIdx);
-    setStore("layoutTree", newTree);
-    setStore("panelCount", countLeaves(newTree) as PanelCount);
-    requestAnimationFrame(() => { splitGuard = false; });
-  }
-
-  function splitDown() {
-    if (splitGuard || countLeaves(store.layoutTree) >= 6) return;
-    splitGuard = true;
-
-    const activeIdx = store.tabs.findIndex((t) => t.id === store.activeTabId);
-    const targetIdx = activeIdx >= 0 ? activeIdx : 0;
-    const newIdx = createSplitTerminal();
-
-    const newTree = splitLeaf(store.layoutTree, targetIdx, "column", newIdx);
-    setStore("layoutTree", newTree);
-    setStore("panelCount", countLeaves(newTree) as PanelCount);
-    requestAnimationFrame(() => { splitGuard = false; });
-  }
-
-  function closeSplit() {
-    const leaves = countLeaves(store.layoutTree);
-    if (leaves <= 1) return;
-
-    // Find the last split child in the tree to remove (preserve the original tab)
-    const splitChildIndices = store.tabs
-      .map((t, i) => t.splitChild ? i : -1)
-      .filter((i) => i >= 0);
-
-    if (splitChildIndices.length === 0) return;
-
-    // Remove the last split child
-    const removeIdx = splitChildIndices[splitChildIndices.length - 1];
-
-    // Remove the leaf from the tree and reindex
-    let newTree = removeLeaf(store.layoutTree, removeIdx);
-    if (!newTree) newTree = leaf(0);
-    newTree = reindexAfterRemoval(newTree, removeIdx);
-
-    // Remove the tab from the array
-    setStore("tabs", store.tabs.filter((_, i) => i !== removeIdx));
-
-    // If only 1 leaf left, reset to clean single-panel state
-    const newLeaves = countLeaves(newTree);
-    if (newLeaves <= 1) {
-      newTree = leaf(0);
-    }
-
-    setStore("layoutTree", newTree);
-    setStore("panelCount", newLeaves as PanelCount);
-  }
-
-  function openCommandLine() {
-    setCommandLineVisible(true);
-  }
+  function splitRight() { try { actions.panes.splitPane("right"); } catch (e) { showError(String(e)); } }
+  function splitDown() { try { actions.panes.splitPane("down"); } catch (e) { showError(String(e)); } }
+  function closeSplit() { actions.panes.closePane(); }
 
   function toggleCommandLine() {
-    setCommandLineVisible((visible) => !visible);
+    if (commandLineVisible()) closeCommandLine();
+    else setCommandLineVisible(true);
   }
 
   function closeCommandLine() {
     setCommandLineVisible(false);
+    restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
   }
 
   function handleCommandLineExtensions() {
     actions.createExtensionsTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineDebug() {
-    actions.createDebugTab();
     closeCommandLine();
   }
 
@@ -218,9 +131,10 @@ const App: Component = () => {
     splitRight,
     splitDown,
     closeSplit,
+    navigatePane: actions.panes.navigatePane,
+    resizePane: actions.panes.resizePane,
+    zoomPane: () => actions.panes.zoomPane(),
     closeTabOrSplit: () => {
-      const hasSplits = store.tabs.some(t => t.splitChild);
-      if (hasSplits) { closeSplit(); return; }
       const id = store.activeTabId;
       if (id) actions.handleTabClose(id);
     },
@@ -356,6 +270,8 @@ const App: Component = () => {
     setTabs: (fn) => setStore("tabs", fn(store.tabs)),
     engineMap: engines.map,
     getFileTextForTab: actions.getFileTextForTab,
+    scrollPositions: () => store.scrollPositions,
+    onScrollChange: (id, top) => setStore("scrollPositions", id, top),
   });
 
   // ── Helpers ─────────────────────────────────────────────
@@ -366,9 +282,7 @@ const App: Component = () => {
   }
 
   function groupedTabIds() {
-    const count = Math.min(store.panelCount, store.tabs.length);
-    if (count <= 1) return undefined;
-    return new Set(store.tabs.slice(0, count).map((tab) => tab.id));
+    return new Set(store.paneWorkspace.panes.flatMap(p => p.tabId ? [p.tabId] : []));
   }
 
   // ── JSX ─────────────────────────────────────────────────
@@ -445,7 +359,7 @@ const App: Component = () => {
         <div class="editor-area" role="main" aria-label="Editor">
           <div class="editor-toolbar">
             <CanvasTabBar
-              tabs={store.tabs.filter(t => !t.splitChild)}
+              tabs={store.tabs}
               activeTab={store.activeTabId}
               groupedTabIds={groupedTabIds()}
               onSelect={actions.switchToTab}
@@ -478,21 +392,9 @@ const App: Component = () => {
             }}
           />
           <div class="editor-content">
-            <PanelLayout
-              layoutTree={store.layoutTree}
-              tabs={store.tabs}
-              activeTabId={store.activeTabId}
-              renderPanel={renderPanel}
-              welcome={
-                <WelcomeCanvas
-                  recentFolders={store.settings.recent_folders}
-                  onOpenFolder={(path) => actions.openWorkspace(path)}
-                  onNewFile={() => actions.createNewFile()}
-                  onOpenDirectory={() => actions.changeDirectory()}
-                />
-              }
-            />
+            <PanelLayout renderPanel={renderPanel} />
           </div>
+          <SpeechDock />
           <CanvasStatusBar
               line={store.cursorLine}
               col={store.cursorCol}
@@ -518,7 +420,6 @@ const App: Component = () => {
         visible={commandLineVisible()}
         onClose={closeCommandLine}
         onOpenExtensions={handleCommandLineExtensions}
-        onOpenDebug={handleCommandLineDebug}
         onOpenGit={handleCommandLineGit}
         onOpenBrowser={handleCommandLineBrowser}
         onOpenConsole={handleCommandLineConsole}
@@ -553,9 +454,6 @@ const App: Component = () => {
           onClose={() => setStore("branchPickerVisible", false)}
           onBranchChanged={() => actions.refreshGitBranch(store.workspaceRoot!)}
         />
-      </Show>
-      <Show when={store.debugModeVisible}>
-        <DebugMode onMinimize={() => setStore("debugModeVisible", false)} />
       </Show>
     </div>
   );

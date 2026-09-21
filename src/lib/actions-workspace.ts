@@ -43,6 +43,7 @@ export function createWorkspaceActions(
     }
     const remaining = store.tabs.filter(t => t.type !== "file");
     setStore("tabs", remaining);
+    setStore("paneWorkspace", "panes", store.paneWorkspace.panes.map(p => ({ ...p, tabId: remaining.some(t => t.id === p.tabId) ? p.tabId : null })));
     if (remaining.length === 0) setStore("activeTabId", null);
   }
 

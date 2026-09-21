@@ -1002,7 +1002,7 @@ mod tests {
             )
             .expect("terminal should spawn");
 
-        mgr.write(&term_id, b"printf BUSTER_TERMINAL_READY\r")
+        mgr.write(&term_id, b"printf '%s%s\\n' BUSTER_ TERMINAL_READY\r")
             .expect("terminal should accept input");
 
         let output = rx
@@ -1010,7 +1010,12 @@ mod tests {
             .expect("terminal should emit command output");
         assert!(output.contains("BUSTER_TERMINAL_READY"), "{output}");
 
-        let _ = mgr.kill(&term_id);
+        mgr.resize(&term_id, 32, 100).expect("terminal should resize");
+        let screen = mgr.resync(&term_id).unwrap();
+        assert_eq!((screen.rows, screen.cols), (32, 100));
+        mgr.kill(&term_id).expect("terminal should close");
+        assert!(mgr.write(&term_id, b"ignored").is_err());
+        assert!(mgr.resync(&term_id).is_err());
     }
 
     #[test]

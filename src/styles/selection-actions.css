@@ -1,0 +1,6 @@
+.selection-actions { position:absolute; z-index:20; width:220px; height:82px; box-sizing:border-box; padding:6px; border:1px solid var(--blue,#89b4fa); border-radius:7px; background:var(--mantle,#181825); box-shadow:0 4px 16px #0007; color:var(--text,#cdd6f4); font:12px system-ui,sans-serif; }
+.selection-actions > div { display:flex; align-items:center; gap:4px; height:33px; }
+.selection-actions button { border:1px solid var(--surface1,#45475a); border-radius:4px; background:var(--surface0,#313244); color:inherit; padding:4px 7px; font:inherit; cursor:pointer; }
+.selection-actions button:focus-visible { outline:2px solid var(--blue,#89b4fa); outline-offset:1px; }
+.selection-actions button:disabled { opacity:.5; cursor:default; }
+.selection-actions span { font-size:9px; opacity:.7; margin-left:auto; }

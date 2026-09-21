@@ -10,9 +10,17 @@ vi.mock("./session", () => ({
 
 import { buildHotkeyDefinitions, DEFAULT_KEYBINDINGS } from "./app-commands";
 import type { CommandDeps } from "./app-commands";
+import { createEditorEngine } from "../editor/engine";
 
 function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
   return {
+    createNewFile: vi.fn(),
+    handleSaveAs: vi.fn(),
+    splitRight: vi.fn(),
+    splitDown: vi.fn(),
+    closeSplit: vi.fn(),
+    navigatePane: vi.fn(), resizePane: vi.fn(), zoomPane: vi.fn(),
+    closeTabOrSplit: vi.fn(),
     handleSave: vi.fn(),
     changeDirectory: vi.fn(),
     handleTabClose: vi.fn(),
@@ -42,7 +50,39 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
   };
 }
 
+function fireHotkey(defs: ReturnType<typeof buildHotkeyDefinitions>, hotkey: string) {
+  const definition = defs.find(def => String(def.hotkey) === hotkey);
+  expect(definition, `Missing shortcut: ${hotkey}`).toBeDefined();
+  if (definition) definition.callback({} as KeyboardEvent, {} as Parameters<typeof definition.callback>[1]);
+}
+
 describe("tab hotkeys", () => {
+  it("registers pane shortcuts once and keeps tab-close distinct from pane-close", () => {
+    const deps = makeDeps();
+    const defs = buildHotkeyDefinitions(deps);
+    const keys = defs.map(def => String(def.hotkey));
+    expect(new Set(keys).size).toBe(keys.length);
+    fireHotkey(defs, "Mod+w");
+    expect(deps.closeTabOrSplit).toHaveBeenCalledOnce();
+    expect(deps.closeSplit).not.toHaveBeenCalled();
+    fireHotkey(defs, "Mod+Shift+w");
+    expect(deps.closeSplit).toHaveBeenCalledOnce();
+    fireHotkey(defs, "Mod+Alt+ArrowRight");
+    expect(deps.navigatePane).toHaveBeenCalledWith("right");
+  });
+
+  it("lets terminal find and Escape reach the focused panel", () => {
+    const terminalDefs = buildHotkeyDefinitions(makeDeps());
+    expect(terminalDefs.find(def => String(def.hotkey) === "Mod+f")?.options?.enabled).toBe(false);
+    expect(terminalDefs.find(def => def.hotkey === "Escape")?.options?.stopPropagation).toBe(false);
+    const engine = createEditorEngine("draft");
+    const deps = makeDeps({ activeEngine: () => engine });
+    const editorDefs = buildHotkeyDefinitions(deps);
+    expect(editorDefs.find(def => String(def.hotkey) === "Mod+f")?.options?.enabled).toBe(true);
+    fireHotkey(editorDefs, "Mod+f");
+    expect(deps.setFindVisible).toHaveBeenCalledWith(true);
+  });
+
   it("defines default Mod+1 through Mod+9 bindings", () => {
     for (let position = 1; position <= 9; position++) {
       expect(DEFAULT_KEYBINDINGS[`tabs.${position}`]).toBe(`Mod+${position}`);
@@ -62,8 +102,8 @@ describe("tab hotkeys", () => {
     });
     const defs = buildHotkeyDefinitions(deps);
 
-    defs.find(def => def.hotkey === "Mod+2")?.callback();
-    defs.find(def => def.hotkey === "Mod+3")?.callback();
+    fireHotkey(defs, "Mod+2");
+    fireHotkey(defs, "Mod+3");
 
     expect(switchToTab).toHaveBeenNthCalledWith(1, "tab-b");
     expect(switchToTab).toHaveBeenNthCalledWith(2, "tab-c");
@@ -77,7 +117,7 @@ describe("tab hotkeys", () => {
     });
     const defs = buildHotkeyDefinitions(deps);
 
-    defs.find(def => def.hotkey === "Mod+4")?.callback();
+    fireHotkey(defs, "Mod+4");
 
     expect(switchToTab).not.toHaveBeenCalled();
   });
@@ -91,8 +131,8 @@ describe("tab hotkeys", () => {
     });
     const defs = buildHotkeyDefinitions(deps);
 
-    defs.find(def => def.hotkey === "Mod+Shift+[")?.callback();
-    defs.find(def => def.hotkey === "Mod+Shift+]")?.callback();
+    fireHotkey(defs, "Mod+Shift+[");
+    fireHotkey(defs, "Mod+Shift+]");
 
     expect(switchToTab).toHaveBeenNthCalledWith(1, "tab-a");
     expect(switchToTab).toHaveBeenNthCalledWith(2, "tab-c");
@@ -107,7 +147,7 @@ describe("tab hotkeys", () => {
     });
     const defs = buildHotkeyDefinitions(deps);
 
-    defs.find(def => def.hotkey === "Mod+Shift+[")?.callback();
+    fireHotkey(defs, "Mod+Shift+[");
 
     expect(switchToTab).toHaveBeenCalledWith("tab-c");
   });
@@ -119,7 +159,7 @@ describe("keybinding cheat sheet hotkey", () => {
     const defs = buildHotkeyDefinitions(deps);
 
     expect(DEFAULT_KEYBINDINGS["view.keybindings"]).toBe("Mod+k Mod+s");
-    expect(defs.some(def => def.hotkey === "Mod+k Mod+s")).toBe(false);
+    expect(defs.some(def => String(def.hotkey) === "Mod+k Mod+s")).toBe(false);
   });
 
   it("registers a single-stroke custom shortcut for the keyboard shortcuts tab", () => {
@@ -127,7 +167,7 @@ describe("keybinding cheat sheet hotkey", () => {
     const deps = makeDeps({ createKeybindingsTab });
     const defs = buildHotkeyDefinitions(deps, { "view.keybindings": "Mod+/" });
 
-    defs.find(def => def.hotkey === "Mod+/")?.callback();
+    fireHotkey(defs, "Mod+/");
 
     expect(createKeybindingsTab).toHaveBeenCalledOnce();
   });

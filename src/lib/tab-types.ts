@@ -8,14 +8,14 @@ export type TabType =
   | "keybindings"
   | "git"
   | "extensions"
-  | "debug"
   | "explorer"
   | "problems"
   | "search-results"
   | "surface"
   | "browser"
   | "console"
-  | "ai";
+  | "ai"
+  | "writing-review";
 
 const IMAGE_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif", "tiff", "tif",
@@ -33,6 +33,7 @@ export interface Tab {
   path: string;
   dirty: boolean;
   type: TabType;
-  /** True for panels created by split — hidden from the tab bar. */
-  splitChild?: boolean;
+  /** Cursor used until a restored document's editor mounts. */
+  restoredSelection?: { anchor: { line: number; col: number }; head: { line: number; col: number } } | null;
+  restoredCursor?: { line: number; col: number };
 }

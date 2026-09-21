@@ -1,6 +1,8 @@
-# Buster IDE Documentation
+# BusterMark implementation reference
 
-Complete reference documentation for Buster, a canvas-rendered IDE built with Tauri v2, Rust, and SolidJS.
+BusterMark is being rebuilt as a writing workbench with AI integration, using Tauri, Rust, and SolidJS.
+
+This reference describes the inherited implementation. The active rebuild scope and progress live in [Phase 0](../growth/phases/phase-0.md) and [Phase 1](../growth/phases/phase-1.md); sections below may describe features being retired.
 
 ---
 
@@ -71,12 +73,6 @@ Complete reference documentation for Buster, a canvas-rendered IDE built with Ta
   - [Panel Resizing](#panel-resizing)
   - [Panel Types](#panel-types)
   - [Tab Management](#tab-management)
-- [Debugger](#debugger)
-  - [Breakpoints](#breakpoints)
-  - [Debug Controls](#debug-controls)
-  - [Stack Frames](#stack-frames)
-  - [Variables](#variables)
-  - [Debug Adapter Protocol](#debug-adapter-protocol)
 - [Extensions](#extensions)
   - [Extension System Overview](#extension-system-overview)
   - [Extension Manifest](#extension-manifest)
@@ -127,7 +123,7 @@ Complete reference documentation for Buster, a canvas-rendered IDE built with Ta
 
 ## Overview
 
-Buster is a canvas-rendered IDE where every character on screen — code, terminal output, UI chrome — is drawn on an HTML Canvas. The editor uses a TypeScript `string[]` buffer backed by SolidJS signals, Tree-sitter for syntax highlighting, and Pretext for text measurement. The terminal runs a real PTY through a VT100 parser in Rust and renders the cell grid on canvas.
+BusterMark is a canvas-rendered IDE where every character on screen — code, terminal output, UI chrome — is drawn on an HTML Canvas. The editor uses a TypeScript `string[]` buffer backed by SolidJS signals, Tree-sitter for syntax highlighting, and Pretext for text measurement. The terminal runs a real PTY through a VT100 parser in Rust and renders the cell grid on canvas.
 
 The application is built on Tauri v2 with a Rust backend and a SolidJS frontend. It installs at 43 MB, compared to 350 MB for VS Code or 2.5 GB for WebStorm.
 
@@ -179,7 +175,7 @@ bun run tauri build
 
 The built app will be at:
 
-- macOS: `src-tauri/target/release/bundle/macos/Buster.app`
+- macOS: `src-tauri/target/release/bundle/macos/BusterMark.app`
 - macOS DMG: `src-tauri/target/release/bundle/dmg/Buster_0.1.0_x64.dmg`
 - Windows: `src-tauri/target/release/bundle/nsis/`
 - Linux: `src-tauri/target/release/bundle/appimage/` or `src-tauri/target/release/bundle/deb/`
@@ -196,7 +192,7 @@ This starts the app with hot-reload for the frontend. Rust changes trigger an au
 
 ## Getting Started
 
-Open Buster. The welcome screen shows an ASCII particle animation and a list of recently opened folders. You can:
+Open BusterMark. The welcome screen shows an ASCII particle animation and a list of recently opened folders. You can:
 
 1. Click a recent folder to reopen it
 2. Use **Cmd+O** (macOS) or **Ctrl+O** (Windows/Linux) to open a folder
@@ -384,7 +380,7 @@ The editor includes an accessibility bridge that maintains a hidden `<textarea>`
 | .css, .scss | vscode-css-language-server | css, scss |
 | .html | vscode-html-language-server | html |
 
-Language servers must be installed separately on your system. Buster discovers them via PATH.
+Language servers must be installed separately on your system. BusterMark discovers them via PATH.
 
 ### Autocomplete
 
@@ -459,7 +455,7 @@ Navigate between diagnostics:
 
 ### LSP Crash Recovery
 
-If a language server crashes, Buster automatically restarts it with exponential backoff (up to 3 retries). After restart, all open documents are re-synchronized with `didOpen`. The crash count resets after a successful 60-second run.
+If a language server crashes, BusterMark automatically restarts it with exponential backoff (up to 3 retries). After restart, all open documents are re-synchronized with `didOpen`. The crash count resets after a successful 60-second run.
 
 The LSP status is shown in the status bar. Click it to see the state of all running servers.
 
@@ -469,7 +465,7 @@ The LSP status is shown in the status bar. Click it to see the state of all runn
 
 ### Terminal Emulation
 
-Buster includes a full terminal emulator rendered on canvas. The backend spawns a real pseudo-terminal (PTY) via the `portable-pty` crate. Terminal state is parsed by the `vt100` crate in Rust, which handles all ANSI/VT100 escape sequences.
+BusterMark includes a full terminal emulator rendered on canvas. The backend spawns a real pseudo-terminal (PTY) via the `portable-pty` crate. Terminal state is parsed by the `vt100` crate in Rust, which handles all ANSI/VT100 escape sequences.
 
 The terminal supports:
 
@@ -526,7 +522,7 @@ The terminal correctly handles CJK (Chinese, Japanese, Korean) double-width char
 
 ## Git Integration
 
-Buster includes 30+ built-in git commands accessible from the Git panel (**Cmd+Shift+G**) and the command palette. No terminal required.
+BusterMark includes 30+ built-in git commands accessible from the Git panel (**Cmd+Shift+G**) and the command palette. No terminal required.
 
 ### Status and Staging
 
@@ -713,7 +709,7 @@ Prefix with `#` to search file contents across the workspace. Results appear in 
 
 ### Layout Modes
 
-Buster supports 1 to 6 simultaneous panels. The dock bar at the bottom of the screen shows layout options:
+BusterMark supports 1 to 6 simultaneous panels. The dock bar at the bottom of the screen shows layout options:
 
 | Mode | Panels | Description |
 |------|--------|-------------|
@@ -743,7 +739,6 @@ In addition to file editors, panels can display:
 | Git | Status, staging, commit interface |
 | Settings | IDE preferences and configuration |
 | Extensions | Extension management |
-| Debug | Debugger controls and variables |
 | Problems | LSP diagnostics list |
 | Search Results | Workspace search results |
 | Console | Application log viewer |
@@ -770,40 +765,8 @@ When you close tabs and the remaining count is less than the panel count, the la
 
 ---
 
-## Debugger
-
-### Breakpoints
-
-Click in the editor gutter to toggle a breakpoint on a line. Breakpoints appear as colored dots in the gutter.
-
-**Conditional breakpoints** can be set with an expression that must evaluate to true for the debugger to pause. Set conditions via the context menu on a breakpoint.
-
-Breakpoints persist across sessions.
-
-### Debug Controls
-
-When a debug session is active:
-
-- **Continue** (F5) — resume execution until the next breakpoint
-- **Step Over** (F10) — execute the current line and move to the next
-- **Step Into** (F11) — step into a function call
-- **Step Out** (Shift+F11) — step out of the current function
-- **Pause** — interrupt execution
-- **Stop** — terminate the debug session
-
-### Stack Frames
-
-When paused, the call stack panel shows all stack frames from the current execution point back to the entry point. Click a frame to navigate to its source location.
-
-### Variables
-
-The variables panel shows local and global variables for the current stack frame. Variables are displayed with their names, types, and values. Complex objects can be expanded to inspect their fields.
-
-### Debug Adapter Protocol
-
-Buster communicates with debuggers through the Debug Adapter Protocol (DAP). Any DAP-compatible debug adapter can be used. The adapter runs as a subprocess with JSON-RPC 2.0 communication over stdin/stdout.
-
-Configure the adapter command and launch arguments in the debug panel settings.
+The debugger, breakpoints, and DAP backend were retired in Phase 0. Legacy
+sessions skip debug tabs while restoring supported document and terminal tabs.
 
 ---
 
@@ -811,7 +774,7 @@ Configure the adapter command and launch arguments in the debug panel settings.
 
 ### Extension System Overview
 
-Buster extensions are WASM modules that run in a sandboxed Wasmtime runtime. Each extension declares its capabilities in a TOML manifest. The extension system enforces these declarations — an extension cannot access resources it hasn't declared.
+BusterMark extensions are WASM modules that run in a sandboxed Wasmtime runtime. Each extension declares its capabilities in a TOML manifest. The extension system enforces these declarations — an extension cannot access resources it hasn't declared.
 
 Extensions are installed in `~/.buster/extensions/<id>/` and managed through the Extensions panel in the IDE.
 
@@ -876,7 +839,7 @@ Extensions have a 5-second execution timeout enforced by Wasmtime's epoch-based 
 
 ### Host Functions
 
-Functions provided by Buster to extensions:
+Functions provided by BusterMark to extensions:
 
 **Always available:**
 
@@ -1005,7 +968,7 @@ cp target/wasm32-unknown-unknown/release/my_extension.wasm \
    ~/.buster/extensions/my-extension/extension.wasm
 cp extension.toml ~/.buster/extensions/my-extension/
 
-# 6. Enable in Buster: Extensions panel > Enable
+# 6. Enable in BusterMark: Extensions panel > Enable
 ```
 
 Tips:
@@ -1050,7 +1013,7 @@ Tips:
 
 ### Theme System
 
-Buster's theme engine generates a full IDE palette from a single seed hue using HSL color math. The palette includes:
+BusterMark's theme engine generates a full IDE palette from a single seed hue using HSL color math. The palette includes:
 
 - **Backgrounds** — editor, gutter, surface layers (surface0, surface1, surface2)
 - **Text** — primary, dim, muted
@@ -1061,11 +1024,11 @@ Buster's theme engine generates a full IDE palette from a single seed hue using 
 
 The base theme is Catppuccin Mocha. Custom hue rotation shifts the entire palette while maintaining contrast ratios. Light mode inverts the luminance relationships.
 
-VS Code themes can be imported and mapped to Buster's palette system.
+VS Code themes can be imported and mapped to BusterMark's palette system.
 
 ### Canvas Effects
 
-Buster supports visual effects that are only possible with canvas rendering:
+BusterMark supports visual effects that are only possible with canvas rendering:
 
 | Effect | Description | Range |
 |--------|-------------|-------|
@@ -1088,7 +1051,7 @@ Themes transform the editor's visual presentation (fonts, spacing, colors, backg
 
 ### Auto-Save
 
-Buster auto-saves the session state every 30 seconds to `~/.buster/sessions/session.json`. The saved state includes:
+BusterMark auto-saves the session state every 30 seconds to `~/.buster/sessions/session.json`. The saved state includes:
 
 - Workspace root path
 - All open tabs (file paths, tab types, cursor positions, scroll positions)
@@ -1099,7 +1062,7 @@ Buster auto-saves the session state every 30 seconds to `~/.buster/sessions/sess
 
 ### Hot Exit
 
-When you close Buster, the session persists automatically. On next launch, the session is restored:
+When you close BusterMark, the session persists automatically. On next launch, the session is restored:
 
 - Workspace reopens
 - All tabs reopen in their previous positions
@@ -1108,7 +1071,7 @@ When you close Buster, the session persists automatically. On next launch, the s
 
 ### Crash Recovery
 
-On startup, Buster checks for a `.running` flag file. If it exists, the previous session did not shut down cleanly (crash or force-quit). Buster proceeds with session restoration and recovers unsaved content from backup buffers.
+On startup, BusterMark checks for a `.running` flag file. If it exists, the previous session did not shut down cleanly (crash or force-quit). BusterMark proceeds with session restoration and recovers unsaved content from backup buffers.
 
 The running flag is created on startup and deleted on clean shutdown.
 
@@ -1234,7 +1197,6 @@ src/
     DiffView.tsx              # Unified/split diff
     BranchPicker.tsx          # Branch switcher
     ConflictResolver.tsx      # Merge conflict UI
-    DebugPanel.tsx            # Debugger breakpoints + variables
     ExtensionsPage.tsx        # Extension manager
     ConsolePanel.tsx          # Log viewer
     SearchResultsPanel.tsx    # File search results
@@ -1290,7 +1252,6 @@ src-tauri/src/
     syntax.rs            # Open/close/edit document, highlight viewport
     lsp.rs               # 14 LSP commands (start, completion, hover, definition, etc.)
     git.rs               # 30+ git commands (status, commit, push, branch, stash, etc.)
-    debugger.rs          # Breakpoints, launch, step, variables, stack
     extensions.rs        # List, load, unload, call, gateway, install, uninstall
     browser.rs           # Create, navigate, resize, show/hide webviews
     keymap.rs            # Lua keymap evaluation
@@ -1316,15 +1277,10 @@ src-tauri/src/
     gateway.rs           # WebSocket + HTTP SSE transport
     surface.rs           # Canvas surface rendering + input forwarding
 
-  debugger/              # DAP client
-    mod.rs               # Breakpoint management, session, events
-    client.rs            # DAP JSON-RPC protocol
-
 src-tauri/crates/        # Internal Rust libraries
   syntax/                # buster-syntax: incremental Tree-sitter
   lsp-manager/           # buster-lsp-manager: LSP client + crash recovery
   terminal-pro/          # buster-terminal-pro: VT100 + sixel + scrollback
-  dap/                   # buster-dap: Debug Adapter Protocol
   sandbox/               # buster-sandbox: WASM execution sandbox
 ```
 
@@ -1341,7 +1297,7 @@ Frontend and backend communicate through Tauri v2's IPC bridge:
 5. Tauri serializes the result to JSON
 6. Frontend receives the result (or error)
 
-There are 100+ registered command handlers across all categories (file, git, LSP, terminal, extensions, debugger, session, search, settings, browser, keymap).
+There are 100+ registered command handlers across all categories (file, git, LSP, terminal, extensions, session, search, settings, browser, keymap).
 
 **Events (backend to frontend):**
 
@@ -1356,7 +1312,6 @@ Four persistent event channels:
 |-------|--------|------|
 | `lsp-diagnostics` | LSP manager | File path + diagnostic array |
 | `file-changed-externally` | File watcher | File path |
-| `debug-event` | DAP client | Debug event (stopped, thread, output) |
 | `surface-event` | Extension surface manager | Surface ID + paint/input data |
 
 ### Event System
@@ -1364,7 +1319,7 @@ Four persistent event channels:
 The file watcher uses the `notify` crate for cross-platform file monitoring:
 
 - **Debouncing** — per-path 500ms debounce prevents duplicate events
-- **Self-write suppression** — when Buster saves a file, watcher events for that path are suppressed for 200ms
+- **Self-write suppression** — when BusterMark saves a file, watcher events for that path are suppressed for 200ms
 - **Event filtering** — only data modifications and creates are forwarded
 
 ### State Management
@@ -1377,7 +1332,6 @@ The file watcher uses the `notify` crate for cross-platform file monitoring:
 - Workspace root, git branch name
 - Diagnostics map, search matches
 - Settings, theme palette
-- Debug session state
 
 State mutations flow through action functions defined in `buster-actions.ts`. Actions use `setStore()` to update specific fields, triggering fine-grained reactivity in exactly the components that depend on those fields.
 
@@ -1390,7 +1344,6 @@ State mutations flow through action functions defined in `buster-actions.ts`. Ac
 - `ExtensionManager` — WASM runtimes
 - `FileWatcher` — watched path set
 - `BrowserManager` — webview instances
-- `DebugManager` — debug sessions
 - `FileBufferManager` — memory-mapped files
 
 ### Internal Crates
@@ -1401,7 +1354,6 @@ State mutations flow through action functions defined in `buster-actions.ts`. Ac
 
 **buster-terminal-pro** — Terminal emulation layer. Wraps the `vt100` crate with additions for sixel image parsing, scrollback buffer management (10,000 lines), runtime theme switching, CJK display-width handling, and hyperlink detection. Produces delta-encoded screen updates (only changed rows) for efficient frontend rendering.
 
-**buster-dap** — Debug Adapter Protocol client. Thread-safe breakpoint store using `RwLock<HashMap>`. Adapter registry for debug adapter discovery. Typed event channel with `mpsc` for forwarding debug events (stopped, thread, output, breakpoint) to the frontend.
 
 **buster-sandbox** — Code execution sandbox. OS-level process isolation with an allowlist-based capability system. Validates commands against the allowlist before execution. Enforces workspace containment — processes cannot access files outside the project directory. Used by the extension system for `host_run_command()`.
 
@@ -1531,7 +1483,7 @@ Auto-updates are delivered through GitHub Releases via the Tauri updater plugin.
 
 ## Accessibility
 
-Buster includes accessibility features for keyboard-only and screen reader users:
+BusterMark includes accessibility features for keyboard-only and screen reader users:
 
 ### Screen Reader Support
 

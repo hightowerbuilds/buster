@@ -1,145 +1,81 @@
-# Buster
+# BusterMark
 
-A canvas-rendered IDE built from scratch with Tauri, Rust, and SolidJS.
+A writing workbench with AI integration, built with Tauri, Rust, and SolidJS.
 
-Every character on screen — code, terminal, UI — is drawn on an HTML Canvas. No DOM text anywhere. The editor uses a TypeScript string[] buffer backed by SolidJS signals, Tree-sitter for syntax highlighting, and Pretext for text measurement. The terminal runs a real PTY through a VT100 parser in Rust and renders the cell grid on canvas.
+BusterMark is being rebuilt from the Buster IDE. The existing canvas editor,
+integrated terminal, and desktop foundation support the transition. Phase 1 is
+underway with note-first split panes, keyboard navigation, resizing, and saved
+layouts. Selecting text opens Copy/Paste, local macOS dictionary lookup, and AI
+review beside the source note. AI results require explicit acceptance and support
+undo. Selected text can be read aloud with installed macOS voices, with pause,
+resume, stop, and word progress in a persistent playback strip. Speech model
+discovery and full-document reading remain planned Phase 1 work.
 
-## Install
+## Rebuild progress
 
-### Prerequisites
+- [Phase 0 — Foundation](growth/phases/phase-0.md)
+- [Phase 1 — Writing panes, selection actions, and voice](growth/phases/phase-1.md)
+- [Phase 2 — Word-processing interface and model-controlled appearance](growth/phases/phase-2.md)
+- [First writing workflow](growth/phases/writing-workflow.md)
+- [Phase 0 demo](growth/build-log/phase-0-demo.md)
+- [Build log](growth/build-log/)
+- [Historical plans and summaries](growth/archive/2026-09-20-pre-rebuild/README.md)
 
-- [Rust](https://rustup.rs/) (1.70+)
-- [Bun](https://bun.sh/) (1.0+)
-- On macOS: Xcode Command Line Tools (`xcode-select --install`)
-- On Linux: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+Completed phase tasks are marked **COMPLETED** after implementation and relevant
+verification. Unchecked tasks remain planned work.
 
-### Build from source
+## Development
 
-```bash
+Install Rust, Bun, and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+On macOS, install Xcode Command Line Tools.
+
+```sh
 git clone https://github.com/hightowerbuilds/buster.git
 cd buster
+bun install --cwd packages/buster-path
+bun run --cwd packages/buster-path build
 bun install
-bun run tauri build
-```
-
-The built app will be at:
-- macOS: `src-tauri/target/release/bundle/macos/Buster.app`
-- macOS DMG: `src-tauri/target/release/bundle/dmg/Buster_0.1.0_x64.dmg`
-
-### Development
-
-```bash
 bun run tauri dev
 ```
 
-This starts the app with hot-reload for the frontend. Rust changes trigger an automatic rebuild.
+The repository URL and directory name remain `buster` during the rebuild.
 
-## Usage
+## Checks and builds
 
-### Getting started
+```sh
+bunx tsc --noEmit
+bun run test
+bun run build
+cd src-tauri
+cargo check
+cargo test
+```
 
-Open Buster. The welcome screen shows an ASCII particle animation. Open a folder from the sidebar to start editing, or use the command palette (**Cmd+Shift+P**) to browse actions.
-
-### Keyboard shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| Cmd+S | Save |
-| Cmd+Z | Undo |
-| Cmd+Shift+Z | Redo |
-| Cmd+F | Find / Replace |
-| Cmd+P | Quick Open (fuzzy file search) |
-| Cmd+Shift+P | Show All Commands |
-| Ctrl+G | Go to Line |
-| Cmd+Shift+O | Go to Symbol |
-| Cmd+Shift+\ | Jump to matching bracket |
-| Ctrl+- / Ctrl+Shift+- | Navigate back / forward |
-| Cmd+T | New terminal tab |
-| Cmd+Shift+G | Git panel |
-| Cmd+B | Toggle sidebar |
-| Cmd+O | Open folder |
-| Cmd+W | Close tab |
-| Cmd+, | Settings |
-| F12 | Go to Definition |
-| Shift+F12 | Find References |
-| F2 | Rename Symbol |
-| F8 / Shift+F8 | Next / Previous diagnostic |
-| F6 / Shift+F6 | Cycle focus between regions |
-| Escape | Close overlays |
-
-### Features
-
-**Editor** — Canvas-rendered with a TypeScript string[] buffer (SolidJS signals). Syntax highlighting via Tree-sitter for 20+ languages. Code folding, find/replace with regex, minimap, multi-cursor editing, word wrap, indent guides, bracket pair colorization, Emmet abbreviation expansion for HTML/CSS. Image viewer for PNG, JPG, GIF, and WebP.
-
-**Terminal** — Full terminal emulator rendered on canvas. VT100/ANSI parsing in Rust via the vt100 crate with sixel image support. Runs any PTY program — NeoVim, htop, tmux, etc. Mouse reporting, bracketed paste, scrollback history with search, configurable themes, crash recovery. Each terminal opens as a tab alongside your files.
-
-**Git** — 30+ built-in git commands with no terminal required. Status, staging, commit (with amend), push/pull/fetch, branches, stash, remote management, blame overlay, diff gutter indicators, conflict resolution, and a canvas-rendered commit graph with colored lanes.
-
-**LSP** — Language server support for Rust (rust-analyzer), TypeScript/JavaScript (typescript-language-server), Python (pyright), and Go (gopls). Autocomplete, hover, signature help, code actions, inlay hints, go-to-definition, go-to-type-definition, document symbols, rename refactoring, find all references, and a diagnostics panel with automatic crash recovery.
-
-**Debugger** — DAP-based debugging. Set breakpoints (with conditions), launch programs, step over/into/out, pause, and inspect stack frames and variables. Works with any Debug Adapter Protocol server.
-
-**Quick Open** — Cmd+P opens a fuzzy file search across your workspace. Respects .gitignore. Prefix modes: `>` commands, `:` go-to-line, `@` symbols, `#` content search.
-
-**Find & Replace** — Cmd+F with regex support, match highlighting, case sensitivity toggle, replace one or replace all.
-
-**Layouts** — Split panels up to 6 ways with draggable dividers between panels.
-
-**File Explorer** — Sidebar with lazy-loading directory tree. Respects .gitignore. Drag and drop files between folders. Right-click context menu with rename, delete, copy path.
-
-**Session Restore** — Auto-saves every 30 seconds. Hot-exit on window close. Restores workspace, tabs, cursor positions, and dirty buffers on relaunch.
-
-**Extensions** — WASM-sandboxed extensions with capability-based permissions. Extensions can render custom UI surfaces via display list commands, control embedded browser webviews, and connect via WebSocket or HTTP SSE gateways to external services.
+Use `bun run tauri build` from the project root for a desktop package. On macOS,
+the application bundle is `src-tauri/target/release/bundle/macos/BusterMark.app`.
 
 ## Architecture
 
-```
-src/                          Frontend (TypeScript + SolidJS)
-  editor/                     Canvas editor, engine, Tree-sitter bridge, LSP features
-  ui/                         Sidebar, tabs, terminal, git, debugger, command palette
-  lib/                        IPC bridge, commands, menu handlers, session
+| Location | Responsibility |
+| --- | --- |
+| `src/` | SolidJS application and TypeScript UI state |
+| `src/editor/` | Current canvas editor and document operations |
+| `src/ui/` | Panels, terminal rendering, and application controls |
+| `src/lib/` | Shared state, actions, commands, and Tauri IPC |
+| `src-tauri/src/` | Native services, filesystem, PTYs, and IPC handlers |
+| `src-tauri/crates/` | Supporting Rust libraries |
+| `packages/buster-path/` | Shared path utilities |
 
-src-tauri/src/                Backend (Rust)
-  commands/                   IPC handlers (file, git, lsp, terminal, extensions, debugger, session)
-  debugger/                   DAP client and session manager
-  extensions/                 WASM runtime, gateway, manifest, UI surfaces
-  lsp/                        Language server client, diagnostic forwarding
-  syntax/                     Tree-sitter highlighting (20+ languages)
-  terminal/                   VT100 state (vt100 crate) + PTY (portable-pty)
-  browser.rs                  Embedded webview management
-  watcher.rs                  File change detection
-  workspace.rs                Path validation + security boundary
-```
+The [internal command system](docs/internal-commands.md) lets human controls and
+in-app AI adapters use the same feature services. Open it with Ctrl+backtick and
+try `help`, `app status`, or `terminal create`. Phase 0 tracks the remaining scope.
 
-### Stack
+## Compatibility
 
-| Layer | Technology |
-|-------|-----------|
-| Desktop shell | Tauri v2 |
-| Backend | Rust |
-| Frontend framework | SolidJS |
-| Text buffer | TypeScript string[] (SolidJS signals) |
-| Syntax highlighting | Tree-sitter (native Rust, 20+ grammars) |
-| Text measurement | Pretext (@chenglou/pretext) |
-| Terminal parsing | vt100 crate |
-| Terminal PTY | portable-pty |
-| Extension runtime | wasmtime (WASM sandbox) |
-| Emmet | emmet (npm) |
-| UI font | Courier New |
-| Editor font | JetBrains Mono |
-| Theme | Catppuccin Mocha (with custom hue rotation) |
-
-### Why these choices
-
-**SolidJS** over React — No virtual DOM. Fine-grained reactivity means signals update only what changed.
-
-**Tauri** over Electron — Rust backend with native webview. Fraction of the install size. Lower memory usage. Direct access to system APIs.
-
-**Canvas** over DOM — Every character is drawn via Canvas 2D. No reflow, no style recalculation.
-
-**TypeScript string[]** over Rust IPC — Zero-latency edits with no IPC per keystroke. SolidJS signals provide reactive updates. Undo/redo with time-based grouping.
-
-**vt100 + Canvas** over xterm.js — Terminal state lives in Rust. Rendering goes through the same canvas pipeline as the editor.
+The product name is BusterMark. The application identifier
+`com.lukehightower.buster`, existing storage and credential identifiers, and
+internal library names are retained to preserve compatibility. The rename does
+not relocate user data. See the build log for the identity inventory.
 
 ## License
 

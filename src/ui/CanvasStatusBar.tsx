@@ -1,7 +1,7 @@
 /**
  * CanvasStatusBar — canvas-rendered status bar.
  *
- * Replaces the DOM StatusBar. Shows: "Buster" label, git branch (clickable),
+ * Replaces the DOM StatusBar. Shows: "BusterMark" label, git branch (clickable),
  * sync button, diagnostics (clickable), LSP status, cursor position, filename.
  */
 
@@ -91,11 +91,11 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     // ── Left side ────────────────────────────────────────────────────
     let x = PAD;
 
-    // "Buster" label
+    // "BusterMark" label
     ctx.fillStyle = textOnAccent;
     ctx.textAlign = "left";
-    ctx.fillText("Buster", x, cy);
-    x += ctx.measureText("Buster").width + ITEM_GAP;
+    ctx.fillText("BusterMark", x, cy);
+    x += ctx.measureText("BusterMark").width + ITEM_GAP;
 
     // Vim mode indicator
     if (props.vimMode) {
