@@ -219,10 +219,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "view.splitRight", label: "Split Right", category: "View", keybinding: "Mod+D", execute: () => deps.splitRight() },
     { id: "view.splitDown", label: "Split Down", category: "View", keybinding: "Mod+Shift+D", execute: () => deps.splitDown() },
     { id: "view.closeSplit", label: "Close Tab / Panel", category: "View", keybinding: "Mod+W", execute: () => deps.closeTabOrSplit() },
-    { id: "editor.toggleVimMode", label: "Toggle Vim Mode", category: "Editor", execute: () => {
-      const s = deps.settings();
-      deps.updateSettings({ ...s, vim_mode: !s.vim_mode });
-    } },
     { id: "editor.toggleWhitespace", label: "Toggle Render Whitespace", category: "Editor", execute: () => {
       const s = deps.settings();
       deps.updateSettings({ ...s, show_whitespace: !s.show_whitespace });
@@ -297,7 +293,12 @@ export function buildHotkeyDefinitions(
   add("view.showCommands", () => { deps.setPaletteInitialQuery(">"); deps.setPaletteVisible(true); });
   add("view.settings", () => deps.createSettingsTab());
   add("view.keybindings", () => deps.createKeybindingsTab());
-  add("view.toggleSidebar", () => deps.setSidebarVisible(v => !v));
+  const sidebarHotkey = hk("view.toggleSidebar");
+  if (sidebarHotkey && !isChord(sidebarHotkey)) defs.push({
+    hotkey: sidebarHotkey as RegisterableHotkey,
+    callback: () => deps.setSidebarVisible(v => !v),
+    options: { ignoreInputs: false },
+  });
   add("pane.close", () => deps.closeSplit());
   add("pane.zoom", () => deps.zoomPane());
   for (const direction of ["left", "right", "up", "down"] as const) {

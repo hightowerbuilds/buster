@@ -7,6 +7,7 @@ import CommandPalette from "./ui/CommandPalette";
 import CommandLineSwitchboard from "./ui/CommandLineSwitchboard";
 import PanelLayout from "./ui/PanelLayout";
 import SpeechDock from "./ui/SpeechDock";
+import FooterNav from "./ui/FooterNav";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
@@ -308,6 +309,7 @@ const App: Component = () => {
       }}>Skip to Terminal</a>
       <div class="ide-main">
         <div
+          id="file-explorer-sidebar"
           class="sidebar-wrap"
           role="complementary"
           aria-label="Sidebar"
@@ -321,9 +323,7 @@ const App: Component = () => {
             workspaceRoot={store.workspaceRoot}
             onFolderOpen={(path) => actions.openWorkspace(path)}
             onChangeDirectory={actions.changeDirectory}
-            onCloseDirectory={actions.closeDirectory}
-            onHideSidebar={() => updateSidebarVisible(false)}
-            onPopOut={actions.popOutSidebar}
+            onCloseDirectory={store.workspaceRoot !== store.notesRoot ? actions.closeDirectory : undefined}
           />
           <div
             class="sidebar-resize-handle"
@@ -348,14 +348,15 @@ const App: Component = () => {
             }}
           />
         </div>
-        <Show when={!store.sidebarVisible}>
-          <button
-            class="sidebar-show-btn"
-            title="Show Sidebar"
-            aria-label="Show Sidebar"
-            onClick={() => updateSidebarVisible(true, { focusSidebar: true })}
-          >&raquo;</button>
-        </Show>
+        <button
+          class="sidebar-bumper"
+          title={`${store.sidebarVisible ? "Hide" : "Show"} File Explorer (⌘B)`}
+          aria-label={`${store.sidebarVisible ? "Hide" : "Show"} File Explorer`}
+          aria-expanded={store.sidebarVisible}
+          aria-controls="file-explorer-sidebar"
+          aria-keyshortcuts="Meta+B Control+B"
+          onClick={() => updateSidebarVisible(v => !v)}
+        ><span aria-hidden="true">{store.sidebarVisible ? "‹" : "›"}</span></button>
         <div class="editor-area" role="main" aria-label="Editor">
           <div class="editor-toolbar">
             <CanvasTabBar
@@ -411,11 +412,11 @@ const App: Component = () => {
               onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
               onLspClick={actions.restartLsp}
               fileLoading={store.fileLoading}
-              vimMode={store.vimMode}
               lineEnding={actions.activeEngine()?.lineEnding() ?? null}
             />
         </div>
       </div>
+      <FooterNav />
       <CommandLineSwitchboard
         visible={commandLineVisible()}
         onClose={closeCommandLine}

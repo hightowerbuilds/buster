@@ -44,6 +44,7 @@ function posFromMouse(e: MouseEvent, deps: MouseDeps) {
   return deps.engine.posFromPixel(
     e.clientX, e.clientY, rect, deps.scrollTop(),
     deps.fontSize(), deps.lineNumbers(), deps.wordWrap(), deps.canvasWidth(),
+    { lineHeight: deps.lineHeight(), charWidth: deps.charW(), gutterWidth: deps.gutterW() },
   );
 }
 

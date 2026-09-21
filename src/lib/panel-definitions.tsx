@@ -16,13 +16,15 @@ import GitPage from "../ui/GitPage";
 import ExtensionsPage from "../ui/ExtensionsPage";
 import ProblemsPanel from "../ui/ProblemsPanel";
 import SearchResultsPanel from "../ui/SearchResultsPanel";
-import Sidebar from "../ui/Sidebar";
 import ImageViewer from "../ui/ImageViewer";
 import DisplayListSurface from "../ui/DisplayListSurface";
 import CanvasBrowserPanel from "../ui/CanvasBrowserPanel";
 import ConsolePanel from "../ui/ConsolePanel";
 import AiSettingsPanel from "../ui/AiSettingsPanel";
 import WritingReviewPanel from "../ui/WritingReviewPanel";
+import SearchPortal from "../ui/SearchPortal";
+
+registerPanel("search-portal", { render: tab => <SearchPortal portalId={tab.path} /> });
 
 registerPanel("writing-review", {
   render: tab => <WritingReviewPanel reviewId={tab.path} />,
@@ -105,22 +107,6 @@ registerPanel("problems", {
         deps.setCursorLine(line);
         deps.setCursorCol(col);
       }}
-    />
-  ),
-});
-
-// ── Explorer (popped out sidebar) ────────────────────────────────────
-
-registerPanel("explorer", {
-  render: (_tab, _isActive, deps) => (
-    <Sidebar
-      onFileSelect={deps.handleFileSelect}
-      workspaceRoot={deps.workspaceRoot()}
-      onFolderOpen={(path) => deps.openWorkspace(path)}
-      onChangeDirectory={deps.changeDirectory}
-      onCloseDirectory={deps.closeDirectory}
-      poppedOut={true}
-      onReturn={() => deps.handleTabClose("explorer_tab")}
     />
   ),
 });

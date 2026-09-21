@@ -6,6 +6,8 @@
  * keyboard navigation, and per-tab type styling.
  */
 
+import { UI_FONT_FAMILY } from "../lib/fonts";
+
 import { Component, createSignal, Show } from "solid-js";
 import CanvasChrome, { CHROME_FONT, CHROME_MONO, type HitRegion, type PaintFn } from "./canvas-chrome";
 import { useBuster } from "../lib/buster-context";
@@ -44,7 +46,6 @@ function tabIcon(type: string): string {
     case "terminal": return ">";
     case "settings": return "~";
     case "git":      return "&";
-    case "explorer": return "/";
     case "surface":  return "^";
     default:         return "#";
   }
@@ -427,7 +428,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
                   border: "none",
                   "border-bottom": `2px solid ${store.palette.accent}`,
                   "font-size": "13px",
-                  "font-family": "'Courier New', Courier, monospace",
+                  "font-family": UI_FONT_FAMILY,
                   "line-height": `${BAR_H}px`,
                   padding: "0",
                   margin: "0",

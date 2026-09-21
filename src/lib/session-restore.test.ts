@@ -48,12 +48,13 @@ describe("session restoration", () => {
     const io = deps();
     io.readFile.mockRejectedValue(new Error("missing file"));
     const restored = await prepareSessionRestore(session([
-      tab({ type: "debug", id: "debug", name: "Debugger" }), tab(),
+      tab({ type: "debug", id: "debug", name: "Debugger" }),
+      tab({ type: "explorer", id: "explorer_tab", name: "Explorer" }), tab(),
       tab({ type: "terminal", id: "term_tab_7", path: "", name: "Terminal" }),
     ]), io);
     expect(restored.tabs).toMatchObject([{ id: "term_tab_7", type: "terminal", path: "/notes" }]);
     expect(restored.activeTabId).toBe("term_tab_7");
-    expect(restored.skipped).toEqual(["Debugger", "Draft.md"]);
+    expect(restored.skipped).toEqual(["Debugger", "Explorer", "Draft.md"]);
     expect(restored.fileTexts).toEqual({});
   });
 

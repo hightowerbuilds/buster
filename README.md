@@ -11,11 +11,25 @@ undo. Selected text can be read aloud with installed macOS voices, with pause,
 resume, stop, and word progress in a persistent playback strip. Speech model
 discovery and full-document reading remain planned Phase 1 work.
 
+Phase 2 adds Markdown formatting, adjustable padding/columns and typography,
+local open-note search, and optional writing effects. Use **Writing appearance**
+for preview/apply/reset, saved appearances, and app/workspace/pane scopes. The
+shared catalog now exposes 66 commands. The next milestone is a Claude/Codex
+connection UI and agent tool-calling integration.
+
+The File Explorer stays in the sidebar; its right-edge bumper or **Cmd+B** toggles
+it. The footer provides **Terminal**, **Settings**, and **Notes** (new Markdown
+note). Notes live in the app's persistent `Notes` directory and autosave there.
+`Desktop/BusterMark` is a symbolic link to that directory, so Finder and the app
+use the same files. An existing Desktop item is preserved and a numbered shortcut
+name is used instead; the footer displays the actual location or any setup error.
+
 ## Rebuild progress
 
 - [Phase 0 — Foundation](growth/phases/phase-0.md)
 - [Phase 1 — Writing panes, selection actions, and voice](growth/phases/phase-1.md)
 - [Phase 2 — Word-processing interface and model-controlled appearance](growth/phases/phase-2.md)
+- [Phase 3 — Claude and Codex connections](growth/phases/phase-3.md)
 - [First writing workflow](growth/phases/writing-workflow.md)
 - [Phase 0 demo](growth/build-log/phase-0-demo.md)
 - [Build log](growth/build-log/)

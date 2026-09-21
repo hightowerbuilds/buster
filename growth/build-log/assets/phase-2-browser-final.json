@@ -1,0 +1,54 @@
+[
+  {
+    "name": "Native printable and Shift input each commit once",
+    "passed": true
+  },
+  {
+    "name": "Native typing replaces selection once",
+    "passed": true
+  },
+  {
+    "name": "Native selection replacement undoes once",
+    "passed": true
+  },
+  {
+    "name": "Latest IME update keeps source unchanged",
+    "passed": true
+  },
+  {
+    "name": "Latest native composition commits once",
+    "passed": true
+  },
+  {
+    "name": "Following normal key commits once",
+    "passed": true
+  },
+  {
+    "name": "Heading selector applies H2 to current line",
+    "passed": true
+  },
+  {
+    "name": "Bullet toolbar applies source marker",
+    "passed": true
+  },
+  {
+    "name": "Ordered toolbar applies source marker",
+    "passed": true
+  },
+  {
+    "name": "Returning preview draft to baseline then Apply cancels preview",
+    "passed": true
+  },
+  {
+    "name": "Returning preview draft to baseline then Preview cancels preview",
+    "passed": true
+  },
+  {
+    "name": "Deleting selected preset returns chooser to Quiet",
+    "passed": true
+  },
+  {
+    "name": "Appearance regressions preserve writing",
+    "passed": true
+  }
+]

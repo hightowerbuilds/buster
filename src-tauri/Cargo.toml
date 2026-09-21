@@ -80,9 +80,6 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 toml = "0.8"
 dirs = "6"
 
-# Lua scripting (keymap evaluation)
-mlua = { version = "0.10", features = ["lua54", "serialize", "vendored"] }
-
 # Browser webview
 url = "2"
 

@@ -80,7 +80,7 @@ export function createWorkbenchCommands(deps: WorkbenchCommandDeps): FeatureComm
       const p = requirePane(deps.paneWorkspace(), deps.paneWorkspace().activePaneId);
       return { paneId: p.id, tabId: p.tabId ?? "" };
     }, ['panel focus {"paneId":"<pane ID>"}']);
-  add("document create", "Create an untitled Markdown note in the chosen pane, keeping replaced content open.",
+  add("document create", "Create a Markdown note in the chosen pane, keeping replaced content open. Its Notes-home file is created asynchronously; inspect document list for the assigned path or a retained unsaved draft on failure.",
     object({ paneId: string }, []), object({ tabId: string, paneId: string }), "write", args => {
       if (args.paneId) deps.panes.focusPane(ensurePane(args.paneId));
       return { tabId: deps.createNote(), paneId: deps.paneWorkspace().activePaneId };

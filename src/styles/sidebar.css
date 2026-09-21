@@ -27,21 +27,21 @@
   background: var(--accent);
 }
 
-.sidebar-show-btn {
-  background: var(--bg-mantle);
-  border: none;
+.sidebar-bumper {
+  width: 18px;
+  padding: 0;
+  border: 0;
   border-right: 1px solid var(--border);
+  background: var(--bg-mantle);
   color: var(--text-muted);
-  font-size: 14px;
-  padding: 8px 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: flex-start;
   flex-shrink: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
 }
-
-.sidebar-show-btn:hover {
-  color: var(--text);
+.sidebar-bumper span { font-size: 22px; }
+.sidebar-bumper:hover, .sidebar-bumper:focus-visible {
+  color: var(--accent);
   background: var(--bg-surface0);
 }
 
@@ -231,7 +231,7 @@
 .delete-modal-body strong {
   color: var(--text);
   font-weight: normal;
-  font-family: "Courier New", monospace;
+  font-family: var(--font-ui);
 }
 
 .delete-modal-actions {

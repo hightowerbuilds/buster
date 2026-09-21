@@ -1,0 +1,59 @@
+[
+  {
+    "name": "Wheel scroll reaches distant writing",
+    "passed": true
+  },
+  {
+    "name": "Resize preserves visible logical passage",
+    "passed": true
+  },
+  {
+    "name": "Resize preserves source cursor and revision",
+    "passed": true
+  },
+  {
+    "name": "Last logical line remains reachable",
+    "passed": true
+  },
+  {
+    "name": "First line remains reachable",
+    "passed": true
+  },
+  {
+    "name": "Typing pulse schedules a bounded animation",
+    "passed": true
+  },
+  {
+    "name": "Reduced motion suppresses pulse loop",
+    "passed": true
+  },
+  {
+    "name": "Measured frame requests",
+    "motionFrames": 16,
+    "reducedFrames": 2
+  },
+  {
+    "name": "Uncommitted browser composition leaves source untouched",
+    "passed": true
+  },
+  {
+    "name": "Browser composition commits once",
+    "passed": true
+  },
+  {
+    "name": "Portal fallback respects six-pane limit",
+    "passed": true
+  },
+  {
+    "name": "Portal fallback retains source engine",
+    "passed": true
+  },
+  {
+    "name": "Six-pane portal query returns source match",
+    "passed": true
+  },
+  {
+    "name": "AI review opens at six panes without losing source",
+    "passed": true
+  }
+]

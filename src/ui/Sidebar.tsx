@@ -1,4 +1,5 @@
-import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
+import { showError } from "../lib/notify";
+import { Component, createSignal, createEffect, on, onCleanup, For, Show } from "solid-js";
 import { listDirectory, createFile, createDirectory, moveEntry } from "../lib/ipc";
 import { TreeItem, SidebarContextMenu, type TreeNode, isDragging, getDragNode, refreshDir, setRefreshDir } from "./SidebarTree";
 import { basename } from "buster-path";
@@ -9,10 +10,6 @@ interface SidebarProps {
   onFolderOpen?: (path: string) => void;
   onChangeDirectory?: () => void;
   onCloseDirectory?: () => void;
-  onHideSidebar?: () => void;
-  onPopOut?: () => void;
-  onReturn?: () => void;
-  poppedOut?: boolean;
   workspaceRoot?: string | null;
 }
 
@@ -66,16 +63,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
     const trimmed = name.trim();
     setCreatingRoot(null);
     if (!trimmed || !rootPath()) return;
-    const fullPath = rootPath()! + "/" + trimmed;
+    if (trimmed === "." || trimmed === ".." || /[/\\\0]/.test(trimmed)) { showError("Enter a name without path separators"); return; }
+    const fileName = type === "file" && !trimmed.includes(".") ? `${trimmed}.md` : trimmed;
+    const fullPath = rootPath()! + "/" + fileName;
     try {
       if (type === "file") {
         await createFile(fullPath);
+        props.onFileSelect(fullPath);
       } else {
         await createDirectory(fullPath);
       }
       await refreshRoot();
     } catch (err) {
-      console.error("Create failed:", err);
+      showError(`Could not create the ${type}: ${String(err)}`);
     }
   }
 
@@ -109,18 +109,19 @@ const Sidebar: Component<SidebarProps> = (props) => {
 
   // Targeted refresh: when refreshDir matches root, re-list root entries
   createEffect(on(refreshDir, (dir) => {
-    if (dir && dir === rootPath()) refreshRoot();
+    if (dir && (dir === "*" || dir === rootPath())) refreshRoot();
   }, { defer: true }));
+
+  // Pick up Finder changes to the Desktop shortcut when returning to the app.
+  const refreshOnFocus = () => setRefreshDir("*");
+  window.addEventListener("focus", refreshOnFocus);
+  onCleanup(() => window.removeEventListener("focus", refreshOnFocus));
 
   return (
     <div class="sidebar">
       <CanvasSidebarHeader
         title={rootPath() ? (basename(rootPath()!) || rootPath()!) : "Explorer"}
         hasWorkspace={!!rootPath()}
-        poppedOut={props.poppedOut}
-        onHideSidebar={props.onHideSidebar}
-        onPopOut={props.onPopOut}
-        onReturn={props.onReturn}
         onOpen={() => props.onChangeDirectory ? props.onChangeDirectory() : openFolder()}
         onNewFolder={() => rootPath() ? setCreatingRoot({ type: "folder" }) : openFolder()}
         onNewFile={() => rootPath() ? setCreatingRoot({ type: "file" }) : openFolder()}
@@ -146,11 +147,15 @@ const Sidebar: Component<SidebarProps> = (props) => {
                 class="tree-rename-input"
                 placeholder={creatingRoot()!.type === "folder" ? "folder name" : "file name"}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRootCreate(e.currentTarget.value, creatingRoot()!.type);
+                  const creating = creatingRoot();
+                  if (e.key === "Enter" && creating) handleRootCreate(e.currentTarget.value, creating.type);
                   if (e.key === "Escape") setCreatingRoot(null);
                   e.stopPropagation();
                 }}
-                onBlur={(e) => handleRootCreate(e.currentTarget.value, creatingRoot()!.type)}
+                onBlur={(e) => {
+                  const creating = creatingRoot();
+                  if (creating) handleRootCreate(e.currentTarget.value, creating.type);
+                }}
                 onClick={(e) => e.stopPropagation()}
                 ref={(el) => setTimeout(() => el.focus(), 0)}
               />

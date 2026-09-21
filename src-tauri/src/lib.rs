@@ -235,6 +235,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // File commands
             commands::file::set_workspace_root,
+            commands::notes::initialize_notes_workspace,
             commands::file::read_file,
             commands::file::write_file,
             commands::file::list_directory,
@@ -357,8 +358,6 @@ pub fn run() {
             commands::browser::browser_module_on_visibility,
             commands::browser::browser_module_on_mouse_move,
             commands::browser::browser_module_close,
-            // Keymap (Lua evaluation)
-            commands::keymap::evaluate_keymap,
             // Session
             commands::session::save_session,
             commands::session::load_session,

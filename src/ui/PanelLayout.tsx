@@ -3,10 +3,12 @@ import { useBuster } from "../lib/buster-context";
 import { MAX_PANES, paneGeometry, type PaneDirection, type PaneDivider, type PaneRect, type PaneNode } from "../lib/writing-panes";
 import type { Tab } from "../lib/tab-types";
 import { showError } from "../lib/notify";
+import WritingLayoutControls from "./WritingLayoutControls";
+import WritingToolbar from "./WritingToolbar";
 
 interface PanelLayoutProps { renderPanel: (tab: Tab, active: boolean) => JSX.Element }
 const PanelLayout: Component<PanelLayoutProps> = props => {
-  const { store, actions } = useBuster();
+  const { store, actions, search, formatting } = useBuster();
   const state = () => store.paneWorkspace;
   const [size, setSize] = createSignal({ width: 1000, height: 600 });
   const [direction, setDirection] = createSignal<PaneDirection>("right");
@@ -55,6 +57,11 @@ const PanelLayout: Component<PanelLayoutProps> = props => {
     window.addEventListener("blur", endDrag);
   }
   return <div class="writing-workspace">
+    <WritingToolbar requestPortal={target => safely(() => {
+      if (target && JSON.stringify(formatting.capture(target.paneId)) !== JSON.stringify(target))
+        throw new Error("Your writing selection changed. Return to the note and open AI search again.");
+      search.open(target?.paneId ?? state().activePaneId);
+    })} />
     <div class="writing-toolbar" role="toolbar" aria-label="Writing panes">
       <button onClick={() => actions.createNewFile()}>+ New note</button>
       <select aria-label="Split direction" value={direction()} onChange={e => setDirection(e.currentTarget.value as PaneDirection)}>
@@ -69,6 +76,7 @@ const PanelLayout: Component<PanelLayoutProps> = props => {
         <option value="">Swap with…</option>
         <For each={state().panes.filter(p => p.id !== state().activePaneId)}>{p => <option value={p.id}>{paneTab(p.id)?.name ?? "Empty pane"}</option>}</For>
       </select>
+      <WritingLayoutControls />
       <details class="pane-shortcuts"><summary>Shortcuts</summary><div>
         <p>⌘D: split right · ⌘⇧D: split below</p><p>⌘⌥ arrows: focus pane · ⌘⌥⇧ arrows: grow pane</p>
         <p>⌘⇧Enter: maximize / restore · ⌘⇧W: close pane</p>

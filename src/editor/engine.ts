@@ -81,18 +81,6 @@ import {
   computeDisplayRows,
 } from "./engine-folding";
 
-import {
-  type VimOpsDeps,
-  moveCursorToFirstNonBlank as _moveCursorToFirstNonBlank,
-  moveToWordEnd as _moveToWordEnd,
-  deleteLine as _deleteLine,
-  yankLine as _yankLine,
-  openLineBelow as _openLineBelow,
-  openLineAbove as _openLineAbove,
-  replaceChar as _replaceChar,
-  getWordUnderCursor as _getWordUnderCursor,
-} from "./engine-vim-ops";
-
 // ─── Engine factory ─────────────────────────────────────────────────
 
 export type LineEnding = "LF" | "CRLF";
@@ -221,13 +209,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     invalidateCache();
     setFoldSeq((s) => s + 1);
   }
-
-  // ── Vim operations dependency bridge ───────────────────────────
-  const vimDeps: VimOpsDeps = {
-    lines, cursor, sel,
-    setLines, setCursor, setSel,
-    recordUndo, afterEdit,
-  };
 
   function deleteCurrentSelection(ls: string[]): { lines: string[]; pos: Pos } {
     const s = sel();
@@ -596,20 +577,18 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       afterEdit([{ startLine: s.line, startCol: s.col, endLine: e.line, endCol: e.col, newText: "" }]);
     },
 
-    // ── Vim-specific methods ────────────────────────────────────
+    /** The \w-run touching the cursor; empty when the cursor is not on a word. */
+    getWordUnderCursor(): string {
+      const p = cursor();
+      const line = lines()[p.line] ?? "";
+      let start = p.col;
+      let end = p.col;
+      while (start > 0 && /\w/.test(line[start - 1])) start--;
+      while (end < line.length && /\w/.test(line[end])) end++;
+      return line.slice(start, end);
+    },
 
-    // ── Vim-specific methods (delegated to engine-vim-ops.ts) ────
-
-    moveCursorToFirstNonBlank(extend: boolean = false) { _moveCursorToFirstNonBlank(vimDeps, extend); },
-    moveToWordEnd(extend: boolean = false) { _moveToWordEnd(vimDeps, extend); },
-    deleteLine(count: number = 1): string { return _deleteLine(vimDeps, count); },
-    yankLine(count: number = 1): string { return _yankLine(vimDeps, count); },
-    openLineBelow() { _openLineBelow(vimDeps); },
-    openLineAbove() { _openLineAbove(vimDeps); },
-    replaceChar(char: string) { _replaceChar(vimDeps, char); },
-    getWordUnderCursor(): string { return _getWordUnderCursor(vimDeps); },
-
-    /** Join current line with next line (Vim J). */
+    /** Join current line with next line. */
     joinLines() {
       const ls = lines();
       const p = cursor();
@@ -625,7 +604,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       afterEdit([{ startLine: p.line, startCol: currentLen, endLine: p.line + 1, endCol: ls[p.line + 1].length, newText: nextTrimmed ? " " + nextTrimmed : "" }]);
     },
 
-    /** Find all matches in the document. Returns SearchMatch[] for use by find panel, vim search, etc. */
+    /** Find all matches in the document. Returns SearchMatch[] for use by the find panel. */
     findAll(query: string, opts?: { caseSensitive?: boolean; regex?: boolean }): SearchMatch[] {
       if (!query) return [];
       const cs = opts?.caseSensitive ?? false;
@@ -850,7 +829,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       afterEdit(null);
     },
 
-    /** @deprecated Duplicate — use the Vim-methods joinLines above. */
+    /** @deprecated Duplicate — use joinLines above. */
     _joinLinesLegacy() {
       const ls = lines();
       const c = cursor();
@@ -1065,10 +1044,11 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       rect: DOMRect, scrollTop: number,
       fontSize: number, lineNumbers: boolean, wordWrap: boolean,
       canvasWidth: number,
+      metrics?: { lineHeight: number; charWidth: number; gutterWidth: number },
     ): Pos {
-      const lineHeight = fontSize + 8;
-      const gutterW = lineNumbers ? 50 : 0;
-      const charW = getCharWidth(fontSize);
+      const lineHeight = metrics?.lineHeight ?? fontSize + 8;
+      const gutterW = metrics?.gutterWidth ?? (lineNumbers ? 50 : 0);
+      const charW = metrics?.charWidth ?? getCharWidth(fontSize);
       const x = clientX - rect.left - gutterW - PADDING_LEFT;
       const y = clientY - rect.top + scrollTop;
 

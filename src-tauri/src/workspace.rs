@@ -5,15 +5,25 @@ use std::sync::Mutex;
 /// Shared workspace root state, managed by Tauri.
 pub struct WorkspaceState {
     pub root: Mutex<Option<String>>,
+    notes_root: Mutex<Option<String>>,
 }
 
 impl WorkspaceState {
     pub fn new() -> Self {
-        WorkspaceState { root: Mutex::new(None) }
+        WorkspaceState { root: Mutex::new(None), notes_root: Mutex::new(None) }
     }
 
     pub fn get(&self) -> Option<String> {
         self.root.lock().ok()?.clone()
+    }
+
+    pub fn set_notes_root(&self, path: String) {
+        if let Ok(mut root) = self.notes_root.lock() { *root = Some(path); }
+    }
+
+    pub fn is_notes_path(&self, path: &str) -> bool {
+        self.notes_root.lock().ok().and_then(|root| root.clone())
+            .is_some_and(|root| validate_path(path, &root).is_ok())
     }
 
     pub fn set(&self, path: Option<String>) {

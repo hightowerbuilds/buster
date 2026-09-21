@@ -9,6 +9,8 @@
  *   - Automatic repaint via SolidJS createEffect
  */
 
+import { UI_FONT_FAMILY } from "../lib/fonts";
+
 import { Component, createSignal, createEffect, onMount, onCleanup, type JSX } from "solid-js";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -54,7 +56,7 @@ export interface CanvasChromeProps {
 
 // ── Chrome font constant ─────────────────────────────────────────────
 
-export const CHROME_FONT = '"Courier New", Courier, monospace';
+export const CHROME_FONT = UI_FONT_FAMILY;
 export const CHROME_MONO = '"JetBrains Mono", Menlo, Monaco, Consolas, monospace';
 
 // ── Component ────────────────────────────────────────────────────────

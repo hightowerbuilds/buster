@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 import { Component, createSignal, createEffect, on, onMount, onCleanup } from "solid-js";
 import { gitLogGraph } from "../lib/ipc";
 import type { GitCommitNode } from "../lib/ipc";
@@ -33,7 +34,7 @@ const GRAPH_LEFT = 16;
 const TEXT_LEFT_PAD = 16;
 const HEADER_HEIGHT = 28;
 const FONT = '13px "JetBrains Mono", monospace';
-const LABEL_FONT = '11px "Courier New", Courier, monospace';
+const LABEL_FONT = `11px ${UI_FONT_FAMILY}`;
 
 const GitGraph: Component<GitGraphProps> = (props) => {
   const { store } = useBuster();
@@ -141,7 +142,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
 
     const nodes = commits();
     if (nodes.length === 0) {
-      ctx.font = '16px "Courier New", Courier, monospace';
+      ctx.font = `16px ${UI_FONT_FAMILY}`;
       ctx.fillStyle = p.textMuted;
       ctx.textAlign = "center";
       ctx.fillText("No commits yet", w / 2, h / 2);
@@ -279,7 +280,7 @@ const GitGraph: Component<GitGraphProps> = (props) => {
     // --- Header ---
     ctx.fillStyle = p.gutterBg;
     ctx.fillRect(0, 0, w, 28);
-    ctx.font = '12px "Courier New", Courier, monospace';
+    ctx.font = `12px ${UI_FONT_FAMILY}`;
     ctx.fillStyle = p.textMuted;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";

@@ -26,7 +26,6 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     auto_save: false,
     auto_save_delay_ms: 1500,
     language_settings: {},
-    vim_mode: false,
     blog_theme: "normal",
     show_indent_guides: true,
     show_whitespace: false,

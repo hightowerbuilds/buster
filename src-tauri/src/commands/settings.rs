@@ -98,8 +98,6 @@ pub struct AppSettings {
     pub auto_save_delay_ms: u32,
     #[serde(default)]
     pub language_settings: HashMap<String, EditorLanguageSettings>,
-    #[serde(default)]
-    pub vim_mode: bool,
     #[serde(default = "default_blog_theme")]
     pub blog_theme: String,
     #[serde(default = "default_true")]
@@ -226,7 +224,6 @@ impl Default for AppSettings {
             auto_save: false,
             auto_save_delay_ms: 1500,
             language_settings: HashMap::new(),
-            vim_mode: false,
             blog_theme: "normal".to_string(),
             show_indent_guides: true,
             show_whitespace: false,

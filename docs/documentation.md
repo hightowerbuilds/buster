@@ -23,7 +23,6 @@ This reference describes the inherited implementation. The active rebuild scope 
   - [Large File Support](#large-file-support)
   - [Markdown Preview](#markdown-preview)
   - [Image Viewer](#image-viewer)
-  - [Vim Mode](#vim-mode)
   - [Undo and Redo](#undo-and-redo)
   - [Editor Accessibility](#editor-accessibility)
 - [Language Server Protocol](#language-server-protocol)
@@ -325,19 +324,6 @@ Opening an image file (PNG, JPG, GIF, WebP, BMP, ICO, SVG, AVIF, TIFF) displays 
 - **Transparency** — checkerboard background for transparent images
 - **Info** — image dimensions and file size displayed
 
-### Vim Mode
-
-Full Vim keybinding support with four modes:
-
-- **Normal mode** — navigation and command entry
-- **Insert mode** — text insertion
-- **Visual mode** — selection
-- **Command-line mode** — ex commands
-
-The Vim keymap is authored in Lua, compiled to JSON, and loaded into the frontend at startup. All key processing happens in the frontend with zero IPC per keystroke.
-
-Supported operations include motions (h, j, k, l, w, b, e, 0, $, gg, G), operators (d, c, y, p), visual selection (v, V), undo/redo (u, Ctrl+R), search (/, ?, n, N), and ex commands (:w, :q, :wq, :s/find/replace/).
-
 ### Undo and Redo
 
 Undo/redo uses time-based grouping. Rapid consecutive edits (within a short time window) are grouped into a single undo step. This means pressing Cmd+Z undoes a logical "action" rather than each individual character.
@@ -354,7 +340,6 @@ The editor includes an accessibility bridge that maintains a hidden `<textarea>`
 - Screen reader support for the current line and cursor position
 - ARIA live regions for status changes
 - Keyboard-only navigation for all editor features
-- Announcements for mode changes (Vim normal/insert/visual)
 
 ---
 
@@ -632,6 +617,20 @@ Conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) are parsed and displayed visu
 
 The sidebar (**Cmd+B** to toggle) shows a file explorer with a lazy-loading directory tree. Directories load their children only when expanded, keeping the initial load fast regardless of project size.
 
+Use the bumper on the sidebar's far-right edge to collapse or reopen it. Explorer
+pop-out panels have been removed; old Explorer tabs are skipped on session restore.
+The footer's **Terminal** and **Settings** buttons open or focus those tools;
+**Notes** creates a new `.md` file in the app's Notes home.
+
+On initial setup, the Notes home is created in the application's persistent data
+directory and linked from **Desktop/BusterMark**. This is one set of real files,
+not an export or a second copy. New notes autosave after a short typing pause.
+Files and subfolders created in the Notes Explorer appear through that Desktop
+link. If the Desktop name already belongs to something else, it is preserved and
+a numbered link is created. The footer reports the actual link or any setup/save
+failure. Returning from Finder refreshes the visible tree. Opening another folder
+is still supported; closing it returns to Notes without discarding open drafts.
+
 The tree displays:
 
 - File and folder names
@@ -679,7 +678,7 @@ Prefix your query with `>` (or use **Cmd+Shift+P** which pre-fills the prefix) t
 
 - File operations (Save, Save As, Close, Open Folder)
 - View operations (Toggle Sidebar, Toggle Minimap, Zoom In/Out)
-- Editor operations (Format Document, Toggle Word Wrap, Toggle Vim Mode)
+- Editor operations (Format Document, Toggle Word Wrap)
 - Git operations (Commit, Push, Pull, Switch Branch)
 - Terminal operations (New Terminal, Clear Terminal)
 - Navigation (Go to Definition, Find References, Go to Symbol)
@@ -743,7 +742,6 @@ In addition to file editors, panels can display:
 | Search Results | Workspace search results |
 | Console | Application log viewer |
 | Browser | Embedded webview |
-| Explorer | File tree (alternative to sidebar) |
 | Manual | Generated keyboard shortcut reference |
 | Blog | Markdown content editing mode |
 
@@ -1170,7 +1168,6 @@ src/
     engine.ts             # Text buffer, cursor, selection, undo/redo
     canvas-renderer.ts    # Canvas 2D rendering pipeline
     webgl-text.ts         # WebGL2 GPU text rendering
-    vim-mode.ts           # Vim keybindings
     ts-highlighter.ts     # Tree-sitter highlight bridge
     text-measure.ts       # Pretext wrapper + CJK width
     editor-autocomplete.ts    # LSP completions
@@ -1254,7 +1251,6 @@ src-tauri/src/
     git.rs               # 30+ git commands (status, commit, push, branch, stash, etc.)
     extensions.rs        # List, load, unload, call, gateway, install, uninstall
     browser.rs           # Create, navigate, resize, show/hide webviews
-    keymap.rs            # Lua keymap evaluation
     session.rs           # Save/load session, backup buffers
     settings.rs          # Load/save settings, recent folders
     search.rs            # File listing, content search
@@ -1297,7 +1293,7 @@ Frontend and backend communicate through Tauri v2's IPC bridge:
 5. Tauri serializes the result to JSON
 6. Frontend receives the result (or error)
 
-There are 100+ registered command handlers across all categories (file, git, LSP, terminal, extensions, session, search, settings, browser, keymap).
+There are 100+ registered command handlers across all categories (file, git, LSP, terminal, extensions, session, search, settings, browser).
 
 **Events (backend to frontend):**
 

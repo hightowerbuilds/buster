@@ -53,7 +53,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: "JetBrains Mono", "Courier New", Courier, monospace;
+  font-family: var(--font-mono);
 }
 
 .command-line-prompt {
@@ -105,13 +105,13 @@
 .command-line-option-key {
   color: var(--accent);
   min-width: 8px;
-  font-family: "JetBrains Mono", "Courier New", Courier, monospace;
+  font-family: var(--font-mono);
 }
 
 .command-line-option-label {
   color: var(--text);
   min-width: 20px;
-  font-family: "JetBrains Mono", "Courier New", Courier, monospace;
+  font-family: var(--font-mono);
 }
 
 .command-line-option-desc {

@@ -1,0 +1,123 @@
+[
+  {
+    "type": "focus",
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "keyup",
+    "key": "n",
+    "code": 78,
+    "isComposing": false,
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "compositionstart",
+    "data": "",
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "compositionupdate",
+    "data": "´",
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "beforeinput",
+    "data": "´",
+    "isComposing": true,
+    "inputType": "insertCompositionText",
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "input",
+    "data": "´",
+    "isComposing": true,
+    "inputType": "insertCompositionText",
+    "value": "´",
+    "text": ""
+  },
+  {
+    "type": "keydown",
+    "key": "´",
+    "code": 229,
+    "isComposing": true,
+    "value": "´",
+    "text": ""
+  },
+  {
+    "type": "keyup",
+    "key": "´",
+    "code": 69,
+    "isComposing": true,
+    "value": "´",
+    "text": ""
+  },
+  {
+    "type": "beforeinput",
+    "data": null,
+    "isComposing": true,
+    "inputType": "deleteCompositionText",
+    "value": "´",
+    "text": ""
+  },
+  {
+    "type": "input",
+    "data": null,
+    "isComposing": true,
+    "inputType": "deleteCompositionText",
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "beforeinput",
+    "data": "é",
+    "isComposing": true,
+    "inputType": "insertFromComposition",
+    "value": "",
+    "text": ""
+  },
+  {
+    "type": "input",
+    "data": "é",
+    "isComposing": true,
+    "inputType": "insertFromComposition",
+    "value": "é",
+    "text": ""
+  },
+  {
+    "type": "compositionend",
+    "data": "é",
+    "value": "é",
+    "text": ""
+  },
+  {
+    "type": "keydown",
+    "key": "e",
+    "code": 229,
+    "isComposing": false,
+    "value": "",
+    "text": "é"
+  },
+  {
+    "type": "keyup",
+    "key": "e",
+    "code": 69,
+    "isComposing": false,
+    "value": "",
+    "text": "é"
+  },
+  {
+    "type": "blur",
+    "value": "",
+    "text": "é"
+  },
+  {
+    "type": "focus",
+    "value": "",
+    "text": "é"
+  }
+]

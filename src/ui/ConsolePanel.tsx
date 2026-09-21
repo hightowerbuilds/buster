@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 import { Component, createEffect, on, onMount, onCleanup } from "solid-js";
 import { useBuster } from "../lib/buster-context";
 import { logEntries, logRevision, clearLog } from "../lib/notify";
@@ -68,7 +69,7 @@ const ConsolePanel: Component<{ active: boolean }> = (props) => {
     ctx.fillRect(0, 0, w, h);
 
     if (entries.length === 0) {
-      ctx.font = '14px "Courier New", Courier, monospace';
+      ctx.font = `14px ${UI_FONT_FAMILY}`;
       ctx.fillStyle = p.textMuted;
       ctx.textAlign = "center";
       ctx.fillText("No log entries", w / 2, h / 2);
@@ -87,7 +88,7 @@ const ConsolePanel: Component<{ active: boolean }> = (props) => {
     const offsetY = -(scrollTop % ROW_H);
 
     ctx.textBaseline = "middle";
-    const font = '12px "Courier New", Courier, monospace';
+    const font = `12px ${UI_FONT_FAMILY}`;
     ctx.font = font;
 
     for (let i = firstRow; i < lastRow; i++) {
@@ -200,7 +201,7 @@ const ConsolePanel: Component<{ active: boolean }> = (props) => {
           "align-items": "center",
           "justify-content": "space-between",
           padding: "4px 10px",
-          "font-family": '"Courier New", Courier, monospace',
+          "font-family": UI_FONT_FAMILY,
           "font-size": "12px",
           color: "var(--text-dim)",
           "border-bottom": "1px solid var(--border)",
@@ -214,7 +215,7 @@ const ConsolePanel: Component<{ active: boolean }> = (props) => {
             background: "none",
             border: "1px solid var(--border)",
             color: "var(--text-dim)",
-            "font-family": '"Courier New", Courier, monospace',
+            "font-family": UI_FONT_FAMILY,
             "font-size": "11px",
             padding: "2px 8px",
             cursor: "pointer",

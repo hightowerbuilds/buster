@@ -4,6 +4,7 @@ import { type DisplayRow, PADDING_LEFT, computeDisplayRows } from "./engine";
 import { getCharWidth, FONT_FAMILY, colToPixel, stringDisplayWidth } from "./text-measure";
 import { type ThemePalette, drawVignette, drawGrain } from "../lib/theme";
 import type { WebGLTextContext } from "./webgl-text";
+import { writingTextColor } from "./writing-effects";
 
 // ─── Extracted renderer modules ────────────────────────────────────
 import { setCurrentGpu, monoText } from "./render-shared";
@@ -61,6 +62,8 @@ export interface EditorRenderParams {
   scrollTop: number;
   lines: string[];
   fontSize: number;
+  lineHeight?: number;
+  writingStyle?: { focusDim: number; contrast: boolean; pulse: number };
   lineNumbers: boolean;
   wordWrap: boolean;
   cursors: CursorPos[];
@@ -130,7 +133,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   ctx.filter = "none";
 
   const fontSize = params.fontSize;
-  const lineHeight = fontSize + 8;
+  const lineHeight = params.lineHeight ?? fontSize + 8;
   const showLineNums = params.lineNumbers;
   const hasDiffHunks = params.diffHunks && params.diffHunks.length > 0;
   const diffStripW = hasDiffHunks ? 4 : 0;
@@ -152,6 +155,9 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   // Background
   ctx.fillStyle = p.editorBg;
   ctx.fillRect(0, 0, w, h);
+  // Atmosphere stays behind text and selection in both CPU and GPU renderers.
+  drawVignette(ctx, w, h, p);
+  drawGrain(ctx, w, h, p);
 
   const lines = params.lines;
   const displayRows = getDisplayRows(lines, charW, w, wordWrap, gutterW, params.foldedLines.size > 0 ? params.foldedLines : undefined);
@@ -183,7 +189,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     drawDiagnosticGutter(ctx, params.diagnostics, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW);
   }
 
-  drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, params.lineTokens, p, params.phantomTexts, lineNumW);
+  drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, params.lineTokens, p, params.phantomTexts, lineNumW, params.writingStyle);
 
   // Indent guides
   if (params.showIndentGuides) {
@@ -197,6 +203,24 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
 
   if (blameVisible && params.blameData) {
     drawBlameGutter(ctx, params.blameData, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, lineNumW, p);
+  }
+  if (params.cursorVisible && params.writingStyle?.pulse) {
+    const cursor = params.cursors[0];
+    for (let r = firstVisRow; cursor && r < lastVisRow; r++) {
+      const row = displayRows[r];
+      if (row.bufferLine !== cursor.line || cursor.col < row.startCol || cursor.col > row.startCol + row.text.length) continue;
+      const x = gutterW + PADDING_LEFT + colToPixel(row.text, cursor.col - row.startCol, charW);
+      const y = (r - firstVisRow) * lineHeight + offsetY + lineHeight / 2;
+      ctx.save();
+      ctx.strokeStyle = p.cursor;
+      ctx.globalAlpha = params.writingStyle.pulse * 0.24;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 4 + (1 - params.writingStyle.pulse) * 10, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      break;
+    }
   }
   drawCursors(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW, p);
 
@@ -256,8 +280,6 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     gpu.flushFrame(w, h);
   }
 
-  drawVignette(ctx, w, h, p);
-  drawGrain(ctx, w, h, p);
 
   setCurrentGpu(null);
 }
@@ -414,7 +436,8 @@ function drawTextRows(
   lineTokens: LineToken[][],
   p: ThemePalette,
   phantomTexts: PhantomText[],
-  lineNumW: number
+  lineNumW: number,
+  writingStyle?: EditorRenderParams["writingStyle"],
 ) {
   const font = `${fontSize}px ${FONT_FAMILY}`;
   const baselineY = lineHeight - Math.floor(fontSize * 0.35);
@@ -430,6 +453,10 @@ function drawTextRows(
   for (let r = firstVisRow; r < lastVisRow; r++) {
     const dr = displayRows[r];
     const y = (r - firstVisRow) * lineHeight + offsetY;
+    const dim = dr.bufferLine === primaryCursorLine ? 0 : writingStyle?.focusDim ?? 0;
+    const adjust = writingStyle?.contrast || dim > 0;
+    const rowPalette = adjust ? { ...p, syntaxDefault: writingTextColor(p.syntaxDefault, p.editorBg, dim) } : p;
+    const tokens = adjust ? lineTokens[dr.bufferLine]?.map(token => ({ ...token, color: writingTextColor(token.color, p.editorBg, dim) })) : lineTokens[dr.bufferLine];
 
     if (showLineNums && dr.bufferLine !== lastDrawnBufferLine) {
       const lineNum = String(dr.bufferLine + 1);
@@ -449,7 +476,7 @@ function drawTextRows(
       .sort((a, b) => a.col - b.col);
 
     if (rowPhantoms.length === 0) {
-      drawLineText(ctx, dr, lineTokens[dr.bufferLine], gutterW, charW, y, lineHeight, baselineY, font, p);
+      drawLineText(ctx, dr, tokens, gutterW, charW, y, lineHeight, baselineY, font, rowPalette);
     } else {
       let xOffset = 0;
       let realCol = 0;
@@ -459,7 +486,7 @@ function drawTextRows(
 
         if (insertCol > realCol) {
           const segment = dr.text.slice(realCol, insertCol);
-          drawSegmentWithTokens(ctx, segment, realCol, dr, lineTokens[dr.bufferLine], gutterW, charW, y, lineHeight, baselineY, font, xOffset, p);
+          drawSegmentWithTokens(ctx, segment, realCol, dr, tokens, gutterW, charW, y, lineHeight, baselineY, font, xOffset, rowPalette);
           realCol = insertCol;
         }
 
@@ -471,7 +498,7 @@ function drawTextRows(
 
       if (realCol < dr.text.length) {
         const segment = dr.text.slice(realCol);
-        drawSegmentWithTokens(ctx, segment, realCol, dr, lineTokens[dr.bufferLine], gutterW, charW, y, lineHeight, baselineY, font, xOffset, p);
+        drawSegmentWithTokens(ctx, segment, realCol, dr, tokens, gutterW, charW, y, lineHeight, baselineY, font, xOffset, rowPalette);
       }
     }
   }

@@ -1,0 +1,74 @@
+[
+  {
+    "name": "Mouse toolbar applies captured selection",
+    "passed": true
+  },
+  {
+    "name": "Formatting is one keyboard undo",
+    "passed": true
+  },
+  {
+    "name": "Keyboard toolbar applies captured selection",
+    "passed": true
+  },
+  {
+    "name": "Live centered writing-column width",
+    "passed": true
+  },
+  {
+    "name": "Live asymmetric centered margins",
+    "passed": true
+  },
+  {
+    "name": "Paper colors applied",
+    "passed": true
+  },
+  {
+    "name": "Preview does not edit note",
+    "passed": true
+  },
+  {
+    "name": "Cancel preview restores full-width editor",
+    "passed": true
+  },
+  {
+    "name": "Real pointer uses custom40px line grid",
+    "passed": true
+  },
+  {
+    "name": "Real pointer column after20px font",
+    "value": 2
+  },
+  {
+    "name": "Appearance revert restores width",
+    "passed": true
+  },
+  {
+    "name": "Appearance changes preserve text revision",
+    "passed": true
+  },
+  {
+    "name": "Portal opens without submitting",
+    "passed": true
+  },
+  {
+    "name": "Portal query offers selected text",
+    "passed": true
+  },
+  {
+    "name": "Portal searches open-note content",
+    "passed": true
+  },
+  {
+    "name": "Keep result creates a separate note",
+    "passed": true
+  },
+  {
+    "name": "Keep leaves source unchanged",
+    "passed": true
+  },
+  {
+    "name": "Portal and retained source pane",
+    "panes": 2
+  }
+]

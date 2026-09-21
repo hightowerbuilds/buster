@@ -1,8 +1,11 @@
-import { Component, onMount, onCleanup, createSignal, createEffect } from "solid-js";
+import { Component, onMount, onCleanup, createSignal, createEffect, createMemo, batch, untrack } from "solid-js";
 import type { SearchMatch, DiffHunk, GitBlameLine } from "../lib/ipc";
-import { gitBlame, evaluateKeymap } from "../lib/ipc";
+import { gitBlame } from "../lib/ipc";
 import { createEditorEngine, getCharWidth, type EditorEngine } from "./engine";
-import { FONT_FAMILY } from "./text-measure";
+import { FONT_FAMILY, colToPixel } from "./text-measure";
+import { PADDING_LEFT, type DisplayRow } from "./engine-text-ops";
+import { captureWritingScroll, restoreWritingScroll, clampWritingScroll, isMarkdownPath } from "./writing-viewport";
+import { writingPalette, writingPulse, writingTypography } from "./writing-effects";
 import { requestHighlights, spansToLineTokens, setSyntaxPalette, syntaxOpen, syntaxClose, type LineToken } from "./ts-highlighter";
 import { renderEditor } from "./canvas-renderer";
 import { WebGLTextContext } from "./webgl-text";
@@ -13,7 +16,6 @@ import { createCodeActions } from "./editor-code-actions";
 import { createGhostText } from "./editor-ghost-text";
 import { createInlayHints } from "./editor-inlay-hints";
 import { createEditorA11y } from "./editor-a11y";
-import { createVimHandler } from "./vim-mode";
 import { handleEditorKeyDown, type KeyboardDeps } from "./editor-keyboard";
 import { createRenameHandler } from "./editor-rename";
 import { handleEditorMouseDown, handleEditorMouseMove, handleEditorMouseUp, type MouseDeps } from "./editor-mouse";
@@ -71,11 +73,16 @@ const activeScrollTarget: { apply: ((deltaY: number) => void) | null } = { apply
 // ─── Component ──────────────────────────────────────────────────────
 
 const CanvasEditor: Component<CanvasEditorProps> = (props) => {
-  const { store, setStore, actions } = useBuster();
+  const { store, actions, appearance } = useBuster();
   const palette = () => store.palette;
   const workspaceRoot = () => store.workspaceRoot;
   const tabTrapping = () => store.tabTrapping;
   const languagePath = () => props.languagePath?.() ?? props.filePath ?? null;
+  const writingStyle = createMemo(() => isMarkdownPath(languagePath())
+    ? appearance.forPane(store.paneWorkspace.panes.find(pane => pane.tabId === props.tabId)?.id) : null);
+  const [reducedMotion, setReducedMotion] = createSignal(false);
+  const motionEnabled = () => !reducedMotion() && writingStyle()?.motion !== false;
+  let pulseStarted: number | null = null;
   const editorSettings = () => resolveEditorSettings(store.settings, languagePath());
   let canvasRef: HTMLCanvasElement | undefined;
   let hiddenInput: HTMLTextAreaElement | undefined;
@@ -94,44 +101,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     const settings = editorSettings();
     return settings.use_spaces ? " ".repeat(settings.tab_size) : "\t";
   }
-
-  // ── Vim mode ──────────────────────────────────────────────────
-  const vim = createVimHandler();
-  createEffect(() => { vim.setEnabled(store.settings.vim_mode ?? false); });
-  // Load Lua keymap from backend
-  evaluateKeymap().then(json => vim.loadKeymap(json)).catch(e => console.warn("Keymap load failed:", e));
-  // Push mode changes to global store for status bar display
-  createEffect(() => {
-    const m = vim.enabled() ? vim.mode() : null;
-    setStore("vimMode", m);
-  });
-
-  const vimDeps = {
-    openFind: () => setStore("findVisible", true),
-    findNext: () => {
-      const m = store.searchMatches;
-      if (m.length === 0) return;
-      const next = (store.currentSearchIdx + 1) % m.length;
-      setStore("currentSearchIdx", next);
-      engine.setCursor({ line: m[next].line, col: m[next].start_col });
-    },
-    findPrev: () => {
-      const m = store.searchMatches;
-      if (m.length === 0) return;
-      const prev = (store.currentSearchIdx - 1 + m.length) % m.length;
-      setStore("currentSearchIdx", prev);
-      engine.setCursor({ line: m[prev].line, col: m[prev].start_col });
-    },
-    openCommandPalette: (prefix: string) => {
-      setStore("paletteInitialQuery", prefix);
-      setStore("paletteVisible", true);
-    },
-    handleSave: () => actions.handleSave(),
-    handleTabClose: () => {
-      const tab = store.tabs.find(t => t.id === store.activeTabId);
-      if (tab) actions.handleTabClose(tab.id);
-    },
-  };
 
   // Expose engine to parent (for save, getText, etc.)
   props.onEngineReady?.(engine);
@@ -247,14 +216,18 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   // ── Layout helpers ──────────────────────────────────────────────
 
-  const fontSize = () => props.fontSize ?? 14;
-  const lineHeight = () => fontSize() + 8;
+  const typography = createMemo(() => writingTypography(writingStyle(), props.fontSize ?? 14));
+  const fontSize = () => typography().fontSize;
+  const lineHeight = () => typography().lineHeight;
   const gutterW = () => {
     const base = (props.lineNumbers !== false) ? 50 : 0;
     return blameVisible() ? base + 180 : base;
   };
   const wordWrap = () => props.wordWrap !== false;
-  const charW = () => getCharWidth(fontSize());
+  const charW = () => {
+    store.settings.font_family;
+    return getCharWidth(fontSize());
+  };
 
   function getDisplayRows() {
     return engine.computeDisplayRows(charW(), canvasWidth(), wordWrap(), gutterW());
@@ -325,6 +298,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     scrollTop,
     canvasHeight,
     fontSize,
+    lineHeight,
     editSeq: () => engine.editSeq(),
   });
 
@@ -344,6 +318,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     scrollTop,
     canvasHeight,
     fontSize,
+    lineHeight,
     filePath: () => props.filePath ?? null,
   });
 
@@ -369,7 +344,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   };
 
   const keyboardDeps: KeyboardDeps = {
-    engine, vim, vimDeps, ac, hover, sigHelp, codeActions, ghost, a11y,
+    engine, ac, hover, sigHelp, codeActions, ghost, a11y,
     filePath: () => props.filePath ?? null,
     languagePath,
     wordWrap, charW, canvasWidth, canvasHeight,
@@ -383,7 +358,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   };
 
   const inputDeps: InputDeps = {
-    engine, vim, ac, sigHelp, ghost,
+    engine, ac, sigHelp, ghost,
     filePath: () => props.filePath ?? null,
     languagePath,
     hiddenInput: () => hiddenInput,
@@ -396,6 +371,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   function handleMouseUp() { handleEditorMouseUp(mouseDeps); }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (isComposing || e.isComposing || e.keyCode === 229) return;
     // Toggle blame (Cmd+Shift+B) — handled here since it uses local state
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "B") {
       e.preventDefault(); toggleBlame(); return;
@@ -408,22 +384,33 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     if (rename.renameState()?.active && rename.handleKey(e)) {
       e.preventDefault(); scheduleRender(); return;
     }
+    const before = engine.editSeq();
     handleEditorKeyDown(e, keyboardDeps);
+    if (engine.editSeq() !== before) startTypingPulse();
   }
 
-  function handleInput() { handleEditorInput(inputDeps); }
+  function startTypingPulse() {
+    if (props.active === false || !motionEnabled() || !writingStyle()?.typingPulse) return;
+    pulseStarted = performance.now();
+    scheduleRender();
+  }
+
+  function handleInput() {
+    const before = engine.editSeq();
+    handleEditorInput(inputDeps);
+    if (engine.editSeq() !== before) { ensureCursorVisible(); startTypingPulse(); }
+  }
 
   // ── Smooth scroll animation ─────────────────────────────────────
 
-  let scrollTarget = 0;    // where we're animating toward
+  let scrollTarget = props.initialScrollTop ?? 0; // where we're animating toward
   let scrollAnimId = 0;    // rAF handle for the animation loop
   const SCROLL_EASE = 0.25; // fraction of remaining distance per frame (~4 frames to settle)
   const SCROLL_SNAP = 0.5;  // snap to target when within this many pixels
 
   function getMaxScroll(): number {
     const rows = getDisplayRows();
-    const totalHeight = rows.length * lineHeight();
-    return Math.max(0, totalHeight - lineHeight());
+    return clampWritingScroll(Infinity, rows.length, lineHeight());
   }
 
   function clampScroll(v: number): number {
@@ -444,6 +431,12 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   function smoothScrollTo(target: number) {
     scrollTarget = clampScroll(target);
+    if (!motionEnabled()) {
+      cancelAnimationFrame(scrollAnimId);
+      scrollAnimId = 0;
+      setScrollTop(scrollTarget);
+      return;
+    }
     if (!scrollAnimId) {
       scrollAnimId = requestAnimationFrame(animateScroll);
     }
@@ -453,10 +446,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   function applyScroll(deltaY: number) {
     // Accumulate on top of the current target (not current position)
     // so rapid wheel events feel responsive
-    scrollTarget = clampScroll(scrollTarget + deltaY);
-    if (!scrollAnimId) {
-      scrollAnimId = requestAnimationFrame(animateScroll);
-    }
+    smoothScrollTo(scrollTarget + deltaY);
   }
 
   function handleScroll(e: WheelEvent) {
@@ -467,12 +457,55 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     activeScrollTarget.apply?.(e.deltaY);
   }
 
+  // Preserve the passage being read as the DOM viewport changes width. Never
+  // seek the caret here: it may intentionally be far outside the visible page.
+  let previousLayout: { width: number; height: number; lineHeight: number; charWidth: number; gutter: number; wrap: boolean; rows: DisplayRow[] } | undefined;
+  createEffect(() => {
+    engine.editSeq();
+    engine.foldSeq();
+    const next = { width: canvasWidth(), height: canvasHeight(), lineHeight: lineHeight(), charWidth: charW(), gutter: gutterW(), wrap: wordWrap(), rows: getDisplayRows() };
+    untrack(() => {
+      const old = previousLayout;
+      const layoutChanged = old && (old.width !== next.width || old.height !== next.height || old.lineHeight !== next.lineHeight || old.charWidth !== next.charWidth || old.gutter !== next.gutter || old.wrap !== next.wrap);
+      const top = layoutChanged
+        ? restoreWritingScroll(next.rows, captureWritingScroll(old.rows, scrollTop(), old.lineHeight), next.lineHeight)
+        : clampWritingScroll(scrollTop(), next.rows.length, next.lineHeight);
+      if (layoutChanged || top !== scrollTop()) {
+        cancelAnimationFrame(scrollAnimId);
+        scrollAnimId = 0;
+        scrollTarget = top;
+        setScrollTop(top);
+      } else {
+        scrollTarget = clampWritingScroll(scrollTarget, next.rows.length, next.lineHeight);
+      }
+      previousLayout = next;
+    });
+  });
+
+  createEffect(() => {
+    if (props.active === false || !motionEnabled() || !writingStyle()?.typingPulse) pulseStarted = null;
+    if (!motionEnabled() && scrollAnimId) {
+      cancelAnimationFrame(scrollAnimId);
+      scrollAnimId = 0;
+      setScrollTop(scrollTarget);
+    }
+  });
+
+  createEffect(() => {
+    palette();
+    writingStyle()?.background;
+    writingStyle()?.focusDim;
+    // Palette previews may introduce many colored glyph variants. Discard old
+    // variants instead of allowing the bounded GPU atlas to fill over time.
+    gpuCtx?.invalidateColors();
+  });
+
   // Register/unregister as the active scroll target based on props.active.
   // Also focus the hidden input so keyboard events are captured.
   createEffect(() => {
     if (props.active !== false) {
       activeScrollTarget.apply = applyScroll;
-      requestAnimationFrame(() => { if (props.active !== false) focusInput(); });
+      queueMicrotask(() => { if (props.active !== false) focusInput(); });
     } else if (activeScrollTarget.apply === applyScroll) {
       activeScrollTarget.apply = null;
     }
@@ -497,8 +530,13 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     refreshHighlights();
     inlayHints.requestHints();
 
-    const currentPalette = palette();
-    setSyntaxPalette(currentPalette);
+    const style = writingStyle();
+    const currentPalette = style ? writingPalette(palette(), style) : palette();
+    // Token caches remain in the shared app theme; writing palettes adapt colors
+    // during drawing, without changing another pane's syntax palette.
+    setSyntaxPalette(palette());
+    const pulse = style ? writingPulse(performance.now(), pulseStarted, style.effectDuration, style.typingPulse,
+      motionEnabled() && props.active !== false && isFocused()) : 0;
 
     const sel = engine.sel();
     const w = canvasWidth();
@@ -509,12 +547,26 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     const dh = props.diffHunks ?? [];
     const bd = blameData();
 
+    if (hiddenInput) {
+      // WebKit positions native composition UI from the actual textarea. Keep
+      // that input at the canvas caret, relative to the same inset container.
+      const rowIndex = engine.cursorDisplayRow(charW(), w, wordWrap(), gutterW());
+      const row = getDisplayRows()[rowIndex];
+      const x = row ? gutterW() + PADDING_LEFT + colToPixel(row.text, engine.cursor().col - row.startCol, charW()) : 0;
+      hiddenInput.style.left = `${Math.max(0, Math.min(w - 1, x))}px`;
+      hiddenInput.style.top = `${Math.max(0, Math.min(h - lineHeight(), rowIndex * lineHeight() - st))}px`;
+      hiddenInput.style.height = `${lineHeight()}px`;
+      hiddenInput.style.fontSize = `${fontSize()}px`;
+    }
+
     renderEditor(canvasRef, {
       width: w,
       height: h,
       scrollTop: st,
       lines: engine.lines(),
       fontSize: fontSize(),
+      lineHeight: lineHeight(),
+      writingStyle: style ? { focusDim: style.focusDim, contrast: style.background !== "theme", pulse } : undefined,
       lineNumbers: props.lineNumbers !== false,
       wordWrap: wordWrap(),
       cursors: engine.getCursors(),
@@ -545,7 +597,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       foldedLines: engine.foldedLines(),
       foldStartLines: new Set(engine.lines().map((_, i) => i).filter(i => engine.isFolded(i))),
       isFoldable: (line: number) => engine.isFoldable(line),
-      cursorStyle: vim.enabled() && vim.mode() !== "insert" ? "block" : "line",
+      cursorStyle: "line",
       gpu: gpuCtx,
       tabSize: editorSettings().tab_size,
       showIndentGuides: store.settings.show_indent_guides ?? true,
@@ -553,6 +605,8 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       renameState: rename.renameState(),
       errorPeekLine: errorPeekLine(),
     });
+    if (pulse > 0) scheduleRender();
+    else pulseStarted = null;
   }
 
   // ── Resize (debounced) ──────────────────────────────────────────
@@ -572,8 +626,10 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       const fw = containerRef.clientWidth;
       const fh = containerRef.clientHeight;
       if (fw === 0 || fh === 0) return;
-      setCanvasWidth(fw);
-      setCanvasHeight(fh);
+      batch(() => {
+        setCanvasWidth(fw);
+        setCanvasHeight(fh);
+      });
     }, RESIZE_DEBOUNCE_MS);
   }
 
@@ -610,6 +666,11 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     rename.renameState();
     errorPeekLine();
     palette();
+    writingStyle();
+    reducedMotion();
+    fontSize();
+    lineHeight();
+    store.settings.font_family;
     props.searchMatches;
     props.diagnostics;
     props.diffHunks;
@@ -623,6 +684,16 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // ── Lifecycle ───────────────────────────────────────────────────
 
   onMount(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const readMotion = () => setReducedMotion(preference.matches);
+    readMotion();
+    createEffect(() => {
+      // The panel cache retains closed WebGL roots on macOS; release this new
+      // subscription when its tab closes as well as on normal root disposal.
+      if (props.tabId && !store.tabs.some(tab => tab.id === props.tabId)) return;
+      preference.addEventListener("change", readMotion);
+      onCleanup(() => preference.removeEventListener("change", readMotion));
+    });
     const finishSelectionDrag = () => { if (isDragging()) handleMouseUp(); };
     document.addEventListener("mouseup", finishSelectionDrag);
     onCleanup(() => document.removeEventListener("mouseup", finishSelectionDrag));
@@ -646,7 +717,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
     scheduleRender();
     if (props.autoFocus) {
-      requestAnimationFrame(() => { if (props.active !== false) focusInput(); });
+      queueMicrotask(() => { if (props.active !== false) focusInput(); });
     }
 
     onCleanup(() => {

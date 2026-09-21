@@ -9,6 +9,8 @@
  * Falls back to Canvas 2D if WebGL is unavailable.
  */
 
+import { stringDisplayWidth } from "./text-measure";
+
 // ── Glyph Atlas ──────────────────────────────────────────────
 
 interface GlyphEntry {
@@ -28,14 +30,17 @@ export class GlyphAtlas {
   private cursorX = 0;
   private cursorY = 0;
   private rowHeight = 0;
+  readonly baseline: number;
   private _dirty = false;
 
   constructor(fontSize: number, fontFamily: string) {
     this.canvas = new OffscreenCanvas(ATLAS_SIZE, ATLAS_SIZE);
     this.ctx = this.canvas.getContext("2d")!;
-    this.ctx.textBaseline = "top";
+    this.ctx.textBaseline = "alphabetic";
     this.ctx.font = `${fontSize}px ${fontFamily}`;
-    this.rowHeight = fontSize + 4;
+    const metrics = this.ctx.measureText("Mg");
+    this.baseline = GLYPH_PAD + Math.ceil(metrics.fontBoundingBoxAscent ?? fontSize);
+    this.rowHeight = this.baseline + Math.ceil(metrics.fontBoundingBoxDescent ?? fontSize * 0.3) + GLYPH_PAD;
   }
 
   get dirty(): boolean { return this._dirty; }
@@ -66,7 +71,7 @@ export class GlyphAtlas {
 
     // Render glyph to atlas
     this.ctx.fillStyle = color;
-    this.ctx.fillText(char, this.cursorX + GLYPH_PAD, this.cursorY + GLYPH_PAD);
+    this.ctx.fillText(char, this.cursorX + GLYPH_PAD, this.cursorY + this.baseline);
 
     entry = { x: this.cursorX, y: this.cursorY, w, h };
     this.cache.set(key, entry);
@@ -370,14 +375,21 @@ export class WebGLTextContext {
     this.renderer.begin();
   }
 
+  /** Clear colored variants when a writing palette preview changes. */
+  invalidateColors(): void {
+    this.atlas.reset();
+  }
+
   /** Queue a text string for GPU rendering. */
-  queueText(text: string, x: number, y: number, color: string, charW: number): void {
+  queueText(text: string, x: number, y: number, color: string, charW: number, baselineY = this.atlas.baseline): void {
     if (!text) return;
-    for (let i = 0; i < text.length; i++) {
-      const glyph = this.atlas.getGlyph(text[i], color);
+    let offset = 0;
+    for (const character of text) {
+      const glyph = this.atlas.getGlyph(character, color);
       if (glyph.w > 0) {
-        this.renderer.addChar(x + i * charW, y, glyph, ATLAS_SIZE);
+        this.renderer.addChar(x + offset - GLYPH_PAD, y + baselineY - this.atlas.baseline, glyph, ATLAS_SIZE);
       }
+      offset += stringDisplayWidth(character) * charW;
     }
   }
 

@@ -1,6 +1,8 @@
 /* Buster IDE - Catppuccin Mocha Theme */
 
 :root {
+  --font-ui: "Lato", sans-serif;
+  --font-mono: "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
   --bg-base: #1e1e2e;
   --bg-mantle: #181825;
   --bg-crust: #11111b;
@@ -29,8 +31,12 @@ html, body, #root {
   overflow: hidden;
   background: var(--bg-base);
   color: var(--text);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 0.8125rem;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
 }
 
 /* IDE Layout */
@@ -221,10 +227,9 @@ html, body, #root {
   padding: 2px 12px;
   background: var(--bg-mantle);
   border-bottom: 1px solid var(--bg-surface0);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   min-height: 22px;
   overflow: hidden;
   white-space: nowrap;
 }
-

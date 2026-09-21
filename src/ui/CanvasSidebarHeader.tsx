@@ -2,7 +2,7 @@
  * CanvasSidebarHeader — canvas-rendered sidebar header and action strip.
  *
  * Replaces the DOM sidebar-header and sidebar-actions-bar.
- * Header row: workspace name + In/Out buttons.
+ * Header row: workspace name.
  * Action row: Open, New Folder, New File, (Close Folder).
  */
 
@@ -14,10 +14,6 @@ import CanvasChrome, { CHROME_FONT, type HitRegion, type PaintFn } from "./canva
 interface CanvasSidebarHeaderProps {
   title: string;
   hasWorkspace: boolean;
-  poppedOut?: boolean;
-  onHideSidebar?: () => void;
-  onPopOut?: () => void;
-  onReturn?: () => void;
   onOpen: () => void;
   onNewFolder: () => void;
   onNewFile: () => void;
@@ -46,7 +42,6 @@ const CanvasSidebarHeader: Component<CanvasSidebarHeaderProps> = (props) => {
     const bg = style.getPropertyValue("--bg-mantle").trim() || "#181825";
     const textColor = style.getPropertyValue("--text").trim() || "#cdd6f4";
     const textDim = style.getPropertyValue("--text-dim").trim() || "#a6adc8";
-    const textMuted = style.getPropertyValue("--text-muted").trim() || "#7f849c";
     const surface0 = style.getPropertyValue("--bg-surface0").trim() || "#313244";
     const borderColor = style.getPropertyValue("--border").trim() || "#313244";
     const accentColor = style.getPropertyValue("--accent").trim() || "#89b4fa";
@@ -64,7 +59,7 @@ const CanvasSidebarHeader: Component<CanvasSidebarHeaderProps> = (props) => {
     const headerCy = HEADER_H / 2 + 4; // slight top padding
 
     // Title (truncated)
-    const maxTitleW = w - PAD * 2 - 100; // leave room for buttons
+    const maxTitleW = w - PAD * 2;
     ctx.fillStyle = textColor;
     let titleText = props.title;
     if (ctx.measureText(titleText).width > maxTitleW) {
@@ -74,52 +69,6 @@ const CanvasSidebarHeader: Component<CanvasSidebarHeaderProps> = (props) => {
       titleText += "\u2026";
     }
     ctx.fillText(titleText, PAD, headerCy);
-
-    // Header buttons (right-aligned)
-    ctx.textAlign = "right";
-    let bx = w - PAD;
-
-    // Out/Return button
-    const outText = props.poppedOut ? "Return" : "Out \u00bb";
-    const outW = ctx.measureText(outText).width + 12;
-    const outX = bx - outW;
-    const outHovered = hovered === "popout";
-
-    ctx.fillStyle = outHovered ? surface0 : "transparent";
-    ctx.fillRect(outX, headerCy - 10, outW, 20);
-    ctx.fillStyle = outHovered ? textColor : textMuted;
-    ctx.textAlign = "center";
-    ctx.fillText(outText, outX + outW / 2, headerCy);
-
-    regions.push({
-      id: "popout",
-      x: outX, y: 0, w: outW, h: HEADER_H,
-      cursor: "pointer",
-      onClick: () => props.poppedOut ? props.onReturn?.() : props.onPopOut?.(),
-    });
-
-    bx = outX - 4;
-
-    // In button (hide sidebar) — only when not popped out
-    if (!props.poppedOut && props.onHideSidebar) {
-      const inText = "\u00ab In";
-      const inW = ctx.measureText(inText).width + 12;
-      const inX = bx - inW;
-      const inHovered = hovered === "hide";
-
-      ctx.fillStyle = inHovered ? surface0 : "transparent";
-      ctx.fillRect(inX, headerCy - 10, inW, 20);
-      ctx.fillStyle = inHovered ? textColor : textMuted;
-      ctx.textAlign = "center";
-      ctx.fillText(inText, inX + inW / 2, headerCy);
-
-      regions.push({
-        id: "hide",
-        x: inX, y: 0, w: inW, h: HEADER_H,
-        cursor: "pointer",
-        onClick: () => props.onHideSidebar?.(),
-      });
-    }
 
     // ── Action buttons ───────────────────────────────────────────────
     ctx.textAlign = "left";

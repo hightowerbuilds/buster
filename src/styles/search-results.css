@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-base);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-weight: normal;
 }
 
@@ -20,7 +20,7 @@
 
 .search-results-input {
   flex: 1;
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: normal;
   padding: 4px 8px;
@@ -35,7 +35,7 @@
 }
 
 .search-results-btn {
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 13px;
   font-weight: normal;
   padding: 4px 12px;

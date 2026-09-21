@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 import { Component, onMount, onCleanup, createEffect } from "solid-js";
 import { createSignal } from "solid-js";
 
@@ -102,7 +103,7 @@ const CanvasToasts: Component = () => {
       ctx.fillRect(0, y, 3, TOAST_HEIGHT);
 
       // Text
-      ctx.font = '13px "Courier New", Courier, monospace';
+      ctx.font = `13px ${UI_FONT_FAMILY}`;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.fillStyle = `rgba(205, 214, 244, ${alpha})`;

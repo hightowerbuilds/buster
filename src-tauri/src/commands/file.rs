@@ -12,6 +12,7 @@ pub fn set_workspace_root(state: tauri::State<WorkspaceState>, path: Option<Stri
 
 /// Validate a path against workspace, or allow if no workspace is set (single-file mode).
 fn check_path(path: &str, state: &tauri::State<WorkspaceState>) -> Result<(), String> {
+    if state.is_notes_path(path) { return Ok(()); }
     if let Some(root) = state.get() {
         workspace::validate_path(path, &root)?;
     }
@@ -44,12 +45,16 @@ pub fn read_file(path: String, state: tauri::State<WorkspaceState>) -> Result<Fi
 pub fn write_file(
     path: String,
     content: String,
+    must_exist: Option<bool>,
     state: tauri::State<WorkspaceState>,
     watcher: tauri::State<crate::watcher::FileWatcher>,
 ) -> Result<(), String> {
     check_path(&path, &state)?;
     watcher.suppress_then_clear(&path);
-    fs::write(&path, &content).map_err(|e| e.to_string())
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new().write(true).truncate(true)
+        .create(!must_exist.unwrap_or(false)).open(&path).map_err(|e| e.to_string())?;
+    file.write_all(content.as_bytes()).map_err(|e| e.to_string())
 }
 
 #[command]
@@ -149,7 +154,8 @@ pub fn create_file(path: String, state: tauri::State<WorkspaceState>) -> Result<
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, "").map_err(|e| e.to_string())
+    fs::OpenOptions::new().write(true).create_new(true).open(&path)
+        .map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[command]
@@ -164,6 +170,9 @@ pub fn create_directory(path: String, state: tauri::State<WorkspaceState>) -> Re
 
 #[command]
 pub fn rename_entry(old_path: String, new_name: String, state: tauri::State<WorkspaceState>) -> Result<String, String> {
+    if new_name.is_empty() || new_name == "." || new_name == ".." || new_name.contains(['/', '\\', '\0']) {
+        return Err("Enter a file or folder name without path separators".into());
+    }
     check_path(&old_path, &state)?;
     let src = Path::new(&old_path);
     if !src.exists() {

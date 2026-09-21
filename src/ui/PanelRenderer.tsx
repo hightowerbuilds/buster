@@ -8,6 +8,8 @@
 
 import { createSignal, createEffect, createMemo, createRoot, Show, type Accessor, type JSX } from "solid-js";
 import CanvasEditor from "../editor/CanvasEditor";
+import WritingViewport from "./WritingViewport";
+import { isMarkdownPath } from "../editor/writing-viewport";
 import BlogPreview from "./BlogPreview";
 import CanvasBreadcrumbs from "./CanvasBreadcrumbs";
 import type { Tab } from "../lib/tab-types";
@@ -33,8 +35,9 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
   // CFRelease(NULL). Instead we just drop the reference and let GC handle it.
   createEffect(() => {
     const currentIds = new Set(deps.tabs().map(t => t.id));
-    for (const [id] of panelCache) {
+    for (const [id, cached] of panelCache) {
       if (!currentIds.has(id)) {
+        cached.setActive(false);
         panelCache.delete(id);
       }
     }
@@ -93,9 +96,9 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
     const currentTab = () => deps.tabs().find(t => t.id === tab.id) ?? tab;
     const languagePath = () => currentTab().path || currentTab().name || null;
 
-    const isMd = tab.path?.endsWith(".md") || tab.path?.endsWith(".markdown");
+    const isMd = () => isMarkdownPath(languagePath());
     const blogActive = () => blogModeSet().has(tab.id);
-    const editorSettings = () => resolveEditorSettings(deps.settings(), tab.path || null);
+    const editorSettings = () => resolveEditorSettings(deps.settings(), languagePath());
     const previewText = () => {
       const engine = deps.engineMap.get(tab.id);
       engine?.editSeq();
@@ -151,7 +154,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
         <Show when={breadcrumbs().length > 1}>
           <CanvasBreadcrumbs segments={breadcrumbs()} symbolSegments={symbolSegments()} />
         </Show>
-        {isMd && (
+        <Show when={isMd()}>
           <button
             class={`blog-mode-toggle${blogActive() ? " active" : ""}`}
             onClick={toggleBlog}
@@ -159,7 +162,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
           >
             Blog Mode
           </button>
-        )}
+        </Show>
         <div style={{ width: "100%", height: "100%", flex: "1", "min-height": "0", display: "flex" }}>
           <div style={{
             width: blogActive() ? "50%" : "100%",
@@ -167,7 +170,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             "min-width": "0",
             display: "flex",
           }}>
-          <CanvasEditor
+          <WritingViewport tabId={tab.id} markdown={isMd()}><CanvasEditor
             tabId={tab.id}
             initialText={initialText}
             initialDirty={tab.dirty}
@@ -206,7 +209,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
               deps.setCursorLine(line);
               deps.setCursorCol(col);
             }}
-          />
+          /></WritingViewport>
           </div>
           <Show when={blogActive()}>
             <div class="markdown-side-preview">

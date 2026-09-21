@@ -5,13 +5,11 @@
 
 import { basename } from "buster-path";
 import type { EditorEngine } from "./engine";
-import type { VimHandler } from "./vim-mode";
 import type { createAutocomplete } from "./editor-autocomplete";
 import type { createHover } from "./editor-hover";
 import type { createSignatureHelp } from "./editor-signature";
 import type { createCodeActions } from "./editor-code-actions";
 import type { createGhostText } from "./editor-ghost-text";
-import { insertEditorText } from "./editor-input";
 import { expandLanguageSnippetBeforeCursor } from "./language-snippets";
 import { expandEmmetBeforeCursor } from "./editor-emmet";
 import { getAutoClosePairMap, getLanguageDefinitionForPath } from "./language-registry";
@@ -25,8 +23,6 @@ type GhostTextHandle = ReturnType<typeof createGhostText>;
 
 export interface KeyboardDeps {
   engine: EditorEngine;
-  vim: VimHandler;
-  vimDeps: Parameters<VimHandler["handleVimKey"]>[2];
   ac: AutocompleteHandle;
   hover: HoverHandle;
   sigHelp: SignatureHelpHandle;
@@ -54,16 +50,11 @@ export interface KeyboardDeps {
 }
 
 export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
-  const { engine, vim, vimDeps, ac, hover, sigHelp, codeActions, ghost, a11y } = deps;
+  const { engine, ac, hover, sigHelp, codeActions, ghost, a11y } = deps;
 
-  if (deps.isComposing()) return;
-
-  // Vim mode intercept
-  if (vim.enabled() && vim.handleVimKey(e, engine, vimDeps)) {
-    e.preventDefault();
-    deps.scheduleRender();
-    return;
-  }
+  // Some WebKit/IME paths end composition before the final keydown. That key
+  // still belongs to native text input and must not be inserted a second time.
+  if (deps.isComposing() || e.isComposing || e.keyCode === 229) return;
 
   const isMod = e.metaKey || e.ctrlKey;
 
@@ -444,19 +435,10 @@ export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
     }
     deps.clearHighlightCache();
   } else if (!isModifier && !isMod && !extend && !e.altKey && e.key.length === 1) {
-    e.preventDefault();
-    const hi = deps.hiddenInput();
-    if (hi) hi.value = "";
-    insertEditorText(e.key, {
-      engine,
-      ac,
-      sigHelp,
-      ghost,
-      languagePath: deps.languagePath,
-      indentUnit: deps.indentUnit,
-      clearHighlightCache: deps.clearHighlightCache,
-    });
-    requestAnimationFrame(() => deps.focusInput());
+    // Let the textarea's native input event own printable text, just as it owns
+    // shifted/Alt input and composition. A keydown character is not necessarily
+    // the text the input method commits (for example macOS dead-key accents).
+    return;
   } else if (!isModifier && !isMod && !extend) {
     engine.clearSelection();
   }

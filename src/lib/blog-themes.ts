@@ -9,6 +9,8 @@
  * colors, fonts, or spacing. Theme switching is just swapping values.
  */
 
+import { UI_FONT_FAMILY } from "./fonts";
+
 import type { ThemePalette } from "./theme";
 
 export interface BlogTokens {
@@ -114,9 +116,9 @@ export type BlogThemeId = (typeof BLOG_THEMES)[number]["id"];
 
 function normalTokens(palette: ThemePalette): BlogTokens {
   return {
-    fontFamily: '"Courier New", Courier, monospace',
-    h1FontFamily: '"Courier New", Courier, monospace',
-    headingFontFamily: '"Courier New", Courier, monospace',
+    fontFamily: UI_FONT_FAMILY,
+    h1FontFamily: UI_FONT_FAMILY,
+    headingFontFamily: UI_FONT_FAMILY,
     lineHeight: "1.75",
     textAlign: "left",
 
@@ -143,7 +145,7 @@ function normalTokens(palette: ThemePalette): BlogTokens {
     h4FontSize: "1.1em",
     h4TextTransform: "none",
     h4LetterSpacing: "normal",
-    h4FontFamily: '"Courier New", Courier, monospace',
+    h4FontFamily: UI_FONT_FAMILY,
 
     pTextAlign: "left",
     pHyphens: "none",
@@ -164,7 +166,7 @@ function normalTokens(palette: ThemePalette): BlogTokens {
     blockquoteFontSize: "1em",
     blockquoteTextColor: palette.textDim,
 
-    codeFontFamily: '"Courier New", Courier, monospace',
+    codeFontFamily: '"JetBrains Mono", monospace',
     codeRadius: "3px",
     preRadius: "4px",
     preBorder: "none",
@@ -179,7 +181,7 @@ function normalTokens(palette: ThemePalette): BlogTokens {
     thColor: palette.textDim,
     thTextTransform: "none",
     thLetterSpacing: "normal",
-    thFontFamily: '"Courier New", Courier, monospace',
+    thFontFamily: UI_FONT_FAMILY,
     thFontSize: "1em",
     thBorderBottom: `1px solid ${palette.border}`,
     tdBorder: `1px solid ${palette.border}`,
@@ -232,7 +234,7 @@ function newspaperLightTokens(palette: ThemePalette): BlogTokens {
     h4FontSize: "0.85em",
     h4TextTransform: "uppercase",
     h4LetterSpacing: "0.05em",
-    h4FontFamily: '"Courier New", Courier, monospace',
+    h4FontFamily: UI_FONT_FAMILY,
 
     pTextAlign: "justify",
     pHyphens: "auto",
@@ -253,7 +255,7 @@ function newspaperLightTokens(palette: ThemePalette): BlogTokens {
     blockquoteFontSize: "1.15em",
     blockquoteTextColor: inkDim,
 
-    codeFontFamily: '"Courier New", Courier, monospace',
+    codeFontFamily: '"JetBrains Mono", monospace',
     codeRadius: "2px",
     preRadius: "0",
     preBorder: `1px solid ${rule}`,
@@ -268,7 +270,7 @@ function newspaperLightTokens(palette: ThemePalette): BlogTokens {
     thColor: ink,
     thTextTransform: "uppercase",
     thLetterSpacing: "0.04em",
-    thFontFamily: '"Courier New", Courier, monospace',
+    thFontFamily: UI_FONT_FAMILY,
     thFontSize: "0.8em",
     thBorderBottom: `2px solid ${ruleHeavy}`,
     tdBorder: "none",
@@ -319,7 +321,7 @@ function newspaperDarkTokens(palette: ThemePalette): BlogTokens {
     h4FontSize: "0.85em",
     h4TextTransform: "uppercase",
     h4LetterSpacing: "0.05em",
-    h4FontFamily: '"Courier New", Courier, monospace',
+    h4FontFamily: UI_FONT_FAMILY,
 
     pTextAlign: "justify",
     pHyphens: "auto",
@@ -340,7 +342,7 @@ function newspaperDarkTokens(palette: ThemePalette): BlogTokens {
     blockquoteFontSize: "1.15em",
     blockquoteTextColor: inkDim,
 
-    codeFontFamily: '"Courier New", Courier, monospace',
+    codeFontFamily: '"JetBrains Mono", monospace',
     codeRadius: "2px",
     preRadius: "0",
     preBorder: `1px solid ${rule}`,
@@ -355,7 +357,7 @@ function newspaperDarkTokens(palette: ThemePalette): BlogTokens {
     thColor: ink,
     thTextTransform: "uppercase",
     thLetterSpacing: "0.04em",
-    thFontFamily: '"Courier New", Courier, monospace',
+    thFontFamily: UI_FONT_FAMILY,
     thFontSize: "0.8em",
     thBorderBottom: `2px solid ${ruleHeavy}`,
     tdBorder: "none",

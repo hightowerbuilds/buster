@@ -1,4 +1,4 @@
-.speech-dock { flex-shrink: 0; max-height: 45vh; overflow: auto; padding: 12px 16px; background: var(--bg-mantle); border-top: 1px solid var(--accent); font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.45; }
+.speech-dock { flex-shrink: 0; max-height: 45vh; overflow: auto; padding: 12px 16px; background: var(--bg-mantle); border-top: 1px solid var(--accent); font-family: var(--font-ui); font-size: 12px; line-height: 1.45; }
 .speech-dock header, .speech-dock footer, .speech-options, .speech-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .speech-dock header { margin-bottom: 8px; }
 .speech-dock header strong { font-size: 14px; }

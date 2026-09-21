@@ -23,12 +23,17 @@ import { generateWriting } from "./writing-ai-transport";
 import { lookupSelection } from "./selection-lookup";
 import { createSpeech, nativeSpeechTransport, registerSpeechCommands } from "./speech";
 import { CommandFailure } from "./feature-commands";
+import { createWritingAppearance, registerWritingAppearanceCommands, WRITING_APPEARANCE_KEY } from "./writing-appearance";
+import { createWritingFormatting, registerWritingFormattingCommands } from "./writing-format";
+import { createSearchPortal, registerSearchPortalCommands } from "./search-portal";
 
-import { setWorkspaceRootIpc, loadBackupBuffer, watchFile } from "./ipc";
+import { setWorkspaceRootIpc, loadBackupBuffer, watchFile, unwatchFile } from "./ipc";
 import type { AppSettings } from "./ipc";
 import { loadSessionFromDisk } from "./session";
 import { MAX_PANES, newPaneWorkspace } from "./writing-panes";
 import { prepareSessionRestore } from "./session-restore";
+import { isNotesPath, movedFilePath } from "./notes-storage";
+import { initializeNotesWorkspace } from "./ipc";
 import { setupFileWatcher } from "./file-watcher";
 import { setupSurfaceMeasureListener } from "./surface-measure";
 // Surface events use a different shape than the IPC SurfaceEvent type
@@ -68,7 +73,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   auto_save: false,
   auto_save_delay_ms: 1500,
   language_settings: {},
-  vim_mode: false,
   blog_theme: "normal",
   show_indent_guides: true,
   show_whitespace: false,
@@ -136,6 +140,9 @@ const INITIAL_STATE: BusterStoreState = {
   settings: DEFAULT_SETTINGS,
   palette: CATPPUCCIN,
   workspaceRoot: null,
+  notesRoot: null,
+  notesDesktopLink: null,
+  notesStorageWarning: null,
   activeFilePath: null,
 
 
@@ -146,7 +153,6 @@ const INITIAL_STATE: BusterStoreState = {
   tabTrapping: true,
   lspState: "inactive",
   lspLanguages: [],
-  vimMode: null,
 };
 
 // ── Provider component ───────────────────────────────────────
@@ -157,10 +163,12 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
   // Engine map (non-reactive — EditorEngine instances can't be proxied)
   const engineMapRaw = new Map<string, EditorEngine>();
+  const [engineRevision, setEngineRevision] = createSignal(0);
   const engines: EngineMap = {
+    revision: engineRevision,
     get: (id) => engineMapRaw.get(id),
-    set: (id, e) => { engineMapRaw.set(id, e); },
-    delete: (id) => { engineMapRaw.delete(id); },
+    set: (id, e) => { engineMapRaw.set(id, e); setEngineRevision(n => n + 1); },
+    delete: (id) => { engineMapRaw.delete(id); setEngineRevision(n => n + 1); },
     get map() { return engineMapRaw; },
   };
 
@@ -196,15 +204,17 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     workspace: () => store.paneWorkspace, engine: id => engines.get(id),
     readClipboard: () => navigator.clipboard.readText(), writeClipboard: clipboardWrite,
   });
+  let reviewPaneOverride: string | null = null;
   const writing = createWritingReview({
     workspace: () => store.paneWorkspace,
     engine: id => engines.get(id),
     hasTab: id => store.tabs.some(tab => tab.id === id),
     openPanel: (id, kind, sourcePaneId) => batch(() => {
       const empty = store.paneWorkspace.panes.find(p => p.id !== sourcePaneId && !p.tabId);
-      if (!empty && store.paneWorkspace.panes.length >= MAX_PANES)
+      const preferred = reviewPaneOverride && store.paneWorkspace.panes.some(p => p.id === reviewPaneOverride) ? reviewPaneOverride : null;
+      if (!preferred && !empty && store.paneWorkspace.panes.length >= MAX_PANES)
         throw new CommandFailure("LIMIT_REACHED", "Close a pane view to make room for the review. Its note will remain open in a tab.");
-      const paneId = empty?.id ?? actions.panes.splitPane("right", "empty", sourcePaneId);
+      const paneId = preferred ?? empty?.id ?? actions.panes.splitPane("right", "empty", sourcePaneId);
       const tabId = `review_${id}`;
       setStore("tabs", tabs => [...tabs, { id: tabId, name: kind === "lookup" ? "Look up" : "AI review", path: id, type: "writing-review", dirty: false }]);
       setStore("paneWorkspace", "zoomedPaneId", null);
@@ -239,6 +249,59 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     transport: nativeSpeechTransport,
   });
   registerSpeechCommands(commands, speech);
+  const formatting = createWritingFormatting({
+    workspace: () => store.paneWorkspace, tabs: () => store.tabs,
+    engine: id => { engines.revision(); return engines.get(id); },
+  });
+  registerWritingFormattingCommands(commands, formatting);
+  const search = createSearchPortal({
+    workspace: () => store.paneWorkspace,
+    notes: () => store.tabs.filter(tab => tab.type === "file").map(tab => ({ tabId: tab.id, name: tab.name })),
+    engine: id => { engines.revision(); return engines.get(id); },
+    hasTab: id => store.tabs.some(tab => tab.id === id),
+    openPanel: (id, sourcePaneId) => batch(() => {
+      const empty = store.paneWorkspace.panes.find(pane => pane.id !== sourcePaneId && !pane.tabId);
+      // At the pane limit keep the source in its tab and temporarily show the portal in its pane.
+      const paneId = empty?.id ?? (store.paneWorkspace.panes.length < MAX_PANES
+        ? actions.panes.splitPane("right", "empty", sourcePaneId) : sourcePaneId);
+      const tabId = `search_${id}`;
+      setStore("tabs", tabs => [...tabs, { id: tabId, name: "AI search", path: id, type: "search-portal", dirty: false }]);
+      setStore("paneWorkspace", "zoomedPaneId", null);
+      actions.panes.showDocument(tabId, paneId);
+      queueMicrotask(() => focusTabPanel(tabId));
+      return tabId;
+    }),
+    focusPanel: id => { actions.switchToTab(id); focusTabPanel(id); },
+    closePanel: actions.handleTabClose,
+    focusSource: target => { actions.switchToTab(target.tabId); focusTabPanel(target.tabId); },
+    createNote: (text, portalTabId) => batch(() => {
+      actions.switchToTab(portalTabId);
+      const id = actions.createNewFile(); setStore("fileTexts", id, text);
+      const engine = engines.get(id); if (engine) { engine.loadText(text); engine.markDirty(); }
+      setStore("tabs", tab => tab.id === id, "dirty", true); return id;
+    }),
+    reviewPassage: (target, portalTabId) => {
+      const portalPaneId = store.paneWorkspace.panes.find(p => p.tabId === portalTabId)?.id;
+      actions.switchToTab(target.tabId); focusTabPanel(target.tabId);
+      const engine = engines.get(target.tabId);
+      const pane = store.paneWorkspace.panes.find(p => p.tabId === target.tabId);
+      if (!engine || !pane) throw new CommandFailure("NOT_FOUND", "The source note is no longer available.");
+      engine.setSelection(target.range.anchor, target.range.head);
+      // Reuse the portal view at the pane limit; both source and portal tabs remain open.
+      reviewPaneOverride = store.paneWorkspace.panes.length >= MAX_PANES ? portalPaneId ?? pane.id : null;
+      try { return writing.start({ ...target, paneId: pane.id }, "ai"); }
+      finally { reviewPaneOverride = null; }
+    },
+  });
+  registerSearchPortalCommands(commands, search);
+  createEffect(() => { store.tabs.map(tab => tab.id); untrack(() => search.reconcile()); });
+  const appearance = createWritingAppearance({
+    paneIds: () => store.paneWorkspace.panes.map(pane => pane.id),
+    workspaceId: () => store.workspaceRoot,
+    load: () => localStorage.getItem(WRITING_APPEARANCE_KEY),
+    save: value => localStorage.setItem(WRITING_APPEARANCE_KEY, value),
+  });
+  registerWritingAppearanceCommands(commands, appearance);
   onCleanup(speech.dispose);
 
   const autoSaveInterval = setInterval(actions.saveSessionNow, 30_000);
@@ -249,6 +312,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   const fileAutoSaveInterval = setInterval(() => {
     const now = Date.now();
     for (const tab of store.tabs) {
+      if (store.extChangeTabId === tab.id) continue;
       if (tab.type !== "file" || !tab.path) {
         dirtySinceByTab.delete(tab.id);
         editSeqByTab.delete(tab.id);
@@ -269,12 +333,15 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
       }
 
       const editorSettings = resolveEditorSettings(store.settings, tab.path);
-      if (!editorSettings.auto_save) continue;
+      const managedNote = isNotesPath(tab.path, store.notesRoot);
+      if (!managedNote && !editorSettings.auto_save) continue;
 
       const dirtySince = dirtySinceByTab.get(tab.id) ?? now;
-      if (now - dirtySince >= editorSettings.auto_save_delay_ms) {
+      if (now - dirtySince >= (managedNote ? 500 : editorSettings.auto_save_delay_ms)) {
         dirtySinceByTab.set(tab.id, now);
-        actions.saveTab(tab.id, { silent: true, requirePath: true }).catch(() => {});
+        actions.saveTab(tab.id, { silent: true, requirePath: true }).catch(error => {
+          if (managedNote) setStore("notesStorageWarning", `A note could not be saved. Your edits remain open: ${String(error)}`);
+        });
       }
     }
   }, 500);
@@ -312,6 +379,26 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   });
 
   // ── Initialization ──────────────────────────────────────────
+
+  const handleEntryChanged = (event: Event) => {
+    const { oldPath, newPath } = (event as CustomEvent<{ oldPath: string; newPath: string | null }>).detail;
+    for (const tab of [...store.tabs]) {
+      if (tab.type !== "file") continue;
+      const next = movedFilePath(tab.path, oldPath, newPath);
+      if (next === undefined) continue;
+      unwatchFile(tab.path).catch(() => {});
+      if (next === null) {
+        engines.get(tab.id)?.markDirty();
+        setStore("tabs", t => t.id === tab.id, { path: "", dirty: true });
+        showInfo(`${tab.name} was deleted from disk. Its open draft is retained for Save As.`);
+      } else {
+        setStore("tabs", t => t.id === tab.id, { path: next, name: next.split("/").pop()! });
+        watchFile(next).catch(() => showError("File watcher failed after moving the note"));
+      }
+    }
+  };
+  window.addEventListener("buster-entry-changed", handleEntryChanged);
+  onCleanup(() => window.removeEventListener("buster-entry-changed", handleEntryChanged));
 
   // Crash detection
   import("./ipc").then(({ setRunningFlag }) => {
@@ -391,6 +478,16 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
   (async () => {
     let restoredPaneId: string | null = null;
+    let notesFirstRun = false;
+    try {
+      const notes = await initializeNotesWorkspace();
+      notesFirstRun = notes.first_run;
+      setStore("notesRoot", notes.root);
+      setStore("notesDesktopLink", notes.desktop_link);
+      setStore("notesStorageWarning", notes.warning);
+    } catch (error) {
+      setStore("notesStorageWarning", `The Notes folder could not be opened: ${String(error)}`);
+    }
     try {
       const session = await loadSessionFromDisk();
       if (session) {
@@ -400,7 +497,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
           readBackup: loadBackupBuffer,
         });
         setStore("workspaceRoot", session.workspace_root);
-        setStore("sidebarVisible", session.sidebar_visible ?? true);
+        setStore("sidebarVisible", session.tabs.some(tab => tab.type === "explorer") ? true : session.sidebar_visible ?? true);
         const sw = session.sidebar_width;
         setStore("sidebarWidth", sw >= 140 && sw <= 600 ? sw : 220);
         setStore("fileTexts", restored.fileTexts);
@@ -422,6 +519,10 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
         if (restored.skipped.length) showInfo(`Skipped ${restored.skipped.length} unavailable or retired session tabs`);
         if (restored.tabs.some(tab => tab.dirty)) showInfo("Restored unsaved writing from session backups");
       }
+      if (store.notesRoot && (!store.workspaceRoot || notesFirstRun)) {
+        await setWorkspaceRootIpc(store.notesRoot);
+        setStore("workspaceRoot", store.notesRoot);
+      }
       actions.finishSessionRestore();
     } catch (error) {
       // Keep the prior on-disk session intact if recovery is incomplete.
@@ -437,7 +538,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
   // ── Build context value ─────────────────────────────────────
 
-  const ctx: BusterContextValue = { store, setStore, engines, actions, commands, writing, speech };
+  const ctx: BusterContextValue = { store, setStore, engines, actions, commands, writing, speech, appearance, formatting, search };
 
   return (
     <BusterContext.Provider value={ctx}>

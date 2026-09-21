@@ -1,5 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export interface NotesWorkspace { root: string; first_run: boolean; desktop_link: string | null; warning: string | null; }
+export const initializeNotesWorkspace = () => invoke<NotesWorkspace>("initialize_notes_workspace");
+
 export interface FileContent {
   path: string;
   content: string;
@@ -16,8 +19,8 @@ export interface DirEntry {
 export const readFile = (path: string) =>
   invoke<FileContent>("read_file", { path });
 
-export const writeFile = (path: string, content: string) =>
-  invoke<void>("write_file", { path, content });
+export const writeFile = (path: string, content: string, mustExist = false) =>
+  invoke<void>("write_file", { path, content, mustExist });
 
 export const listDirectory = (path: string) =>
   invoke<DirEntry[]>("list_directory", { path });
@@ -28,8 +31,14 @@ export const watchFile = (path: string) =>
 export const unwatchFile = (path: string) =>
   invoke<void>("unwatch_file", { path });
 
-export const moveEntry = (source: string, destDir: string) =>
-  invoke<string>("move_entry", { source, destDir });
+function entryChanged(oldPath: string, newPath: string | null) {
+  window.dispatchEvent(new CustomEvent("buster-entry-changed", { detail: { oldPath, newPath } }));
+}
+export const moveEntry = async (source: string, destDir: string) => {
+  const path = await invoke<string>("move_entry", { source, destDir });
+  entryChanged(source, path);
+  return path;
+};
 
 export const createFile = (path: string) =>
   invoke<void>("create_file", { path });
@@ -37,11 +46,16 @@ export const createFile = (path: string) =>
 export const createDirectory = (path: string) =>
   invoke<void>("create_directory", { path });
 
-export const renameEntry = (oldPath: string, newName: string) =>
-  invoke<string>("rename_entry", { oldPath, newName });
+export const renameEntry = async (oldPath: string, newName: string) => {
+  const path = await invoke<string>("rename_entry", { oldPath, newName });
+  entryChanged(oldPath, path);
+  return path;
+};
 
-export const deleteEntry = (path: string) =>
-  invoke<void>("delete_entry", { path });
+export const deleteEntry = async (path: string) => {
+  await invoke<void>("delete_entry", { path });
+  entryChanged(path, null);
+};
 
 export interface BinaryFileContent {
   path: string;
@@ -96,7 +110,6 @@ export interface AppSettings {
   auto_save: boolean;
   auto_save_delay_ms: number;
   language_settings?: Record<string, EditorLanguageSettings>;
-  vim_mode: boolean;
   blog_theme: string;
   show_indent_guides: boolean;
   show_whitespace: boolean;
@@ -560,9 +573,7 @@ export const surfaceGetLastPaint = (surfaceId: number) =>
 export const surfaceResizeNotify = (surfaceId: number, width: number, height: number) =>
   invoke<void>("surface_resize_notify", { surfaceId, width, height });
 
-// ── Keymap (Lua) ────────────────────────────────────────────────────
 
-export const evaluateKeymap = () => invoke<string>("evaluate_keymap");
 
 // ── Browser Panel (direct webview control) ──────────────────────────
 

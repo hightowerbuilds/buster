@@ -8,13 +8,13 @@ export type TabType =
   | "keybindings"
   | "git"
   | "extensions"
-  | "explorer"
   | "problems"
   | "search-results"
   | "surface"
   | "browser"
   | "console"
   | "ai"
+  | "search-portal"
   | "writing-review";
 
 const IMAGE_EXTENSIONS = new Set([

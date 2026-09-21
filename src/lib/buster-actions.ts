@@ -49,11 +49,12 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
   const theme = createThemeActions(setStore);
   const settings = createSettingsActions(store, setStore, theme.rebuildPalette);
   const git = createGitActions(store, setStore);
-  const workspace = createWorkspaceActions(store, setStore, engines, git.refreshGitBranch, settings.updateSettings);
+  const workspace = createWorkspaceActions(store, setStore, git.refreshGitBranch, settings.updateSettings);
   const lsp = createLspActions(store, setStore);
   const files = createFileActions(store, setStore, switchToTab, settings.addRecentFile, git.fetchDiffHunks, lsp.attemptLspStart);
-  const save = createSaveActions(store, setStore, engines, activeTab, settings.addRecentFile, git.fetchDiffHunks, files.loadFileContent, git.refreshGitBranch);
-  const tabs = createTabActions(store, setStore, engines, deps.extChangeDiskContent, save.writeFileSmart);
+  const pendingNotes = new Map<string, Promise<void>>();
+  const save = createSaveActions(store, setStore, engines, activeTab, settings.addRecentFile, git.fetchDiffHunks, files.loadFileContent, git.refreshGitBranch, pendingNotes);
+  const tabs = createTabActions(store, setStore, engines, deps.extChangeDiskContent, save.writeFileSmart, pendingNotes);
   const diagnostics = createDiagnosticActions(store, engines, activeEngine, files.handleFileSelect);
   const session = createSessionActions(store, engines);
   const panes = createPaneActions(store, setStore, tabs.createNewFile, tabs.createTerminalTab);
@@ -144,7 +145,6 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
     createBrowserTab: tabs.createBrowserTab,
     createConsoleTab: tabs.createConsoleTab,
     createAiTab: tabs.createAiTab,
-    popOutSidebar: tabs.popOutSidebar,
     handleTermIdReady: tabs.handleTermIdReady,
     handleTermTitleChange: tabs.handleTermTitleChange,
 

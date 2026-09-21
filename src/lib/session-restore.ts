@@ -3,7 +3,7 @@ import { restorePaneWorkspace } from "./writing-panes";
 import type { Tab } from "./tab-types";
 
 // Unknown, retired (including debug), and transient extension surfaces are skipped.
-const RESTORABLE_TYPES = new Set(["file", "image", "terminal", "settings", "keybindings", "git", "extensions", "explorer", "problems", "browser", "console", "ai"]);
+const RESTORABLE_TYPES = new Set(["file", "image", "terminal", "settings", "keybindings", "git", "extensions", "problems", "browser", "console", "ai"]);
 
 export interface RestoreDeps {
   readFile: (path: string) => Promise<string>;

@@ -5,7 +5,6 @@
  */
 
 import type { EditorEngine } from "./engine";
-import type { VimHandler } from "./vim-mode";
 import type { createAutocomplete } from "./editor-autocomplete";
 import type { createSignatureHelp } from "./editor-signature";
 import type { createGhostText } from "./editor-ghost-text";
@@ -18,7 +17,6 @@ type GhostTextHandle = ReturnType<typeof createGhostText>;
 
 export interface InputDeps {
   engine: EditorEngine;
-  vim: VimHandler;
   ac: AutocompleteHandle;
   sigHelp: SignatureHelpHandle;
   ghost: GhostTextHandle;
@@ -41,17 +39,19 @@ export interface TextInsertionDeps {
 }
 
 export function handleEditorInput(deps: InputDeps) {
-  const { vim } = deps;
   const hi = deps.hiddenInput();
   if (!hi || deps.isComposing()) return;
   const text = hi.value;
   if (!text) return;
   hi.value = "";
 
-  // In Vim Normal/Visual mode, suppress text insertion
-  if (vim.enabled() && vim.mode() !== "insert") return;
-
-  insertEditorText(text, deps);
+  // A deliberate selection replacement is its own edit even when it follows
+  // ordinary typing within the engine's typing-coalescing interval.
+  const selection = deps.engine.sel();
+  const replacing = !!selection && (selection.anchor.line !== selection.head.line || selection.anchor.col !== selection.head.col);
+  if (replacing) deps.engine.beginUndoGroup();
+  try { insertEditorText(text, deps); }
+  finally { if (replacing) deps.engine.endUndoGroup(); }
 }
 
 export function insertEditorText(text: string, deps: TextInsertionDeps) {

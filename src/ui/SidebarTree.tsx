@@ -1,3 +1,4 @@
+import { showError } from "../lib/notify";
 import { Component, createSignal, createEffect, on, For, Show } from "solid-js";
 import type { DirEntry } from "../lib/ipc";
 import { listDirectory, moveEntry, createFile, createDirectory, renameEntry, deleteEntry } from "../lib/ipc";
@@ -104,7 +105,7 @@ export const TreeItem: Component<{
 
   // React to targeted refresh signals from drag-and-drop / rename / delete
   createEffect(on(refreshDir, (dir) => {
-    if (dir && dir === props.node.path && loaded()) {
+    if (dir && (dir === props.node.path || (dir === "*" && expanded())) && loaded()) {
       loadChildren();
     }
   }, { defer: true }));
@@ -115,6 +116,7 @@ export const TreeItem: Component<{
   }
 
   async function commitRename() {
+    if (!renaming()) return;
     const newName = renameValue().trim();
     setRenaming(false);
     if (!newName || newName === props.node.name) return;
@@ -130,17 +132,20 @@ export const TreeItem: Component<{
     const trimmed = name.trim();
     props.onCreatingChildDone?.();
     if (!trimmed) return;
-    const fullPath = join(props.node.path, trimmed);
+    if (trimmed === "." || trimmed === ".." || /[/\\\0]/.test(trimmed)) { showError("Enter a name without path separators"); return; }
+    const fileName = type === "file" && !trimmed.includes(".") ? `${trimmed}.md` : trimmed;
+    const fullPath = join(props.node.path, fileName);
     try {
       if (type === "file") {
         await createFile(fullPath);
+        props.onFileSelect(fullPath);
       } else {
         await createDirectory(fullPath);
       }
       await loadChildren();
       setExpanded(true);
     } catch (err) {
-      console.error("Create failed:", err);
+      showError(`Could not create the ${type}: ${String(err)}`);
     }
   }
 
@@ -298,11 +303,15 @@ export const TreeItem: Component<{
                 class="tree-rename-input"
                 placeholder={props.creatingChild!.type === "folder" ? "folder name" : "file name"}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") commitCreate(e.currentTarget.value, props.creatingChild!.type);
+                  const creating = props.creatingChild;
+                  if (e.key === "Enter" && creating) commitCreate(e.currentTarget.value, creating.type);
                   if (e.key === "Escape") props.onCreatingChildDone?.();
                   e.stopPropagation();
                 }}
-                onBlur={(e) => commitCreate(e.currentTarget.value, props.creatingChild!.type)}
+                onBlur={(e) => {
+                  const creating = props.creatingChild;
+                  if (creating) commitCreate(e.currentTarget.value, creating.type);
+                }}
                 onClick={(e) => e.stopPropagation()}
                 ref={(el) => setTimeout(() => el.focus(), 0)}
               />

@@ -110,7 +110,7 @@
 .palette-section-label {
   padding: 4px 16px;
   font-size: 11px;
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-weight: normal;
   color: var(--text-muted);
   letter-spacing: 0.5px;

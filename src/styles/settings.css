@@ -284,7 +284,7 @@
   color: var(--text);
   background: var(--bg-surface0);
   border: 1px solid var(--border);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -308,7 +308,7 @@
 }
 
 .settings-section-title {
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 16px;
   font-weight: normal;
   color: var(--text-dim);
@@ -336,7 +336,7 @@
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--border);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   text-align: left;
   display: flex;
@@ -413,7 +413,7 @@
 .settings-token-row span {
   min-width: 0;
   color: var(--text-dim);
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -431,7 +431,7 @@
   color: var(--text-muted);
   background: transparent;
   border: 0;
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
   cursor: pointer;
 }
@@ -454,7 +454,7 @@
 }
 
 .keybinding-label {
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 13px;
   color: var(--text-dim);
   flex: 1;
@@ -478,7 +478,7 @@
 }
 
 .keybinding-btn {
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   color: var(--text-muted);
   background: var(--bg-surface0);
@@ -505,7 +505,7 @@
 }
 
 .keybinding-input {
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   color: var(--accent);
   background: var(--bg-mantle);
@@ -517,7 +517,7 @@
 }
 
 .keybinding-reset {
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   color: var(--text-muted);
   background: transparent;
@@ -533,7 +533,7 @@
 .keybinding-conflict-summary {
   margin: 0 16px 8px;
   padding: 6px 8px;
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
   color: var(--red, #f38ba8);
   background: color-mix(in srgb, var(--red, #f38ba8) 10%, transparent);
@@ -549,7 +549,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: "Courier New", Courier, monospace;
+  font-family: var(--font-ui);
 }
 
 .keybindings-header {

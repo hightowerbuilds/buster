@@ -39,7 +39,7 @@
 
 /* Sync button */
 .status-sync-btn {
-  font-family: "Courier New", monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: normal;
   color: var(--bg-crust);

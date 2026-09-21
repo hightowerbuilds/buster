@@ -74,6 +74,9 @@ export interface BusterStoreState {
   palette: ThemePalette;
   // ── Workspace ──────────────────────────────────────────
   workspaceRoot: string | null;
+  notesRoot: string | null;
+  notesDesktopLink: string | null;
+  notesStorageWarning: string | null;
   activeFilePath: string | null;
 
   // ── Navigation history ──────────────────────────────────
@@ -85,7 +88,6 @@ export interface BusterStoreState {
   tabTrapping: boolean;
   lspState: LspState;
   lspLanguages: string[];
-  vimMode: string | null;
 }
 
 export interface NavHistoryEntry {

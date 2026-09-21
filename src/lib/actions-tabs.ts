@@ -11,6 +11,9 @@ import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
 import { basename, extname } from "buster-path";
 import { unwatchFile, lspStop, lspStatus, terminalKill, extUnload, browserModuleClose } from "./ipc";
 import { showInfo, showError } from "./notify";
+import { createFile, watchFile } from "./ipc";
+import { setRefreshDir } from "../ui/SidebarTree";
+import { isNotesPath } from "./notes-storage";
 
 const EXT_TO_LANG: Record<string, string> = {
   rs: "rust", ts: "typescript", tsx: "typescriptreact",
@@ -27,7 +30,8 @@ export function createTabActions(
   setStore: SetStoreFunction<BusterStoreState>,
   engines: EngineMap,
   extChangeDiskContent: { value: string },
-  writeFileSmart: (path: string, content: string) => Promise<void>,
+  writeFileSmart: (path: string, content: string, mustExist?: boolean) => Promise<void>,
+  pendingNotes: Map<string, Promise<void>> = new Map(),
 ) {
   function switchToTab(tabId: string) {
     const tab = store.tabs.find(t => t.id === tabId);
@@ -51,11 +55,26 @@ export function createTabActions(
   function createNewFile() {
     setStore("fileTabCounter", c => c + 1);
     const tabId = `file_${store.fileTabCounter}`;
-    const name = `Note-${store.fileTabCounter}.md`;
+    const root = store.notesRoot;
+    const name = root ? `Note-${store.fileTabCounter}-${crypto.randomUUID().slice(0, 8)}.md` : `Note-${store.fileTabCounter}.md`;
     const newTab: Tab = { id: tabId, name, path: "", dirty: false, type: "file" };
     setStore("fileTexts", tabId, "");
     setStore("tabs", [...store.tabs, newTab]);
     switchToTab(tabId);
+    if (root) {
+      const path = `${root}/${name}`;
+      const pending = createFile(path).then(() => {
+        setStore("tabs", tab => tab.id === tabId && !tab.path, "path", path);
+        setRefreshDir(root);
+        if (store.tabs.some(tab => tab.id === tabId)) watchFile(path).catch(() => showError("File watcher failed for the new note"));
+      });
+      pendingNotes.set(tabId, pending);
+      pending.catch(error => {
+        setStore("notesStorageWarning", `Could not create ${name}: ${String(error)}. Your draft remains open; use Save As to save it elsewhere.`);
+      }).finally(() => pendingNotes.delete(tabId));
+    } else {
+      showError("The Notes folder is unavailable. This draft is unsaved; use Save As to keep it.");
+    }
     return tabId;
   }
 
@@ -98,11 +117,6 @@ export function createTabActions(
     switchToTab(tabId);
   }
 
-  function popOutSidebar() {
-    setStore("sidebarVisible", false);
-    openSingletonTab("explorer", "explorer_tab", "Explorer");
-  }
-
   function handleTermIdReady(tabId: string, ptyId: string) {
     setStore("termPtyIds", tabId, ptyId);
   }
@@ -143,12 +157,14 @@ export function createTabActions(
     if (!tabId) return;
     if (result === "cancel") return;
     if (result === "save") {
+      await pendingNotes.get(tabId)?.catch(() => {});
       const tab = store.tabs.find(t => t.id === tabId);
       const engine = engines.get(tabId);
       if (tab) {
         const text = engine?.getText() ?? store.fileTexts[tabId];
         if (text === undefined) { showError("Draft text is unavailable; the tab remains open"); return; }
         const savedRevision = engine?.editSeq();
+        const originalPath = tab.path;
         let savePath = tab.path;
         if (!savePath) {
           const { save } = await import("@tauri-apps/plugin-dialog");
@@ -156,8 +172,9 @@ export function createTabActions(
           if (!chosen) return;
           savePath = chosen;
         }
-        try { await writeFileSmart(savePath, text); }
+        try { await writeFileSmart(savePath, text, savePath === originalPath && isNotesPath(savePath, store.notesRoot)); }
         catch { showError("Failed to save; the draft remains open"); return; }
+        if (store.tabs.find(t => t.id === tabId)?.path !== originalPath) return;
         if (engine && engine.editSeq() !== savedRevision) {
           setStore("tabs", store.tabs.map(t => t.id === tabId ? { ...t, path: savePath, name: basename(savePath) } : t));
           showInfo("New changes remain unsaved; the draft stays open");
@@ -174,7 +191,6 @@ export function createTabActions(
     const tab = store.tabs.find(t => t.id === tabId);
     if (!tab) return;
 
-    if (tab.type === "explorer") setStore("sidebarVisible", true);
     if (tab.type === "browser") browserModuleClose().catch(() => {});
     if (tab.type === "surface") {
       try {
@@ -222,7 +238,7 @@ export function createTabActions(
     switchToTab, createNewFile, createTerminalTab,
     createGitTab, createSettingsTab, createKeybindingsTab, createExtensionsTab,
     createProblemsTab, createConsoleTab, createAiTab,
-    createBrowserTab, popOutSidebar,
+    createBrowserTab,
     handleTermIdReady, handleTermTitleChange,
     handleTabClose, handleExternalChangeResult, handleDirtyCloseResult,
     doTabClose,

@@ -8,6 +8,7 @@ export interface InlayHintDeps {
   scrollTop: () => number;
   canvasHeight: () => number;
   fontSize: () => number;
+  lineHeight?: () => number;
   editSeq: () => number;
 }
 
@@ -25,7 +26,7 @@ export function createInlayHints(deps: InlayHintDeps) {
     timer = setTimeout(async () => {
       if (!deps.filePath()) return;
 
-      const lineHeight = deps.fontSize() + 8;
+      const lineHeight = deps.lineHeight?.() ?? deps.fontSize() + 8;
       const startLine = Math.max(0, Math.floor(deps.scrollTop() / lineHeight) - 5);
       const endLine = startLine + Math.ceil(deps.canvasHeight() / lineHeight) + 10;
       const editSeq = deps.editSeq();

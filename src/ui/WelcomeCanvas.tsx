@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 import { Component, onMount, onCleanup } from "solid-js";
 import { basename } from "buster-path";
 import { measureTextWidth } from "../editor/text-measure";
@@ -15,7 +16,7 @@ const TITLE_FONTS = [
   '"Times New Roman"',
   "Impact",
   '"Arial Black"',
-  '"Courier New"',
+  UI_FONT_FAMILY,
   '"Trebuchet MS"',
   "Verdana",
   "Palatino",
@@ -352,7 +353,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
       subtitleProgress = Math.min(subtitleProgress + 1.2, SUBTITLE.length);
       const subText = SUBTITLE.slice(0, Math.floor(subtitleProgress));
 
-      ctx.font = '16px "Courier New", Courier, monospace';
+      ctx.font = `16px ${UI_FONT_FAMILY}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
 
@@ -367,7 +368,7 @@ const WelcomeCanvas: Component<WelcomeCanvasProps> = (props) => {
 
       // Cursor
       if (subtitleProgress < SUBTITLE.length || Math.floor(time / 30) % 2 === 0) {
-        const cursorX = w / 2 + measureTextWidth(subText, '16px "Courier New", Courier, monospace') / 2 + 2;
+        const cursorX = w / 2 + measureTextWidth(subText, `16px ${UI_FONT_FAMILY}`) / 2 + 2;
         ctx.fillStyle = `rgba(205, 214, 244, ${subtitleProgress < SUBTITLE.length ? 1 : 0.6})`;
         ctx.fillRect(cursorX, subY, 2, 16);
       }

@@ -1,0 +1,13 @@
+.writing-format-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg-mantle); color: var(--text); font-size: 12px; }
+.writing-format-bar button, .writing-format-bar select { font: inherit; color: inherit; border: 1px solid transparent; background: transparent; border-radius: 4px; min-height: 28px; padding: 3px 8px; cursor: pointer; }
+.writing-format-bar select { max-width: 140px; background: var(--bg-mantle); }
+.writing-format-bar button:hover:not(:disabled), .writing-format-bar select:hover:not(:disabled) { background: var(--bg-surface0); }
+.writing-format-bar button[aria-pressed="true"] { border-color: var(--accent); background: var(--bg-surface0); }
+.writing-format-bar button[aria-pressed="mixed"] { border-color: var(--accent); border-style: dashed; }
+.writing-format-bar button:focus-visible, .writing-format-bar select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.writing-format-bar :disabled { opacity: .45; cursor: default; }
+.writing-format-bar .writing-search-button { border-left-color: var(--border); margin-left: 3px; }
+.writing-format-hint { margin-left: auto; opacity: .65; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 240px; }
+.writing-format-error { flex-basis: 100%; color: var(--text); }
+.writing-heading-label .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 700px) { .writing-format-hint { display: none; } }

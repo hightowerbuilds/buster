@@ -1,4 +1,5 @@
 pub mod file;
+pub mod notes;
 pub mod terminal;
 pub mod syntax;
 pub mod search;
@@ -9,7 +10,6 @@ pub mod extensions;
 pub mod session;
 pub mod browser;
 pub mod surface;
-pub mod keymap;
 pub mod filebuffer;
 pub mod ai_completion;
 pub mod writing_ai;

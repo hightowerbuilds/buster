@@ -1,0 +1,117 @@
+{
+  "checks": [
+    {
+      "name": "Managed Notes initializes before writing UI",
+      "passed": true
+    },
+    {
+      "name": "Explorer has no Out or Return Explorer controls",
+      "passed": true
+    },
+    {
+      "name": "Footer contains Terminal Settings Notes",
+      "passed": true
+    },
+    {
+      "name": "Bumper collapses Explorer",
+      "passed": true
+    },
+    {
+      "name": "Collapsed bumper remains visible and accessible",
+      "passed": true
+    },
+    {
+      "name": "Bumper reopens Explorer",
+      "passed": true
+    },
+    {
+      "name": "Notes opens a Markdown file in managed storage",
+      "passed": true
+    },
+    {
+      "name": "Notes persists an empty file through create_file",
+      "passed": true
+    },
+    {
+      "name": "Typing automatically writes managed Markdown",
+      "passed": true
+    },
+    {
+      "name": "Successful autosave clears dirty state",
+      "passed": true
+    },
+    {
+      "name": "Measured managed save delay",
+      "milliseconds": 659.1999998092651
+    },
+    {
+      "name": "CmdB in editor hides Explorer",
+      "passed": true
+    },
+    {
+      "name": "CmdB in editor reopens Explorer",
+      "passed": true
+    },
+    {
+      "name": "CmdB preserves text and editor focus",
+      "passed": true
+    },
+    {
+      "name": "Footer Settings opens Settings",
+      "passed": true
+    },
+    {
+      "name": "Footer Settings reuses its tab",
+      "passed": true
+    },
+    {
+      "name": "Footer Terminal opens Terminal",
+      "passed": true
+    },
+    {
+      "name": "Footer Terminal reuses its tab",
+      "passed": true
+    },
+    {
+      "name": "CmdB in terminal hides Explorer",
+      "passed": true
+    },
+    {
+      "name": "CmdB in terminal reopens Explorer",
+      "passed": true
+    },
+    {
+      "name": "CmdB is not sent to shell",
+      "passed": true
+    },
+    {
+      "name": "Footer Notes creates another managed Markdown tab",
+      "passed": true
+    },
+    {
+      "name": "Previous note remains saved and open",
+      "passed": true
+    },
+    {
+      "name": "Explorer extensionless file becomes Markdown and opens",
+      "passed": true
+    },
+    {
+      "name": "Explorer creation submits once",
+      "passed": true
+    },
+    {
+      "name": "Close Folder returns Explorer to Notes home",
+      "passed": true
+    },
+    {
+      "name": "Close Folder preserves open drafts",
+      "passed": true
+    },
+    {
+      "name": "No uncaught browser runtime exceptions",
+      "passed": true
+    }
+  ],
+  "errors": []
+}

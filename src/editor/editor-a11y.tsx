@@ -12,13 +12,14 @@ export interface EditorA11yDeps {
   scrollTop: () => number;
   canvasHeight: () => number;
   fontSize: () => number;
+  lineHeight?: () => number;
   filePath: () => string | null;
 }
 
 // ─── Factory ────────────────────────────────────────────────────────
 
 export function createEditorA11y(deps: EditorA11yDeps) {
-  const lineHeight = () => deps.fontSize() + 8;
+  const lineHeight = () => deps.lineHeight?.() ?? deps.fontSize() + 8;
 
   // ── Windowed lines (viewport ± 50 lines) ────────────────────────
 

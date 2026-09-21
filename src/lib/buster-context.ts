@@ -16,6 +16,7 @@ import type { FeatureCommands } from "./feature-commands";
 // ── Engine map (non-reactive, opaque refs) ──────────────────
 
 export interface EngineMap {
+  revision(): number;
   get(tabId: string): EditorEngine | undefined;
   set(tabId: string, engine: EditorEngine): void;
   delete(tabId: string): void;
@@ -47,7 +48,6 @@ export interface BusterActions {
   createBrowserTab(): void;
   createConsoleTab(): void;
   createAiTab(): void;
-  popOutSidebar(): void;
   handleTermIdReady(tabId: string, ptyId: string): void;
   handleTermTitleChange(tabId: string, title: string): void;
 
@@ -98,6 +98,9 @@ export interface BusterContextValue {
   engines: EngineMap;
   actions: BusterActions;
   commands: FeatureCommands;
+  appearance: import("./writing-appearance").WritingAppearance;
+  formatting: import("./writing-format").WritingFormatting;
+  search: import("./search-portal").SearchPortalService;
   writing: import("./writing-review").WritingReviewService;
   speech: ReturnType<typeof import("./speech").createSpeech>;
 }

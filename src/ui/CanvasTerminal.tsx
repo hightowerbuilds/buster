@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 import { Component, createEffect, on, onMount, onCleanup, createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -883,7 +884,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
           display: "flex", "align-items": "center", gap: "4px",
           background: "var(--surface0, #313244)", padding: "4px 8px",
           "border-radius": "4px", "font-size": "13px",
-          "font-family": "'Courier New', Courier, monospace",
+          "font-family": UI_FONT_FAMILY,
           color: "var(--text, #cdd6f4)",
         }}>
           <input
@@ -896,7 +897,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
             style={{
               background: "var(--surface1, #45475a)", border: "none",
               color: "var(--text, #cdd6f4)", padding: "2px 6px",
-              "font-size": "13px", "font-family": "'Courier New', Courier, monospace",
+              "font-size": "13px", "font-family": UI_FONT_FAMILY,
               outline: "none", width: "160px",
             }}
           />

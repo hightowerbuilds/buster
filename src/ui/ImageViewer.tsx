@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 /**
  * ImageViewer — displays image files in a zoomable canvas.
  * Tries Tauri asset protocol first, falls back to base64 IPC.
@@ -128,7 +129,7 @@ const ImageViewer: Component<ImageViewerProps> = (props) => {
     color: "#cdd6f4",
     padding: "2px 8px",
     cursor: "pointer",
-    "font-family": "'Courier New', monospace",
+    "font-family": UI_FONT_FAMILY,
     "font-size": "12px",
     "border-radius": "3px",
   };
@@ -144,7 +145,7 @@ const ImageViewer: Component<ImageViewerProps> = (props) => {
         "flex-direction": "column",
         "align-items": "center",
         background: "#11111b",
-        "font-family": "'Courier New', monospace",
+        "font-family": UI_FONT_FAMILY,
       }}
     >
       {/* Toolbar */}

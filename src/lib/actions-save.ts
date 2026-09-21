@@ -11,6 +11,7 @@ import { setRefreshDir } from "../ui/SidebarTree";
 import { resolveEditorSettings } from "./editor-settings";
 import { applyTextEdits } from "../editor/apply-text-edits";
 import { formatJsonEngine } from "../editor/json-format";
+import { isNotesPath } from "./notes-storage";
 
 export function createSaveActions(
   store: BusterStoreState,
@@ -21,13 +22,14 @@ export function createSaveActions(
   fetchDiffHunks: (tabId: string, filePath: string) => Promise<void>,
   loadFileContent: (path: string) => Promise<{ content: string; fileName: string; filePath: string }>,
   refreshGitBranch: (root: string) => Promise<void>,
+  pendingNotes: Map<string, Promise<void>> = new Map(),
 ) {
   const savingTabs = new Set<string>();
 
-  async function writeFileSmart(path: string, content: string): Promise<void> {
+  async function writeFileSmart(path: string, content: string, mustExist = false): Promise<void> {
     const root = store.workspaceRoot;
-    if (root && path.startsWith(root)) {
-      await writeFile(path, content);
+    if (isNotesPath(path, store.notesRoot) || (root && path.startsWith(root))) {
+      await writeFile(path, content, mustExist);
     } else {
       await writeTextFile(path, content);
     }
@@ -66,12 +68,16 @@ export function createSaveActions(
   }
 
   async function doSave(tab: Tab, engine: EditorEngine, savePath: string, options: { silent?: boolean } = {}): Promise<void> {
+    const originalPath = tab.path;
     await formatBeforeSave(tab, engine, savePath);
 
     await syncLspDocument(savePath, engine);
     const text = engine.getText();
     const savedRevision = engine.editSeq();
-    await writeFileSmart(savePath, text);
+    await writeFileSmart(savePath, text, savePath === tab.path && isNotesPath(savePath, store.notesRoot));
+    // A concurrent rename/move/delete must not restore the old file identity.
+    const currentTab = store.tabs.find(t => t.id === tab.id);
+    if (!currentTab || currentTab.path !== originalPath) return;
     if (engine.editSeq() === savedRevision) engine.markClean();
 
     const fileName = basename(savePath);
@@ -86,6 +92,7 @@ export function createSaveActions(
   }
 
   async function saveTab(tabId: string, options: { silent?: boolean; requirePath?: boolean } = {}) {
+    await pendingNotes.get(tabId);
     if (savingTabs.has(tabId)) return;
 
     const tab = store.tabs.find(t => t.id === tabId);
@@ -125,7 +132,9 @@ export function createSaveActions(
   }
 
   async function handleSaveAs() {
-    const tab = activeTab();
+    const tabId = store.activeTabId;
+    if (tabId) await pendingNotes.get(tabId)?.catch(() => {});
+    const tab = store.tabs.find(t => t.id === tabId);
     if (!tab || tab.type !== "file") return;
     const engine = engines.get(tab.id);
     if (!engine) return;

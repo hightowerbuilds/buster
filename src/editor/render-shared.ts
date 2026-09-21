@@ -27,7 +27,7 @@ export function monoText(
 ) {
   if (!text) return;
   if (currentGpu?.isActive()) {
-    currentGpu.queueText(text, x, y, color, cellW);
+    currentGpu.queueText(text, x, y, color, cellW, baselineY);
     return;
   }
   ctx.font = font;

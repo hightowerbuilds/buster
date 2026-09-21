@@ -1,3 +1,4 @@
+import { UI_FONT_FAMILY } from "../lib/fonts";
 import { Component, createSignal, createEffect, on, Show, onMount, onCleanup } from "solid-js";
 import GitPanel from "./GitPanel";
 import GitGraph from "./GitGraph";
@@ -130,7 +131,7 @@ const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) =
 
     const nodes = commits();
     if (nodes.length === 0) {
-      ctx.font = '16px "Courier New", Courier, monospace';
+      ctx.font = `16px ${UI_FONT_FAMILY}`;
       ctx.fillStyle = p.textMuted;
       ctx.textAlign = "center";
       ctx.fillText("No commits", w / 2, h / 2);
@@ -170,12 +171,12 @@ const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) =
       ctx.fillText(node.short_hash, 12, textY);
 
       // Message
-      ctx.font = '13px "Courier New", Courier, monospace';
+      ctx.font = `13px ${UI_FONT_FAMILY}`;
       ctx.fillStyle = isHover ? p.text : p.textDim;
       const msgX = 90;
       const maxMsg = w - msgX - 260;
       let msg = node.message;
-      const msgFont = '13px "Courier New", Courier, monospace';
+      const msgFont = `13px ${UI_FONT_FAMILY}`;
       while (measureTextWidth(msg, msgFont) > maxMsg && msg.length > 10) {
         msg = msg.slice(0, -4) + "...";
       }
@@ -184,7 +185,7 @@ const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) =
       // Refs
       if (node.refs.length > 0) {
         let rx = msgX + measureTextWidth(msg, msgFont) + 8;
-        const refFont = '10px "Courier New", Courier, monospace';
+        const refFont = `10px ${UI_FONT_FAMILY}`;
         ctx.font = refFont;
         for (const ref of node.refs) {
           const clean = ref.replace("HEAD -> ", "");
@@ -199,7 +200,7 @@ const GitLog: Component<{ active: boolean; workspaceRoot?: string }> = (props) =
       }
 
       // Author
-      ctx.font = '12px "Courier New", Courier, monospace';
+      ctx.font = `12px ${UI_FONT_FAMILY}`;
       ctx.fillStyle = p.textMuted;
       ctx.textAlign = "right";
       ctx.fillText(node.author, w - 120, textY);

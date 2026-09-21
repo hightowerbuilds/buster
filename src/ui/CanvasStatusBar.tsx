@@ -26,7 +26,6 @@ interface CanvasStatusBarProps {
   warningCount?: number;
   onDiagnosticsClick?: () => void;
   onLspClick?: () => void;
-  vimMode?: string | null;
   fileLoading?: boolean;
   lineEnding?: string | null;
 }
@@ -97,19 +96,6 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     ctx.fillText("BusterMark", x, cy);
     x += ctx.measureText("BusterMark").width + ITEM_GAP;
 
-    // Vim mode indicator
-    if (props.vimMode) {
-      const modeLabel = `-- ${props.vimMode.toUpperCase()} --`;
-      const modeW = ctx.measureText(modeLabel).width + 12;
-      // Dark badge on accent background
-      ctx.fillStyle = textOnAccent;
-      ctx.globalAlpha = 0.25;
-      ctx.fillRect(x - 2, 3, modeW, h - 6);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = textOnAccent;
-      ctx.fillText(modeLabel, x + 4, cy);
-      x += modeW + ITEM_GAP;
-    }
 
     // Git branch
     if (props.gitBranch) {
