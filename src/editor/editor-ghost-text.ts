@@ -8,10 +8,9 @@
 
 import { createSignal } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { PhantomText } from "./canvas-renderer";
 import type { AppSettings } from "../lib/ipc";
-import { inferLanguageId } from "./language-registry";
 
 export interface GhostTextDeps {
   filePath: () => string | null;
@@ -100,8 +99,18 @@ export function createGhostText(deps: GhostTextDeps) {
   let anchorCol = 0;
   const cache = new Map<string, string>();
 
-  // Set up Tauri event listeners
-  listen<CompletionToken>("ai-completion-token", (event) => {
+  // Set up Tauri event listeners. Each editor instance owns its own
+  // subscriptions and releases them in dispose().
+  let disposed = false;
+  const unlisteners: UnlistenFn[] = [];
+  function track(pending: Promise<UnlistenFn>) {
+    pending.then(unlisten => {
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    }).catch(() => {});
+  }
+
+  track(listen<CompletionToken>("ai-completion-token", (event) => {
     const { request_id, token, done } = event.payload;
     // Ignore stale responses
     if (request_id !== activeRequestId) return;
@@ -120,14 +129,23 @@ export function createGhostText(deps: GhostTextDeps) {
         if (key) writeCache(key, accumulator, deps.settings().ai_cache_size ?? 24);
       }
     }
-  });
+  }));
 
-  listen<CompletionError>("ai-completion-error", (event) => {
+  track(listen<CompletionError>("ai-completion-error", (event) => {
     if (event.payload.request_id === activeRequestId) {
       dismiss();
       activeRequestId = 0;
     }
-  });
+  }));
+
+  /** Release event subscriptions and any in-flight completion. Idempotent. */
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    dismiss();
+    for (const unlisten of unlisteners) unlisten();
+    unlisteners.length = 0;
+  }
 
   function dismiss() {
     setGhostText("");
@@ -152,7 +170,7 @@ export function createGhostText(deps: GhostTextDeps) {
     const settings = deps.settings();
     const content = deps.content();
     const filePath = deps.filePath();
-    const languageId = inferLanguageId(filePath);
+    const languageId = null;
     const context = content ? buildAiCompletionContext(content.lines, deps.cursorLine(), deps.cursorCol()) : null;
     if (!context || !shouldRequestAiCompletion(settings, filePath, languageId, context.prefix)) return;
 
@@ -179,7 +197,7 @@ export function createGhostText(deps: GhostTextDeps) {
     const col = deps.cursorCol();
     const lines = content.lines;
     const fp = deps.filePath() ?? "";
-    const languageId = inferLanguageId(fp) ?? "";
+    const languageId = "";
     const { prefix, suffix } = buildAiCompletionContext(lines, line, col);
     const settings = deps.settings();
 
@@ -236,7 +254,7 @@ export function createGhostText(deps: GhostTextDeps) {
     const settings = deps.settings();
     const filePath = snapshot?.filePath ?? deps.filePath();
     if (!filePath) return null;
-    const languageId = snapshot?.languageId ?? inferLanguageId(filePath) ?? "";
+    const languageId = snapshot?.languageId ?? "";
     const line = snapshot?.line ?? anchorLine;
     const col = snapshot?.col ?? anchorCol;
     const content = deps.content();
@@ -308,5 +326,6 @@ export function createGhostText(deps: GhostTextDeps) {
     trigger,
     accept,
     getPhantomTexts,
+    dispose,
   };
 }

@@ -33,20 +33,14 @@ export interface BusterActions {
   handleSave(): Promise<void>;
   handleSaveAs(): Promise<void>;
   saveTab(tabId: string, options?: { silent?: boolean; requirePath?: boolean }): Promise<void>;
-  handleSync(): Promise<void>;
   loadFileContent(path: string): Promise<{ content: string; fileName: string; filePath: string }>;
 
   // Tab management
   switchToTab(tabId: string): void;
   handleTabClose(tabId: string): void;
   createTerminalTab(): string;
-  createGitTab(): void;
   createSettingsTab(): void;
   createKeybindingsTab(): void;
-  createExtensionsTab(): void;
-  createProblemsTab(): void;
-  createBrowserTab(): void;
-  createConsoleTab(): void;
   createAiTab(): void;
   handleTermIdReady(tabId: string, ptyId: string): void;
   handleTermTitleChange(tabId: string, title: string): void;
@@ -55,7 +49,6 @@ export interface BusterActions {
   openWorkspace(path: string): void;
   changeDirectory(): Promise<void>;
   closeDirectory(): void;
-  refreshGitBranch(root: string): Promise<void>;
 
   // Dialog results
   handleDirtyCloseResult(result: DirtyCloseResult): Promise<void>;
@@ -70,15 +63,9 @@ export interface BusterActions {
   updateSettings(s: AppSettings): void;
   addRecentFile(path: string, name: string): void;
 
-  // LSP
-  restartLsp(): void;
 
-  // Diagnostics
-  jumpToDiagnostic(direction: 1 | -1): Promise<void>;
-  diagnosticCounts(): { errors: number; warnings: number };
 
   // Git
-  fetchDiffHunks(tabId: string, filePath: string): Promise<void>;
 
   // Navigation history
   pushNavHistory(path: string, line: number, col: number): void;
@@ -99,6 +86,7 @@ export interface BusterContextValue {
   actions: BusterActions;
   commands: FeatureCommands;
   appearance: import("./writing-appearance").WritingAppearance;
+  agent: import("./agent-connection").AgentConnection;
   formatting: import("./writing-format").WritingFormatting;
   search: import("./search-portal").SearchPortalService;
   writing: import("./writing-review").WritingReviewService;

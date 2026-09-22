@@ -1,17 +1,15 @@
-import { Component, Show, createSignal, onCleanup } from "solid-js";
+import { Component, Show, onCleanup } from "solid-js";
 import Sidebar from "./ui/Sidebar";
 import CanvasTabBar from "./ui/CanvasTabBar";
 import CanvasStatusBar from "./ui/CanvasStatusBar";
 import FindReplace from "./ui/FindReplace";
 import CommandPalette from "./ui/CommandPalette";
-import CommandLineSwitchboard from "./ui/CommandLineSwitchboard";
 import PanelLayout from "./ui/PanelLayout";
 import SpeechDock from "./ui/SpeechDock";
 import FooterNav from "./ui/FooterNav";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
-import BranchPicker from "./ui/BranchPicker";
 import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHotkeyDefinitions, resolveHotkey, type CommandDeps } from "./lib/app-commands";
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { normalizeHotkey } from "./lib/keybinding-conflicts";
@@ -25,7 +23,6 @@ import { showError } from "./lib/notify";
 const App: Component = () => {
   const { store, setStore, engines, actions } = useBuster();
   let ideRootRef: HTMLDivElement | undefined;
-  const [commandLineVisible, setCommandLineVisible] = createSignal(false);
 
   function activateTab(tabId: string) {
     actions.switchToTab(tabId);
@@ -57,46 +54,6 @@ const App: Component = () => {
   function splitDown() { try { actions.panes.splitPane("down"); } catch (e) { showError(String(e)); } }
   function closeSplit() { actions.panes.closePane(); }
 
-  function toggleCommandLine() {
-    if (commandLineVisible()) closeCommandLine();
-    else setCommandLineVisible(true);
-  }
-
-  function closeCommandLine() {
-    setCommandLineVisible(false);
-    restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
-  }
-
-  function handleCommandLineExtensions() {
-    actions.createExtensionsTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineGit() {
-    actions.createGitTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineBrowser() {
-    actions.createBrowserTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineConsole() {
-    actions.createConsoleTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineSettings() {
-    actions.createSettingsTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineAi() {
-    actions.createAiTab();
-    closeCommandLine();
-  }
-
   // ── Command registry + keyboard handler ─────────────────
 
   const commandDeps: CommandDeps = {
@@ -118,11 +75,8 @@ const App: Component = () => {
     createTerminalTab: actions.createTerminalTab,
     createSettingsTab: actions.createSettingsTab,
     createKeybindingsTab: actions.createKeybindingsTab,
-    createGitTab: actions.createGitTab,
-    createBrowserTab: actions.createBrowserTab,
     setSidebarVisible: (v: boolean | ((prev: boolean) => boolean)) =>
       updateSidebarVisible(v),
-    jumpToDiagnostic: actions.jumpToDiagnostic,
     findVisible: () => store.findVisible,
     paletteVisible: () => store.paletteVisible,
     settings: () => store.settings,
@@ -155,24 +109,6 @@ const App: Component = () => {
   // TanStack Hotkeys — user overrides from settings.keybindings
   createHotkeys(
     () => buildHotkeyDefinitions(commandDeps, store.settings.keybindings),
-    () => ({
-      target: ideRootRef ?? document,
-    }),
-  );
-
-  createHotkeys(
-    () => [
-      {
-        hotkey: { key: "`", ctrl: true },
-        callback: () => toggleCommandLine(),
-        options: { ignoreInputs: false },
-      },
-      {
-        hotkey: "Escape",
-        callback: () => closeCommandLine(),
-        options: { enabled: commandLineVisible(), ignoreInputs: false },
-      },
-    ],
     () => ({
       target: ideRootRef ?? document,
     }),
@@ -250,13 +186,6 @@ const App: Component = () => {
     switchToTab: actions.switchToTab,
     searchMatches: () => store.searchMatches,
     currentSearchIdx: () => store.currentSearchIdx,
-    diagnosticsMap: () => {
-      // Convert Record to Map for PanelRenderer compatibility
-      const m = new Map<string, any[]>();
-      for (const [k, v] of Object.entries(store.diagnosticsMap)) m.set(k, v);
-      return m;
-    },
-    diffHunksMap: () => store.diffHunksMap,
     handleFileSelect: actions.handleFileSelect,
     handleTermIdReady: actions.handleTermIdReady,
     handleTermTitleChange: actions.handleTermTitleChange,
@@ -401,32 +330,12 @@ const App: Component = () => {
               col={store.cursorCol}
               totalLines={actions.activeEngine()?.lineCount() ?? 0}
               fileName={actions.activeTab()?.name ?? null}
-              gitBranch={store.gitBranchName}
-              onBranchClick={() => { if (store.workspaceRoot) setStore("branchPickerVisible", true); }}
-              onSync={store.workspaceRoot ? actions.handleSync : undefined}
-              syncing={store.syncing}
-              lspState={store.lspState}
-              lspLanguages={store.lspLanguages}
-              errorCount={actions.diagnosticCounts().errors}
-              warningCount={actions.diagnosticCounts().warnings}
-              onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
-              onLspClick={actions.restartLsp}
               fileLoading={store.fileLoading}
               lineEnding={actions.activeEngine()?.lineEnding() ?? null}
             />
         </div>
       </div>
       <FooterNav />
-      <CommandLineSwitchboard
-        visible={commandLineVisible()}
-        onClose={closeCommandLine}
-        onOpenExtensions={handleCommandLineExtensions}
-        onOpenGit={handleCommandLineGit}
-        onOpenBrowser={handleCommandLineBrowser}
-        onOpenConsole={handleCommandLineConsole}
-        onOpenSettings={handleCommandLineSettings}
-        onOpenAi={handleCommandLineAi}
-      />
       <CommandPalette
         visible={store.paletteVisible}
         workspaceRoot={store.workspaceRoot}
@@ -449,13 +358,6 @@ const App: Component = () => {
         fileName={store.extChangeFileName}
         onResult={actions.handleExternalChangeResult}
       />
-      <Show when={store.branchPickerVisible && store.workspaceRoot}>
-        <BranchPicker
-          workspaceRoot={store.workspaceRoot!}
-          onClose={() => setStore("branchPickerVisible", false)}
-          onBranchChanged={() => actions.refreshGitBranch(store.workspaceRoot!)}
-        />
-      </Show>
     </div>
   );
 };

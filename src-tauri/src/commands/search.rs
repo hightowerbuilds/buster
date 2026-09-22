@@ -44,7 +44,7 @@ pub fn workspace_search(workspace_root: String, query: String) -> Result<Vec<Sea
             Err(_) => continue,
         };
 
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 
@@ -105,7 +105,7 @@ pub fn list_workspace_files(root: String) -> Result<Vec<WorkspaceFile>, String> 
     let root_path = Path::new(&root);
     for entry in walker {
         let entry = entry.map_err(|e| e.to_string())?;
-        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
             let path = entry.path().to_string_lossy().to_string();
             let relative = entry
                 .path()

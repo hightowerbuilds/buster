@@ -25,7 +25,7 @@ function fixture() {
   const pending = new Map<string, Promise<void>>();
   const tabs = createTabActions(store, setStore, engines, { value: "" }, vi.fn(), pending);
   const save = createSaveActions(store, setStore, engines, () => store.tabs.find(t => t.id === store.activeTabId),
-    vi.fn(), vi.fn(async () => {}), vi.fn(), vi.fn(), pending);
+    vi.fn(), pending);
   return { store, setStore, map, pending, tabs, save };
 }
 beforeEach(() => vi.clearAllMocks());

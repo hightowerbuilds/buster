@@ -9,7 +9,7 @@
 import type { Tab } from "./tab-types";
 import type { Accessor, JSX } from "solid-js";
 import type { AppSettings } from "./ipc";
-import type { SearchMatch, DiffHunk } from "./ipc";
+import type { SearchMatch, } from "./ipc";
 import type { EditorEngine } from "../editor/engine";
 
 /** Shared dependencies available to all panel renderers. */
@@ -29,7 +29,6 @@ export interface PanelDeps {
   cursorCol: () => number;
   setCursorLine: (line: number) => void;
   setCursorCol: (col: number) => void;
-  diagnosticsMap: () => Map<string, { line: number; col: number; endLine: number; endCol: number; severity: number; message: string }[]>;
 }
 
 /** Additional deps needed only by the file editor tab. */
@@ -38,7 +37,6 @@ export interface FileTabDeps {
   setTabs: (fn: (prev: Tab[]) => Tab[]) => void;
   searchMatches: () => SearchMatch[];
   currentSearchIdx: () => number;
-  diffHunksMap: () => Record<string, DiffHunk[]>;
   engineMap: Map<string, EditorEngine>;
   getFileTextForTab: (tabId: string) => string | null;
   scrollPositions: () => Record<string, number>;

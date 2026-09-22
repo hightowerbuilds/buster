@@ -536,6 +536,7 @@ impl TerminalManager {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // PTY spawn options are passed through from the IPC command.
     pub fn spawn(
         &self,
         rows: u16,

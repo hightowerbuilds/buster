@@ -19,7 +19,6 @@ interface MenuHandlerDeps {
   activeEngine: () => EditorEngine | null;
   changeDirectory: () => void;
   closeDirectory: () => void;
-  openExtensions: () => void;
   openSettings: () => void;
   closeActiveTab: () => void;
   createNewFile: () => void;
@@ -37,7 +36,6 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
   handles.push(
     listen("menu-change-directory", () => deps.changeDirectory()) as unknown as Promise<() => void>,
     listen("menu-close-directory", () => deps.closeDirectory()) as unknown as Promise<() => void>,
-    listen("menu-open-extensions", () => deps.openExtensions()) as unknown as Promise<() => void>,
     listen("menu-open-settings", () => deps.openSettings()) as unknown as Promise<() => void>,
     listen("menu-close-tab", () => deps.closeActiveTab()) as unknown as Promise<() => void>,
     listen("menu-new-file", () => deps.createNewFile()) as unknown as Promise<() => void>,

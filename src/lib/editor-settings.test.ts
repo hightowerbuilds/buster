@@ -21,11 +21,8 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     effect_vignette: 0,
     effect_grain: 0,
     keybindings: {},
-    syntax_colors: {},
-    format_on_save: false,
     auto_save: false,
     auto_save_delay_ms: 1500,
-    language_settings: {},
     blog_theme: "normal",
     show_indent_guides: true,
     show_whitespace: false,
@@ -36,7 +33,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     ai_completion_enabled: false,
     ai_provider: "ollama",
     ai_api_key: "",
-    ai_model: "claude-haiku-4-5-20250514",
+    ai_model: "claude-haiku-4-5-20251001",
     ai_local_model: "gemma3:4b",
     ai_ollama_url: "http://localhost:11434",
     ai_stop_on_newline: true,
@@ -52,38 +49,21 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
 }
 
 describe("resolveEditorSettings", () => {
-  it("uses global editor settings when no language override exists", () => {
-    expect(resolveEditorSettings(settings({ tab_size: 2, auto_save: true }), "/tmp/app.ts")).toMatchObject({
-      languageId: "typescript",
+  it("uses the global editor settings", () => {
+    expect(resolveEditorSettings(settings({ tab_size: 2, auto_save: true }))).toMatchObject({
       tab_size: 2,
       auto_save: true,
     });
   });
 
-  it("applies language-specific overrides for matching file paths", () => {
-    expect(resolveEditorSettings(settings({
+  it("falls back to defaults for unset values", () => {
+    expect(resolveEditorSettings(settings({ tab_size: 0, auto_save_delay_ms: 0 }))).toMatchObject({
       tab_size: 4,
-      use_spaces: true,
-      format_on_save: false,
-      language_settings: {
-        rust: {
-          tab_size: 2,
-          use_spaces: false,
-          format_on_save: true,
-        },
-      },
-    }), "/tmp/main.rs")).toMatchObject({
-      languageId: "rust",
-      tab_size: 2,
-      use_spaces: false,
-      format_on_save: true,
+      auto_save_delay_ms: 1500,
     });
   });
 
   it("clamps tiny auto-save delays", () => {
-    expect(resolveEditorSettings(settings({
-      auto_save_delay_ms: 100,
-      language_settings: { javascript: { auto_save_delay_ms: 50 } },
-    }), "/tmp/app.js").auto_save_delay_ms).toBe(250);
+    expect(resolveEditorSettings(settings({ auto_save_delay_ms: 100 })).auto_save_delay_ms).toBe(250);
   });
 });

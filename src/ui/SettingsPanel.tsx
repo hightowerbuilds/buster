@@ -6,10 +6,7 @@ import { findKeybindingConflicts, normalizeHotkey } from "../lib/keybinding-conf
 import { importVSCodeTheme, type ThemeEffects } from "../lib/theme";
 import { showError, showSuccess } from "../lib/notify";
 import { BLOG_THEMES } from "../lib/blog-themes";
-import { LANGUAGE_DEFINITIONS } from "../editor/language-registry";
-import type { EditorLanguageSettings } from "../lib/ipc";
 import { DEFAULT_FONT_FAMILY } from "../editor/text-measure";
-import { EDITABLE_SYNTAX_KEYS } from "../lib/theme";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -45,7 +42,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: "tab_size", type: "number", key: "tab_size", label: "Tab Size", description: "Number of spaces per tab stop", min: 1, max: 8, step: 1 },
   { id: "use_spaces", type: "toggle", key: "use_spaces", label: "Insert Spaces", description: "Indent with spaces instead of tab characters" },
   { id: "word_wrap", type: "toggle", key: "word_wrap", label: "Word Wrap", description: "Wrap long lines to fit the editor width" },
-  { id: "format_on_save", type: "toggle", key: "format_on_save", label: "Format On Save", description: "Run LSP document formatting before saving files" },
   { id: "auto_save", type: "toggle", key: "auto_save", label: "Auto Save", description: "Automatically save dirty files after editing pauses" },
   { id: "auto_save_delay_ms", type: "number", key: "auto_save_delay_ms", label: "Auto Save Delay", description: "Milliseconds to wait after the last edit before saving", min: 500, max: 10000, step: 500 },
   { id: "line_numbers", type: "toggle", key: "line_numbers", label: "Line Numbers", description: "Show line numbers in the gutter" },
@@ -56,10 +52,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { id: "terminal_bell", type: "terminal_bell" },
   { id: "ui_zoom", type: "number", key: "ui_zoom", label: "UI Zoom", description: "Scale the entire interface (Cmd+/Cmd-)", min: 50, max: 200, step: 10 },
 ];
-
-const LANGUAGE_SETTING_OPTIONS = LANGUAGE_DEFINITIONS
-  .filter((language) => ["javascript", "typescript", "rust", "python", "go", "html", "css", "json", "markdown"].includes(language.id))
-  .map((language) => ({ id: language.id, name: language.name }));
 
 const FONT_PRESETS = [
   DEFAULT_FONT_FAMILY,
@@ -137,104 +129,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     props.onChange({ ...props.settings, [key]: value });
   }
 
-  const [selectedLanguage, setSelectedLanguage] = createSignal("typescript");
-
-  function selectedLanguageOverride(): EditorLanguageSettings {
-    return props.settings.language_settings?.[selectedLanguage()] ?? {};
-  }
-
-  function updateLanguageOverride<K extends keyof EditorLanguageSettings>(
-    key: K,
-    value: EditorLanguageSettings[K] | undefined,
-  ) {
-    const languageId = selectedLanguage();
-    const languageSettings = { ...(props.settings.language_settings ?? {}) };
-    const next = { ...(languageSettings[languageId] ?? {}) };
-
-    if (value === undefined || value === null) delete next[key];
-    else next[key] = value;
-
-    if (Object.keys(next).length === 0) delete languageSettings[languageId];
-    else languageSettings[languageId] = next;
-
-    props.onChange({ ...props.settings, language_settings: languageSettings });
-  }
-
-  function activeOverrideCount(languageId: string): number {
-    return Object.keys(props.settings.language_settings?.[languageId] ?? {}).length;
-  }
-
-  function OverrideButton(p: { active: boolean; label: string; onClick: () => void }) {
-    return (
-      <button
-        class={`settings-theme-btn ${p.active ? "settings-theme-btn-active" : ""}`}
-        onClick={p.onClick}
-      >
-        {p.label}
-      </button>
-    );
-  }
-
-  function renderBooleanOverride(
-    key: keyof Pick<EditorLanguageSettings, "use_spaces" | "word_wrap" | "format_on_save" | "auto_save">,
-    label: string,
-    inheritLabel: string,
-    trueLabel: string,
-    falseLabel: string,
-  ) {
-    const current = () => selectedLanguageOverride()[key];
-    return (
-      <div class="language-override-row">
-        <span>{label}</span>
-        <div class="settings-theme-btns">
-          <OverrideButton active={current() === undefined} label={`Inherit ${inheritLabel}`} onClick={() => updateLanguageOverride(key, undefined)} />
-          <OverrideButton active={current() === true} label={trueLabel} onClick={() => updateLanguageOverride(key, true)} />
-          <OverrideButton active={current() === false} label={falseLabel} onClick={() => updateLanguageOverride(key, false)} />
-        </div>
-      </div>
-    );
-  }
-
-  function renderNumberOverride(
-    key: keyof Pick<EditorLanguageSettings, "tab_size" | "auto_save_delay_ms">,
-    label: string,
-    inheritLabel: string,
-    options: number[],
-    suffix = "",
-  ) {
-    const current = () => selectedLanguageOverride()[key];
-    return (
-      <div class="language-override-row">
-        <span>{label}</span>
-        <div class="settings-theme-btns">
-          <OverrideButton active={current() === undefined} label={`Inherit ${inheritLabel}`} onClick={() => updateLanguageOverride(key, undefined)} />
-          <For each={options}>
-            {(value) => (
-              <OverrideButton
-                active={current() === value}
-                label={`${value}${suffix}`}
-                onClick={() => updateLanguageOverride(key, value)}
-              />
-            )}
-          </For>
-        </div>
-      </div>
-    );
-  }
-
   const themeHue = () => props.settings.theme_hue ?? -1;
   const themeMode = () => props.settings.theme_mode || "dark";
-
-  function updateSyntaxColor(key: string, color: string | null) {
-    const syntaxColors = { ...(props.settings.syntax_colors ?? {}) };
-    if (!color) delete syntaxColors[key];
-    else syntaxColors[key] = color;
-    props.onChange({ ...props.settings, syntax_colors: syntaxColors });
-  }
-
-  function colorInputValue(color: string): string {
-    return /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#ffffff";
-  }
 
   // Reusable checkbox renderer
   function Checkbox(p: { checked: boolean; onToggle: () => void }) {
@@ -654,63 +550,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </div>
           )}
         </For>
-
-        <div class="settings-section-divider" />
-        <h2 class="settings-section-title">Syntax Token Colors</h2>
-        <div class="settings-token-colors">
-          <For each={[...EDITABLE_SYNTAX_KEYS]}>
-            {(key) => {
-              const value = () => colorInputValue(props.settings.syntax_colors?.[key] ?? palette().syntax[key] ?? palette().syntaxDefault);
-              const isCustom = () => !!props.settings.syntax_colors?.[key];
-              return (
-                <div class="settings-token-row">
-                  <span>{key}</span>
-                  <input
-                    type="color"
-                    value={value()}
-                    onInput={(e) => updateSyntaxColor(key, e.currentTarget.value)}
-                    aria-label={`${key} color`}
-                  />
-                  <button
-                    class="settings-token-reset"
-                    disabled={!isCustom()}
-                    onClick={() => updateSyntaxColor(key, null)}
-                  >
-                    reset
-                  </button>
-                </div>
-              );
-            }}
-          </For>
-        </div>
-
-        <div class="settings-section-divider" />
-        <h2 class="settings-section-title">Language Overrides</h2>
-        <div class="settings-language-overrides">
-          <div class="settings-language-list">
-            <For each={LANGUAGE_SETTING_OPTIONS}>
-              {(language) => (
-                <button
-                  class={`settings-language-btn ${selectedLanguage() === language.id ? "settings-language-btn-active" : ""}`}
-                  onClick={() => setSelectedLanguage(language.id)}
-                >
-                  <span>{language.name}</span>
-                  <Show when={activeOverrideCount(language.id) > 0}>
-                    <small>{activeOverrideCount(language.id)}</small>
-                  </Show>
-                </button>
-              )}
-            </For>
-          </div>
-          <div class="settings-language-controls">
-            {renderNumberOverride("tab_size", "Tab Size", `${props.settings.tab_size}`, [2, 4, 8])}
-            {renderBooleanOverride("use_spaces", "Indent", props.settings.use_spaces ? "spaces" : "tabs", "Spaces", "Tabs")}
-            {renderBooleanOverride("word_wrap", "Word Wrap", props.settings.word_wrap ? "on" : "off", "On", "Off")}
-            {renderBooleanOverride("format_on_save", "Format On Save", props.settings.format_on_save ? "on" : "off", "On", "Off")}
-            {renderBooleanOverride("auto_save", "Auto Save", props.settings.auto_save ? "on" : "off", "On", "Off")}
-            {renderNumberOverride("auto_save_delay_ms", "Auto Save Delay", `${props.settings.auto_save_delay_ms}ms`, [500, 1500, 3000, 5000], "ms")}
-          </div>
-        </div>
 
         <div class="settings-section-divider" />
         <h2 class="settings-section-title">Keyboard Shortcuts</h2>

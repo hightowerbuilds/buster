@@ -16,6 +16,12 @@ pub struct FileWatcher {
     event_rx: Mutex<Option<mpsc::Receiver<String>>>,
 }
 
+impl Default for FileWatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileWatcher {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();

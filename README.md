@@ -30,6 +30,7 @@ name is used instead; the footer displays the actual location or any setup error
 - [Phase 1 — Writing panes, selection actions, and voice](growth/phases/phase-1.md)
 - [Phase 2 — Word-processing interface and model-controlled appearance](growth/phases/phase-2.md)
 - [Phase 3 — Claude and Codex connections](growth/phases/phase-3.md)
+- [Phase 4 — AI command bar and assistant chat panes](growth/phases/phase-4.md)
 - [First writing workflow](growth/phases/writing-workflow.md)
 - [Phase 0 demo](growth/build-log/phase-0-demo.md)
 - [Build log](growth/build-log/)
@@ -80,9 +81,10 @@ the application bundle is `src-tauri/target/release/bundle/macos/BusterMark.app`
 | `src-tauri/crates/` | Supporting Rust libraries |
 | `packages/buster-path/` | Shared path utilities |
 
-The [internal command system](docs/internal-commands.md) lets human controls and
-in-app AI adapters use the same feature services. Open it with Ctrl+backtick and
-try `help`, `app status`, or `terminal create`. Phase 0 tracks the remaining scope.
+The [internal command system](docs/internal-commands.md) lets the app's controls and
+a connected assistant use the same feature services. **Assistants** in the footer
+connects the Claude Code or Codex command-line tool; once connected, the assistant
+can call those commands through a loopback MCP server.
 
 ## Compatibility
 

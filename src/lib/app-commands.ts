@@ -8,10 +8,8 @@
 
 import { registry, type Command } from "./command-registry";
 import { announce } from "./a11y";
-import { showError, showSuccess } from "./notify";
 import type { Accessor, Setter } from "solid-js";
 import type { EditorEngine } from "../editor/engine";
-import { formatJsonEngine } from "../editor/json-format";
 import type { CreateHotkeyDefinition } from "@tanstack/solid-hotkeys";
 import type { RegisterableHotkey } from "@tanstack/hotkeys";
 
@@ -75,10 +73,7 @@ export interface CommandDeps {
   createTerminalTab: () => void;
   createSettingsTab: () => void;
   createKeybindingsTab: () => void;
-  createGitTab: () => void;
-  createBrowserTab: () => void;
   setSidebarVisible: Setter<boolean>;
-  jumpToDiagnostic: (direction: 1 | -1) => void;
   findVisible: Accessor<boolean>;
   paletteVisible: Accessor<boolean>;
   settings: Accessor<import("./ipc").AppSettings>;
@@ -194,17 +189,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "editor.workspaceSymbol", label: "Go to Symbol in Workspace...", category: "Editor", keybinding: "Mod+Shift+T", execute: () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); } },
     { id: "editor.foldAll", label: "Fold All", category: "Editor", keybinding: "Mod+Alt+[", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.foldAll() },
     { id: "editor.unfoldAll", label: "Unfold All", category: "Editor", keybinding: "Mod+Alt+]", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.unfoldAll() },
-    { id: "editor.formatJson", label: "Format JSON", category: "Editor", when: () => !!deps.activeEngine(), execute: () => {
-      const engine = deps.activeEngine();
-      if (!engine) return;
-      try {
-        const indent = deps.settings().use_spaces !== false ? " ".repeat(deps.settings().tab_size || 2) : "\t";
-        formatJsonEngine(engine, indent);
-        showSuccess("JSON formatted");
-      } catch {
-        showError("Invalid JSON");
-      }
-    } },
     { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }) },
     { id: "editor.zoomOut", label: "Zoom Out", category: "View", keybinding: "Mod+-", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }) },
     { id: "editor.zoomReset", label: "Reset Zoom", category: "View", keybinding: "Mod+0", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }) },
@@ -214,8 +198,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "view.settings", label: "Settings", category: "View", keybinding: "Mod+,", execute: () => deps.createSettingsTab() },
     { id: "view.keybindings", label: "Keyboard Shortcuts", category: "View", keybinding: "Mod+K Mod+S", execute: () => deps.createKeybindingsTab() },
     { id: "view.toggleSidebar", label: "Toggle Sidebar", category: "View", keybinding: "Mod+B", execute: () => deps.setSidebarVisible(v => !v) },
-    { id: "git.open", label: "Git", category: "Git", keybinding: "Mod+Shift+G", execute: () => deps.createGitTab() },
-    { id: "browser.open", label: "Open Browser", category: "Browser", keybinding: "Mod+Shift+B", execute: () => deps.createBrowserTab() },
     { id: "view.splitRight", label: "Split Right", category: "View", keybinding: "Mod+D", execute: () => deps.splitRight() },
     { id: "view.splitDown", label: "Split Down", category: "View", keybinding: "Mod+Shift+D", execute: () => deps.splitDown() },
     { id: "view.closeSplit", label: "Close Tab / Panel", category: "View", keybinding: "Mod+W", execute: () => deps.closeTabOrSplit() },
@@ -229,8 +211,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     } },
     { id: "editor.navigateBack", label: "Go Back", category: "Editor", keybinding: "Ctrl+-", execute: () => deps.navigateBack() },
     { id: "editor.navigateForward", label: "Go Forward", category: "Editor", keybinding: "Ctrl+Shift+-", execute: () => deps.navigateForward() },
-    { id: "editor.nextProblem", label: "Go to Next Problem", category: "Editor", keybinding: "F8", execute: () => deps.jumpToDiagnostic(1) },
-    { id: "editor.prevProblem", label: "Go to Previous Problem", category: "Editor", keybinding: "Shift+F8", execute: () => deps.jumpToDiagnostic(-1) },
     { id: "view.focusNextRegion", label: "Focus Next Region", category: "View", keybinding: "F6", execute: () => cycleRegion(1) },
     { id: "view.focusPrevRegion", label: "Focus Previous Region", category: "View", keybinding: "Shift+F6", execute: () => cycleRegion(-1) },
     { id: "editor.toggleTabTrapping", label: "Toggle Tab Key Moves Focus", category: "Editor", keybinding: "Ctrl+M", execute: () => { const next = !deps.tabTrapping(); deps.setTabTrapping(next); announce(next ? "Tab key inserts tab character" : "Tab key moves focus", "assertive"); } },
@@ -327,10 +307,6 @@ export function buildHotkeyDefinitions(
   add("editor.zoomIn", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }));
   add("editor.zoomOut", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }));
   add("editor.zoomReset", () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }));
-  add("git.open", () => deps.createGitTab());
-  add("browser.open", () => deps.createBrowserTab());
-  add("editor.nextProblem", () => deps.jumpToDiagnostic(1));
-  add("editor.prevProblem", () => deps.jumpToDiagnostic(-1));
   add("view.focusNextRegion", () => cycleRegion(1));
   add("view.focusPrevRegion", () => cycleRegion(-1));
   add("editor.toggleTabTrapping", () => {

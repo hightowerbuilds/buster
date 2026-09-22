@@ -9,11 +9,10 @@ import { DEFAULT_FONT_FAMILY, getCharWidthForFont } from "../editor/text-measure
 import { showToast } from "./CanvasToasts";
 import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "./ContextMenu";
-import { TerminalGLContext } from "./terminal-webgl";
 import { mapSpecialKey, mapCtrlKey, mapAltKey, encodeSgrMouse, encodeDefaultMouse } from "./terminal-keys";
 import { searchTerminalRows, scrollToMatch } from "./terminal-search";
 import { decodeBinaryDelta, type TermCell, type TermScreenDelta, type TerminalCursorStyle } from "./terminal-binary";
-import { renderWebGL as doRenderWebGL, renderCanvas2D as doRenderCanvas2D, type TermRenderState, type TermRenderDeps } from "./terminal-render";
+import { renderCanvas2D as doRenderCanvas2D, type TermRenderState, type TermRenderDeps } from "./terminal-render";
 import {
   findTerminalWordBounds,
   getTerminalSelectedText,
@@ -22,7 +21,6 @@ import {
 } from "./terminal-selection";
 import { terminalUrlAt } from "./terminal-links";
 
-const TERMINAL_WEBGL_ENABLED = false;
 
 /** A decoded sixel image received from the Rust backend. */
 interface SixelImageData {
@@ -99,7 +97,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
   let suppressNextClick = false;
 
   // WebGL renderer (null = Canvas 2D fallback)
-  let gpuCtx: TerminalGLContext | null = null;
   let sixelOverlay: HTMLCanvasElement | null = null;
 
   const termA11y = createTerminalA11y();
@@ -231,12 +228,7 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       setSixelOverlay: (el) => { sixelOverlay = el; },
     };
 
-    if (gpuCtx?.isActive()) {
-      doRenderWebGL(w, h, gpuCtx, rd);
-      // Sync mutable state back
-      bellFlashUntil = rs.bellFlashUntil;
-      if (rs.bellFlashUntil > 0) { needsRedraw = true; }
-    } else if (canvasRef) {
+    if (canvasRef) {
       doRenderCanvas2D(w, h, canvasRef, rd);
       bellFlashUntil = rs.bellFlashUntil;
       if (rs.bellFlashUntil > 0) { needsRedraw = true; }
@@ -665,13 +657,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
       scheduleTermRender();
     }, 530);
 
-    // Try to create WebGL renderer — falls back to Canvas 2D silently
-    gpuCtx = TERMINAL_WEBGL_ENABLED ? TerminalGLContext.tryCreate(fontSize(), terminalFontFamily()) : null;
-    if (gpuCtx) {
-      // Insert WebGL canvas before the 2D canvas and hide the 2D fallback
-      containerRef.insertBefore(gpuCtx.canvas, canvasRef);
-      canvasRef.style.display = "none";
-    }
 
     // Listen for binary screen deltas from Rust
     unlisten = (await listen<{ term_id: string; data: string }>(
@@ -797,7 +782,6 @@ const CanvasTerminal: Component<CanvasTerminalProps> = (props) => {
         bellAudioContext.close().catch(() => {});
         bellAudioContext = null;
       }
-      if (gpuCtx) { gpuCtx.dispose(); gpuCtx = null; }
       if (sixelOverlay) { sixelOverlay.remove(); sixelOverlay = null; }
       sixelImages = [];
       sixelBitmapCache.clear();

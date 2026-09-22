@@ -1,31 +1,21 @@
 import { Component, onMount, onCleanup, createSignal, createEffect, createMemo, batch, untrack } from "solid-js";
-import type { SearchMatch, DiffHunk, GitBlameLine } from "../lib/ipc";
-import { gitBlame } from "../lib/ipc";
+import type { SearchMatch } from "../lib/ipc";
 import { createEditorEngine, getCharWidth, type EditorEngine } from "./engine";
 import { FONT_FAMILY, colToPixel } from "./text-measure";
 import { PADDING_LEFT, type DisplayRow } from "./engine-text-ops";
 import { captureWritingScroll, restoreWritingScroll, clampWritingScroll, isMarkdownPath } from "./writing-viewport";
 import { writingPalette, writingPulse, writingTypography } from "./writing-effects";
-import { requestHighlights, spansToLineTokens, setSyntaxPalette, syntaxOpen, syntaxClose, type LineToken } from "./ts-highlighter";
 import { renderEditor } from "./canvas-renderer";
 import { WebGLTextContext } from "./webgl-text";
-import { createAutocomplete } from "./editor-autocomplete";
-import { createHover } from "./editor-hover";
-import { createSignatureHelp } from "./editor-signature";
-import { createCodeActions } from "./editor-code-actions";
 import { createGhostText } from "./editor-ghost-text";
-import { createInlayHints } from "./editor-inlay-hints";
 import { createEditorA11y } from "./editor-a11y";
 import { handleEditorKeyDown, type KeyboardDeps } from "./editor-keyboard";
-import { createRenameHandler } from "./editor-rename";
 import { handleEditorMouseDown, handleEditorMouseMove, handleEditorMouseUp, type MouseDeps } from "./editor-mouse";
 import { handleEditorInput, type InputDeps } from "./editor-input";
 import CanvasSurface from "../ui/CanvasSurface";
 import { clipboardWrite, clipboardRead } from "../lib/clipboard";
 import { basename } from "buster-path";
-import { lspDidChange, lspDidChangeIncremental } from "../lib/ipc";
 import { useBuster } from "../lib/buster-context";
-import { showError } from "../lib/notify";
 import ContextMenu, { type ContextMenuState } from "../ui/ContextMenu";
 import { resolveEditorSettings } from "../lib/editor-settings";
 import SelectionActions from "./SelectionActions";
@@ -54,8 +44,6 @@ interface CanvasEditorProps {
   lineNumbers?: boolean;
   autocomplete?: boolean;
   onGoToFile?: (path: string, line: number, col: number) => void;
-  diagnostics?: { line: number; col: number; endLine: number; endCol: number; severity: number; message: string }[];
-  diffHunks?: DiffHunk[];
   minimap?: boolean;
 }
 
@@ -73,9 +61,8 @@ const activeScrollTarget: { apply: ((deltaY: number) => void) | null } = { apply
 // ─── Component ──────────────────────────────────────────────────────
 
 const CanvasEditor: Component<CanvasEditorProps> = (props) => {
-  const { store, actions, appearance } = useBuster();
+  const { store, appearance } = useBuster();
   const palette = () => store.palette;
-  const workspaceRoot = () => store.workspaceRoot;
   const tabTrapping = () => store.tabTrapping;
   const languagePath = () => props.languagePath?.() ?? props.filePath ?? null;
   const writingStyle = createMemo(() => isMarkdownPath(languagePath())
@@ -83,7 +70,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   const [reducedMotion, setReducedMotion] = createSignal(false);
   const motionEnabled = () => !reducedMotion() && writingStyle()?.motion !== false;
   let pulseStarted: number | null = null;
-  const editorSettings = () => resolveEditorSettings(store.settings, languagePath());
+  const editorSettings = () => resolveEditorSettings(store.settings);
   let canvasRef: HTMLCanvasElement | undefined;
   let hiddenInput: HTMLTextAreaElement | undefined;
   let containerRef: HTMLDivElement | undefined;
@@ -120,28 +107,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     props.onDirtyChange?.(engine.dirty());
   });
 
-  // ── Debounced LSP didChange ─────────────────────────────────────
-  let didChangeTimer: ReturnType<typeof setTimeout> | undefined;
-  createEffect(() => {
-    const seq = engine.editSeq();
-    const fp = props.filePath;
-    if (!fp || seq === 0) return;
-    clearTimeout(didChangeTimer);
-    didChangeTimer = setTimeout(() => {
-      const deltas = engine.takeEditDeltas();
-      if (deltas === null || deltas.length === 0) {
-        // Full-document sync (complex op, undo/redo, or no deltas)
-        lspDidChange(fp, engine.getText(), seq).catch(() => {});
-      } else {
-        // Incremental sync with fallback
-        lspDidChangeIncremental(fp, deltas, seq).catch(() => {
-          lspDidChange(fp, engine.getText(), seq).catch(() => {});
-        });
-      }
-    }, 300);
-  });
-  onCleanup(() => clearTimeout(didChangeTimer));
-
   // ── View state (not part of engine) ─────────────────────────────
 
   const [scrollTop, setScrollTop] = createSignal(props.initialScrollTop ?? 0);
@@ -150,69 +115,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   const [canvasHeight, setCanvasHeight] = createSignal(600);
   const [isDragging, setIsDragging] = createSignal(false);
   const [isFocused, setIsFocused] = createSignal(false);
-  const [blameVisible, setBlameVisible] = createSignal(false);
-  const [blameData, setBlameData] = createSignal<GitBlameLine[] | null>(null);
-  const [errorPeekLine, setErrorPeekLine] = createSignal<number | null>(null);
-
-  function toggleErrorPeek() {
-    const cur = errorPeekLine();
-    const line = engine.cursor().line;
-    if (cur === line) {
-      setErrorPeekLine(null); // toggle off
-    } else {
-      // Check if there are diagnostics on this line
-      const diags = props.diagnostics ?? [];
-      if (diags.some(d => d.line === line)) {
-        setErrorPeekLine(line);
-      }
-    }
-  }
-
-  function toggleBlame() {
-    const next = !blameVisible();
-    setBlameVisible(next);
-    if (next) {
-      fetchBlame();
-    } else {
-      setBlameData(null);
-    }
-  }
-
-  function fetchBlame() {
-    const root = workspaceRoot();
-    const fp = props.filePath;
-    if (!root || !fp) return;
-    gitBlame(root, fp).then(data => {
-      if (blameVisible()) setBlameData(data);
-    }).catch(() => setBlameData(null));
-  }
-
-  // ── Syntax highlights ───────────────────────────────────────────
-
-  let cachedLineTokens: LineToken[][] = [];
-  let highlightDirty = true;
-  let highlightPending = false;
-
-  function refreshHighlights() {
-    const ls = engine.lines();
-    const fp = engine.filePath() ?? languagePath();
-    if (!fp || highlightPending || !highlightDirty) return;
-
-    // Compute visible viewport for scoped highlighting
-    const lh = lineHeight();
-    const startLine = Math.max(0, Math.floor(scrollTop() / lh) - 5);
-    const endLine = Math.min(ls.length - 1, Math.ceil((scrollTop() + canvasHeight()) / lh) + 5);
-
-    highlightPending = true;
-    highlightDirty = false;
-    const source = ls.join("\n");
-    requestHighlights(fp, source, startLine, endLine).then((spans) => {
-      cachedLineTokens = spansToLineTokens(spans, ls);
-      highlightPending = false;
-    }).catch(() => { highlightPending = false; });
-  }
-
-  function clearHighlightCache() { highlightDirty = true; }
 
   // ── Layout helpers ──────────────────────────────────────────────
 
@@ -221,7 +123,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   const lineHeight = () => typography().lineHeight;
   const gutterW = () => {
     const base = (props.lineNumbers !== false) ? 50 : 0;
-    return blameVisible() ? base + 180 : base;
+    return base;
   };
   const wordWrap = () => props.wordWrap !== false;
   const charW = () => {
@@ -244,44 +146,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     else if (cursorY > viewBottom) smoothScrollTo(cursorY - canvasHeight() + lineHeight() * 2);
   }
 
-  // ── Subsystems (LSP-backed, still use IPC for their features) ──
-
-  const ac = createAutocomplete({
-    filePath: () => props.filePath ?? null,
-    autocompleteEnabled: () => props.autocomplete !== false,
-    cursorLine,
-    cursorCol,
-    lines: () => engine.lines(),
-    updateCursor: (line: number, col: number) => engine.setCursor({ line, col }),
-    insertText: (text: string) => engine.insert(text),
-    setSelection: (aL: number, aC: number, hL: number, hC: number) =>
-      engine.setSelection({ line: aL, col: aC }, { line: hL, col: hC }),
-    resetCursorBlink: () => {},
-    clearHighlightCache,
-  });
-
-  const hover = createHover({
-    filePath: () => props.filePath ?? null,
-    cursorLine,
-    cursorCol,
-    updateCursor: (line: number, col: number) => engine.setCursor({ line, col }),
-    ensureCursorVisible,
-    onGoToFile: props.onGoToFile,
-    pushNavHistory: (path, line, col) => actions.pushNavHistory(path, line, col),
-  });
-
-  const sigHelp = createSignatureHelp({
-    filePath: () => props.filePath ?? null,
-    cursorLine,
-    cursorCol,
-  });
-
-  const codeActions = createCodeActions({
-    filePath: () => props.filePath ?? null,
-    cursorLine,
-    cursorCol,
-  });
-
   const ghost = createGhostText({
     filePath: () => props.filePath ?? null,
     cursorLine,
@@ -291,22 +155,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       return { lines: ls, total_lines: ls.length, file_path: engine.filePath(), edit_seq: engine.editSeq() };
     },
     settings: () => store.settings,
-  });
-
-  const inlayHints = createInlayHints({
-    filePath: () => props.filePath ?? null,
-    scrollTop,
-    canvasHeight,
-    fontSize,
-    lineHeight,
-    editSeq: () => engine.editSeq(),
-  });
-
-  // ── Inline rename ──────────────────────────────────────────────
-  const rename = createRenameHandler({
-    filePath: () => props.filePath ?? null,
-    engine,
-    clearHighlightCache,
   });
 
   // ── Accessibility parallel DOM ─────────────────────────────────
@@ -330,7 +178,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // ── Delegated mouse/keyboard/input handlers ─────────────────────
 
   const mouseDeps: MouseDeps = {
-    engine, ac, hover,
+    engine,
     containerRef: () => containerRef,
     filePath: () => props.filePath ?? null,
     lineNumbers: () => props.lineNumbers !== false,
@@ -338,32 +186,27 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     minimap: () => props.minimap ?? false,
     canvasWidth, canvasHeight, scrollTop, fontSize, lineHeight, charW, gutterW,
     isDragging, setIsDragging,
-    diagnostics: () => props.diagnostics ?? [],
-    clearHighlightCache, focusInput, scheduleRender,
+     focusInput, scheduleRender,
     scrollTo: smoothScrollTo,
   };
 
   const keyboardDeps: KeyboardDeps = {
-    engine, ac, hover, sigHelp, codeActions, ghost, a11y,
+    engine, ghost, a11y,
     filePath: () => props.filePath ?? null,
     languagePath,
     wordWrap, charW, canvasWidth, canvasHeight,
     gutterW, lineHeight,
     tabTrapping, indentUnit,
     settings: () => store.settings,
-    clearHighlightCache, ensureCursorVisible, scheduleRender, focusInput,
+     ensureCursorVisible, scheduleRender, focusInput,
     hiddenInput: () => hiddenInput,
     isComposing: () => isComposing,
-    startRename: () => rename.start(),
   };
 
   const inputDeps: InputDeps = {
-    engine, ac, sigHelp, ghost,
-    filePath: () => props.filePath ?? null,
-    languagePath,
+    engine, ghost,
     hiddenInput: () => hiddenInput,
     isComposing: () => isComposing,
-    indentUnit, clearHighlightCache,
   };
 
   function handleMouseDown(e: MouseEvent) { handleEditorMouseDown(e, mouseDeps); }
@@ -372,18 +215,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
 
   function handleKeyDown(e: KeyboardEvent) {
     if (isComposing || e.isComposing || e.keyCode === 229) return;
-    // Toggle blame (Cmd+Shift+B) — handled here since it uses local state
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "B") {
-      e.preventDefault(); toggleBlame(); return;
-    }
-    // Toggle error peek (Cmd+Shift+M) — inline diagnostic detail
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "M") {
-      e.preventDefault(); toggleErrorPeek(); scheduleRender(); return;
-    }
-    // Inline rename intercepts all keys while active
-    if (rename.renameState()?.active && rename.handleKey(e)) {
-      e.preventDefault(); scheduleRender(); return;
-    }
     const before = engine.editSeq();
     handleEditorKeyDown(e, keyboardDeps);
     if (engine.editSeq() !== before) startTypingPulse();
@@ -527,14 +358,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     // Skip rendering when panel is hidden — canvas retains its last frame
     if (!containerRef || containerRef.clientWidth === 0 || containerRef.clientHeight === 0) return;
 
-    refreshHighlights();
-    inlayHints.requestHints();
 
     const style = writingStyle();
     const currentPalette = style ? writingPalette(palette(), style) : palette();
-    // Token caches remain in the shared app theme; writing palettes adapt colors
-    // during drawing, without changing another pane's syntax palette.
-    setSyntaxPalette(palette());
     const pulse = style ? writingPulse(performance.now(), pulseStarted, style.effectDuration, style.typingPulse,
       motionEnabled() && props.active !== false && isFocused()) : 0;
 
@@ -543,9 +369,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     const h = canvasHeight();
     const st = scrollTop();
     const sm = props.searchMatches ?? [];
-    const diag = props.diagnostics ?? [];
-    const dh = props.diffHunks ?? [];
-    const bd = blameData();
 
     if (hiddenInput) {
       // WebKit positions native composition UI from the actual textarea. Keep
@@ -575,23 +398,9 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       selEnd: sel?.head ?? null,
       searchMatches: sm,
       currentSearchIdx: props.currentSearchIdx ?? -1,
-      diagnostics: diag,
-      lineTokens: cachedLineTokens,
-      completionVisible: ac.completionVisible(),
-      completionItems: ac.completions(),
-      completionIdx: ac.completionIdx(),
-      hoverText: hover.hoverText(),
-      hoverPos: hover.hoverPos(),
       hasBuffer: true,
-      signatureHelp: sigHelp.signature(),
-      codeActionLine: codeActions.actionLine(),
-      codeActionMenuVisible: codeActions.menuVisible(),
-      codeActionItems: codeActions.actions(),
-      codeActionIdx: codeActions.menuIdx(),
       palette: currentPalette,
-      phantomTexts: [...ghost.getPhantomTexts(), ...inlayHints.getPhantomTexts()],
-      diffHunks: dh,
-      blameData: bd,
+      phantomTexts: ghost.getPhantomTexts(),
       minimap: props.minimap ?? false,
       bracketMatch: engine.findMatchingBracket(),
       foldedLines: engine.foldedLines(),
@@ -602,8 +411,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       tabSize: editorSettings().tab_size,
       showIndentGuides: store.settings.show_indent_guides ?? true,
       showWhitespace: store.settings.show_whitespace ?? false,
-      renameState: rename.renameState(),
-      errorPeekLine: errorPeekLine(),
     });
     if (pulse > 0) scheduleRender();
     else pulseStarted = null;
@@ -655,16 +462,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     canvasHeight();
     isFocused();
     isDragging();
-    ac.completionVisible();
-    ac.completionIdx();
-    hover.hoverText();
-    codeActions.menuVisible();
-    codeActions.menuIdx();
     ghost.getPhantomTexts();
-    inlayHints.getPhantomTexts();
-    blameData();
-    rename.renameState();
-    errorPeekLine();
     palette();
     writingStyle();
     reducedMotion();
@@ -672,8 +470,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     lineHeight();
     store.settings.font_family;
     props.searchMatches;
-    props.diagnostics;
-    props.diffHunks;
     props.fontSize;
     props.lineNumbers;
     props.wordWrap;
@@ -694,6 +490,14 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       preference.addEventListener("change", readMotion);
       onCleanup(() => preference.removeEventListener("change", readMotion));
     });
+    // The panel cache retains closed editor roots on macOS, so release the
+    // ghost-text subscriptions when the tab goes away as well.
+    createEffect(() => {
+      if (props.tabId && store.tabs.some(tab => tab.id === props.tabId)) return;
+      ghost.dispose();
+    });
+    onCleanup(() => ghost.dispose());
+
     const finishSelectionDrag = () => { if (isDragging()) handleMouseUp(); };
     document.addEventListener("mouseup", finishSelectionDrag);
     onCleanup(() => document.removeEventListener("mouseup", finishSelectionDrag));
@@ -701,11 +505,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef) resizeObserver.observe(containerRef);
 
-    // Open document for incremental syntax highlighting
-    const fp = props.filePath;
-    if (fp) {
-      syntaxOpen(fp, engine.lines().join("\n"));
-    }
 
     // Initialize per-instance GPU text renderer (falls back to Canvas 2D
     // if WebGL unavailable). Each CanvasEditor owns its own context — this
@@ -727,8 +526,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       resizeObserver.disconnect();
       a11y.cleanup();
       if (activeScrollTarget.apply === applyScroll) activeScrollTarget.apply = null;
-      // Close document syntax tree
-      if (fp) syntaxClose(fp);
       // Clean up GPU text renderer — loseContext() first to release the
       // macOS GPU layer cleanly, preventing CFRelease(NULL) crash.
       if (gpuCtx) {
@@ -746,7 +543,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   function handleEditorContextMenu(e: MouseEvent) {
     e.preventDefault();
     const hasSel = !!engine.getOrderedSelection();
-    const hasLsp = !!props.filePath;
     setEditorCtxMenu({
       x: e.clientX,
       y: e.clientY,
@@ -760,51 +556,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
           if (sel) clipboardWrite(engine.getTextRange(sel.from, sel.to));
         }, disabled: !hasSel },
         { label: "Paste", action: () => { clipboardRead().then(t => { if (t) engine.insert(t); }); } },
-        { separator: true },
-        { label: "Go to Definition", action: () => { hover.goToDefinition(); }, disabled: !hasLsp },
-        { label: "Go to Type Definition", action: () => { hover.goToTypeDefinition(); }, disabled: !hasLsp },
-        { label: "Find References", action: () => {
-          if (!props.filePath) return;
-          const c = engine.cursor();
-          import("../lib/ipc").then(({ lspReferences }) => {
-            lspReferences(props.filePath!, c.line, c.col).then(locations => {
-              if (locations.length > 0) {
-                const text = locations.map(l => {
-                  const name = basename(l.file_path) || l.file_path;
-                  return `${name}:${l.line + 1}:${l.col + 1}`;
-                }).join("\n");
-                hover.showImmediate(`${locations.length} references:\n${text}`, c.line, c.col);
-              }
-            }).catch(() => showError("Find references failed"));
-          });
-        }, disabled: !hasLsp },
-        { label: "Rename Symbol", action: () => {
-          if (!props.filePath) return;
-          const c = engine.cursor();
-          const line = engine.getLine(c.line);
-          const wordStart = line.slice(0, c.col).search(/\w+$/) ?? c.col;
-          const wordEnd = c.col + (line.slice(c.col).match(/^\w+/)?.[0]?.length ?? 0);
-          const word = line.slice(wordStart, wordEnd);
-          const newName = prompt("Rename symbol:", word);
-          if (newName && newName !== word) {
-            import("../lib/ipc").then(({ lspRename }) => {
-              lspRename(props.filePath!, c.line, c.col, newName).then(edits => {
-                if (edits.length > 0) {
-                  const fileEdits = edits
-                    .filter(e => e.file_path === props.filePath)
-                    .sort((a, b) => b.start_line !== a.start_line ? b.start_line - a.start_line : b.start_col - a.start_col);
-                  engine.beginUndoGroup();
-                  for (const edit of fileEdits) {
-                    engine.deleteRange({ line: edit.start_line, col: edit.start_col }, { line: edit.end_line, col: edit.end_col });
-                    engine.setCursor({ line: edit.start_line, col: edit.start_col });
-                    engine.insert(edit.new_text);
-                  }
-                  engine.endUndoGroup();
-                }
-              }).catch(() => showError("Rename failed"));
-            });
-          }
-        }, disabled: !hasLsp },
         { separator: true },
         { label: "Select All", action: () => engine.selectAll() },
       ],
@@ -849,7 +600,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
             e.clipboardData?.setData("text/plain", text);
             clipboardWrite(text);
             engine.deleteRange(sel.from, sel.to);
-            clearHighlightCache();
           }
         },
         onPaste: (e: ClipboardEvent) => {
@@ -879,7 +629,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
             } else {
               engine.insert(text);
             }
-            clearHighlightCache();
           }
         },
         onFocus: () => setIsFocused(true),

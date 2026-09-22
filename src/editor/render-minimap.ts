@@ -70,7 +70,6 @@ export function drawMinimap(
   ctx.fillRect(mapX, vpY, mapW, vpH);
 
   // Draw minimap lines
-  const lineTokens = params.lineTokens;
   const miniCharW = mapW / 80;
 
   for (let r = 0; r < totalRows; r++) {
@@ -80,24 +79,10 @@ export function drawMinimap(
     const text = dr.text;
     if (text.length === 0) continue;
 
-    const tokens = lineTokens[dr.bufferLine];
-    if (tokens && tokens.length > 0) {
-      for (const token of tokens) {
-        const startCol = Math.max(0, (token as any).startCol - dr.startCol);
-        const endCol = Math.min(text.length, (token as any).endCol - dr.startCol);
-        if (endCol <= startCol) continue;
-        const tx = mapX + startCol * miniCharW;
-        const tw = (endCol - startCol) * miniCharW;
-        ctx.fillStyle = (p as any).syntax[(token as any).type] || p.text;
-        ctx.globalAlpha = 0.7;
-        ctx.fillRect(tx, y, Math.max(1, tw), Math.max(1, rowH));
-      }
-    } else {
-      const tw = Math.min(text.length, 80) * miniCharW;
-      ctx.fillStyle = p.textMuted;
-      ctx.globalAlpha = 0.4;
-      ctx.fillRect(mapX, y, Math.max(1, tw), Math.max(1, rowH));
-    }
+    const tw = Math.min(text.length, 80) * miniCharW;
+    ctx.fillStyle = p.textMuted;
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(mapX, y, Math.max(1, tw), Math.max(1, rowH));
     ctx.globalAlpha = 1;
   }
 
@@ -116,16 +101,6 @@ export function drawMinimap(
   ctx.globalAlpha = 0.5;
   ctx.fillRect(scrollBarX + 1, thumbY, SCROLLBAR_W - 2, thumbH);
   ctx.globalAlpha = 1;
-
-  // Diagnostic markers on scrollbar
-  if (params.diagnostics.length > 0) {
-    for (const d of params.diagnostics) {
-      const diagRow = d.line / Math.max(1, params.lines.length);
-      const markerY = diagRow * h;
-      ctx.fillStyle = d.severity === 1 ? "#f38ba8" : d.severity === 2 ? "#fab387" : "#89b4fa";
-      ctx.fillRect(scrollBarX, markerY, SCROLLBAR_W, 2);
-    }
-  }
 
   // Search match markers on scrollbar
   if (params.searchMatches.length > 0) {

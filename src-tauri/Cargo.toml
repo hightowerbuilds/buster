@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/sandbox", "crates/lsp-manager", "crates/syntax", "crates/terminal-pro"]
+members = [".", "crates/terminal-pro"]
 
 [package]
 name = "bustermark"
@@ -21,44 +21,18 @@ tauri = { version = "2", features = ["unstable", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
 
 # Terminal
 portable-pty = "0.9"
 vt100 = "0.15"
 
-# Syntax highlighting
-tree-sitter = "0.26"
-tree-sitter-highlight = "0.26"
-tree-sitter-javascript = "0.25"
-tree-sitter-typescript = "0.23"
-tree-sitter-rust = "0.24"
-tree-sitter-python = "0.25"
-tree-sitter-json = "0.24"
-tree-sitter-css = "0.25"
-tree-sitter-html = "0.23"
-tree-sitter-go = "0.23"
-tree-sitter-c = "0.23"
-tree-sitter-cpp = "0.23"
-tree-sitter-bash = "0.23"
-tree-sitter-yaml = "0.7"
-tree-sitter-toml-ng = "0.7"
 # tree-sitter-markdown omitted — v0.7 doesn't bundle highlight queries
-tree-sitter-ruby = "0.23"
-tree-sitter-java = "0.23"
-tree-sitter-lua = "0.5"
-tree-sitter-regex = "0.24"
 # tree-sitter-sql omitted — v0.0.2 doesn't bundle highlight queries
-tree-sitter-xml = "0.7"
-tree-sitter-scss = "1.0"
-tree-sitter-php = "0.23"
-
-# Runtime grammar loading
-libloading = "0.8"
 
 # File explorer
 ignore = "0.4"
@@ -66,21 +40,14 @@ ignore = "0.4"
 # File watcher
 notify = "6"
 
-# LSP
-lsp-types = "0.97"
-
 # AI Agent
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 
 # Extension system
-wasmtime = "29"
-wasmtime-wasi = "29"
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-toml = "0.8"
 dirs = "6"
 
-# Browser webview
+# Provider URL validation
 url = "2"
 
 # Large file support
@@ -90,7 +57,6 @@ memmap2 = "0.9"
 base64 = "0.22"
 
 # Shell word parsing (security: replaces custom parser)
-shlex = "1"
 
 # Process group kill on terminal close (Unix only)
 [target.'cfg(unix)'.dependencies]
@@ -100,9 +66,6 @@ libc = "0.2"
 security-framework = "3.7.0"
 
 # Buster supporting libraries
-buster-sandbox = { path = "crates/sandbox" }
-buster-lsp-manager = { path = "crates/lsp-manager" }
-buster-syntax = { path = "crates/syntax" }
 buster-terminal-pro = { path = "crates/terminal-pro" }
 
 [dev-dependencies]

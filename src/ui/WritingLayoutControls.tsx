@@ -66,7 +66,6 @@ export default function WritingLayoutControls() {
   const effects = [["cursorGlow", "Cursor glow", -1, 100], ["vignette", "Vignette", -1, 100], ["grain", "Grain", -1, 100], ["focusDim", "Surrounding line dimming", 0, 0.45], ["typingPulse", "Typing pulse", 0, 1], ["effectDuration", "Pulse duration (ms)", 100, 1000]] as const;
   return <>
     <button onClick={() => { setPaneId(store.paneWorkspace.activePaneId); setWorkspaceId(appearance.workspaceId() ?? ""); setScope("pane"); setOwnedPreview(""); load(); setOpen(true); trap.activate(); }}>Writing appearance</button>
-    <button title="Stop writing effects across all panes" onClick={() => run(() => appearance.stopEffects(appearance.state.revision))}>Stop effects</button>
     <Show when={open()}><Portal>
       <div class="writing-layout-overlay" onClick={close}>
         <div ref={dialog} class="writing-layout-dialog" role="dialog" aria-modal="true" aria-labelledby="writing-layout-title" onClick={e => e.stopPropagation()}>
@@ -103,7 +102,7 @@ export default function WritingLayoutControls() {
             <p class="writing-layout-hint">Saves the current applied or previewed appearance. Apply or preview your form changes first. An existing custom name is replaced.</p>
             <button disabled={!presetName().trim()} onClick={() => run(() => appearance.savePreset({ ...target(), name: presetName() }))}>Save appearance</button>
           </details>
-          <div class="writing-layout-buttons"><button onClick={() => run(() => appearance.reset(target()))}>{scope() === "app" ? "Reset app defaults" : "Use inherited defaults"}</button><button disabled={!appearance.state.historyLength} onClick={() => run(() => appearance.revert(revision()))}>Revert last change</button></div>
+          <div class="writing-layout-buttons"><button onClick={() => run(() => appearance.reset(target()))}>{scope() === "app" ? "Reset app defaults" : "Use inherited defaults"}</button><button disabled={!appearance.state.historyLength} onClick={() => run(() => appearance.revert(revision()))}>Revert last change</button><button title="Clear effects and motion in every scope" onClick={() => run(() => appearance.stopEffects(appearance.state.revision))}>Stop effects</button></div>
           <p class="writing-layout-hint">Pane overrides workspace, then app defaults. Preview ends when closed. Revert changes appearance across scopes; writing and text undo stay intact.</p>
         </div>
       </div>

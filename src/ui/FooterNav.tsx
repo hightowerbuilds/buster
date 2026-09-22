@@ -13,6 +13,7 @@ export default function FooterNav() {
   return <nav class="footer-nav" aria-label="Workspace navigation">
     <button classList={{ active: activeType() === "terminal" }} onClick={openTerminal}>Terminal</button>
     <button classList={{ active: activeType() === "settings" }} onClick={actions.createSettingsTab}>Settings</button>
+    <button classList={{ active: activeType() === "ai" }} onClick={actions.createAiTab}>Assistants</button>
     <button title="Create a new Markdown note" onClick={() => {
       if (store.notesRoot) setStore("workspaceRoot", store.notesRoot);
       actions.createNewFile();

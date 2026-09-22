@@ -1,6 +1,6 @@
 # Phase 3 — Claude and Codex connections
 
-Status: **PLANNED — requested after Phase 2.**
+Status: **IN PROGRESS — connections and the assistant-to-app tool loop work end to end; chat UI and the acceptance workflows remain.**
 
 Give writers a clear UI for choosing **Claude** or **Codex**, connecting the chosen
 assistant, and using it to operate BusterMark's writing features through the
@@ -18,27 +18,34 @@ connections belong to the BusterMark app being built here.
 
 ## Connection design and implementation
 
-- [ ] Verify the current supported integration/authentication methods for each
-  assistant from its official documentation before choosing adapters. Decide
-  whether the initial connection uses a local CLI/agent runtime, a supported SDK,
-  or provider API credentials; explain the actual option in the UI.
-- [ ] Distinguish an installed runtime, authenticated account, reachable process,
-  selected model, and successful app-tool connection. Do not label a connection
-  ready until a harmless round trip succeeds.
-- [ ] Create provider cards and a setup panel showing connection state, available
-  models where discoverable, and an actionable error/retry path.
-- [ ] Keep provider credentials and sessions separate. Use supported sign-in flows
-  or explicit credentials; do not infer authorization from the host assistant.
-- [ ] Implement start/cancel/reconnect/disconnect and clean up owned processes,
-  subscriptions, and outstanding tool calls.
+- [x] **COMPLETED** — Verified against the installed CLIs. The connection uses each
+  assistant's headless command-line mode: `claude --print --output-format stream-json`
+  and `codex exec --json`. Both own their sign-in, so BusterMark stores no assistant
+  credential. The Assistants panel names the CLI and its account.
+- [x] **COMPLETED** — `agent detect` reports the binary path, version and sign-in
+  separately and makes no model request; a provider is offered only when both are
+  present. The panel's **Test** button runs the harmless round trip.
+- [x] **COMPLETED** — Provider cards in the Assistants panel show state, the CLI path
+  and the sign-in command to run when signed out. Model discovery is not implemented;
+  the CLI's own default model is used unless a request names one.
+- [x] **COMPLETED** — Sign-in happens in `claude auth login` and `codex login`. The app
+  reads status only; it never stores, forwards or infers a credential.
+- [x] **COMPLETED** — `agent send`, `agent cancel`, `agent connect`, `agent disconnect`.
+  Child processes are killed on cancel, timeout and drop; at most two run at once.
 
 ## Assistant-to-app command loop
 
-- [ ] Translate supported command schemas into each assistant's tool format.
-- [ ] Dispatch calls through the existing command service; return structured
-  results and errors to the same assistant conversation.
-- [ ] Preserve stable pane/document targets, revision checks, and request-ID
-  deduplication. A late response must not overwrite newer writing or user choices.
+- [x] **COMPLETED** — The catalog is published as MCP tools by a loopback HTTP server
+  (`src-tauri/src/mcp.rs`) bound to 127.0.0.1 on an OS-assigned port, with a bearer
+  token minted per app session. Catalog names are underscored into tool names.
+- [x] **COMPLETED** — Tool calls are forwarded to the frontend and run through the
+  existing dispatcher as the `ai` caller, so an assistant reaches nothing the
+  writer's own controls cannot. The six `agent *` commands are withheld. Verified
+  live: the assistant called `mcp__bustermark__document_list` and answered from it.
+- [x] **COMPLETED** — Calls inherit the dispatcher's schema validation, revision
+  checks and request-ID deduplication unchanged. `agent send` returns as soon as a
+  run is registered; awaiting the whole reply deadlocked the shared queue against
+  the tool calls that reply needed, and a regression test now covers that.
 - [ ] Show included writing context before sending it and make running actions,
   cancellation, and results visible in the UI.
 - [ ] Retain the existing explicit apply/reject workflow and single-step undo for
@@ -61,3 +68,14 @@ connections belong to the BusterMark app being built here.
 No Claude/Codex agent adapter or connection UI is claimed by this roadmap. The
 existing Ollama/Anthropic/OpenAI text-generation settings remain the current
 writing-review transport until this milestone replaces or extends that workflow.
+
+The remaining work is the conversation surface and the acceptance workflows. Claude
+Code's headless runs cannot answer a permission prompt, so its spawn passes
+`--allowedTools mcp__bustermark`: this server's tools are allowed and nothing else,
+alongside `--restricted`, which removes the shell. The equivalent Codex path is
+configured but has not been exercised live.
+
+The next milestone is [Phase 4 — AI command bar and assistant chat panes](phase-4.md),
+which replaces the AI search entry point with a single input that either runs an
+app command or opens an assistant conversation. It depends on the connection and
+tool loop specified here.

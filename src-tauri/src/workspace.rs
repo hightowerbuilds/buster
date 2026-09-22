@@ -8,6 +8,12 @@ pub struct WorkspaceState {
     notes_root: Mutex<Option<String>>,
 }
 
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkspaceState {
     pub fn new() -> Self {
         WorkspaceState { root: Mutex::new(None), notes_root: Mutex::new(None) }

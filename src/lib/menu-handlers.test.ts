@@ -11,7 +11,7 @@ it("routes native undo/redo to the note engine, while ordinary fields retain nat
   const doc = { activeElement: new Field(true), execCommand };
   vi.stubGlobal("document", doc);
   await setupMenuHandlers({ activeEngine: () => ({ undo, redo } as any), changeDirectory: vi.fn(), closeDirectory: vi.fn(),
-    openExtensions: vi.fn(), openSettings: vi.fn(), closeActiveTab: vi.fn(), createNewFile: vi.fn(), handleSave: vi.fn(), handleSaveAs: vi.fn() });
+    openSettings: vi.fn(), closeActiveTab: vi.fn(), createNewFile: vi.fn(), handleSave: vi.fn(), handleSaveAs: vi.fn() });
   handlers.get("menu-undo")!(); handlers.get("menu-redo")!();
   expect(undo).toHaveBeenCalledOnce(); expect(redo).toHaveBeenCalledOnce(); expect(execCommand).not.toHaveBeenCalled();
   doc.activeElement = new Field(false);

@@ -118,6 +118,12 @@ pub struct FileBufferManager {
     buffers: Mutex<HashMap<String, MappedFile>>,
 }
 
+impl Default for FileBufferManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileBufferManager {
     pub fn new() -> Self {
         Self {
@@ -141,7 +147,7 @@ impl FileBufferManager {
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
 
         // Check if file changed on disk — re-map if stale
-        let needs_remap = buffers.get(path).map_or(false, |m| m.is_stale());
+        let needs_remap = buffers.get(path).is_some_and(|m| m.is_stale());
         if needs_remap {
             let remapped = MappedFile::open(path)?;
             buffers.insert(path.to_string(), remapped);
@@ -156,7 +162,7 @@ impl FileBufferManager {
     /// Get total line count for an open buffer. Re-maps if the file changed on disk.
     pub fn line_count(&self, path: &str) -> Result<usize, String> {
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
-        let needs_remap = buffers.get(path).map_or(false, |m| m.is_stale());
+        let needs_remap = buffers.get(path).is_some_and(|m| m.is_stale());
         if needs_remap {
             let remapped = MappedFile::open(path)?;
             buffers.insert(path.to_string(), remapped);

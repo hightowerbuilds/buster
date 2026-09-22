@@ -1,15 +1,10 @@
+pub mod agent;
 pub mod file;
 pub mod notes;
 pub mod terminal;
-pub mod syntax;
 pub mod search;
 pub mod settings;
-pub mod git;
-pub mod lsp;
-pub mod extensions;
 pub mod session;
-pub mod browser;
-pub mod surface;
 pub mod filebuffer;
 pub mod ai_completion;
 pub mod writing_ai;

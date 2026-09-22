@@ -103,9 +103,9 @@ impl SixelParser {
                         i += adv;
 
                         // HLS to RGB (simplified — treat as RGB percentages)
-                        let r = ((c1 as u32) * 255 / 100).min(255) as u8;
-                        let g = ((c2 as u32) * 255 / 100).min(255) as u8;
-                        let bl = ((c3 as u32) * 255 / 100).min(255) as u8;
+                        let r = (c1 * 255 / 100).min(255) as u8;
+                        let g = (c2 * 255 / 100).min(255) as u8;
+                        let bl = (c3 * 255 / 100).min(255) as u8;
 
                         while self.palette.len() <= color_idx {
                             self.palette.push([0, 0, 0]);

@@ -6,7 +6,6 @@ import { addRecentFolder } from "./ipc";
 export function createWorkspaceActions(
   store: BusterStoreState,
   setStore: SetStoreFunction<BusterStoreState>,
-  refreshGitBranch: (root: string) => Promise<void>,
   updateSettings: (s: AppSettings) => void,
 ) {
   function rememberWorkspace(path: string) {
@@ -20,7 +19,6 @@ export function createWorkspaceActions(
     setStore("sidebarWidth", (width) => Math.max(width, 275));
     setStore("workspaceRoot", path);
     rememberWorkspace(path);
-    refreshGitBranch(path);
   }
 
   async function changeDirectory() {
@@ -32,7 +30,6 @@ export function createWorkspaceActions(
   function closeDirectory() {
     // Return to the app's Notes home without discarding open writing buffers.
     setStore("workspaceRoot", store.notesRoot);
-    setStore("gitBranchName", null);
   }
 
   return { openWorkspace, changeDirectory, closeDirectory };

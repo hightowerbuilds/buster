@@ -1,21 +1,13 @@
 mod commands;
+mod mcp;
 mod terminal;
-mod syntax;
-mod lsp;
-mod extensions;
 pub mod workspace;
 pub mod watcher;
-mod browser;
-mod browser_module;
 pub mod filebuffer;
 
 use terminal::TerminalManager;
-use syntax::SyntaxService;
-use lsp::LspManager;
-use browser::BrowserManager;
 use tauri::menu::{Menu, Submenu, MenuItem, PredefinedMenuItem};
 use tauri::{Emitter, Manager};
-use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,31 +15,19 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(commands::agent::AgentState::new())
+        .manage(std::sync::Arc::new(mcp::McpState::new()))
         .manage(workspace::WorkspaceState::new())
         .manage(TerminalManager::new())
-        .manage(SyntaxService::new())
-        .manage(LspManager::new())
-        .manage(extensions::ExtensionManager::new())
-        .manage(Arc::new(extensions::surface::SurfaceManager::new()))
         .manage(watcher::FileWatcher::new())
-        .manage(Arc::new(BrowserManager::new()))
         .manage(filebuffer::FileBufferManager::new())
-        .manage(tokio::sync::Mutex::new(Option::<browser_module::BrowserModule>::None))
         .manage(commands::ai_completion::AiCompletionState::new())
         .manage(commands::writing_ai::WritingAiState::default())
         .setup(|app| {
             // Build the native menu bar
             let change_dir = MenuItem::with_id(app, "change_directory", "Change Directory", true, None::<&str>)?;
             let close_dir = MenuItem::with_id(app, "close_directory", "Close Directory", true, None::<&str>)?;
-            let view_extensions = MenuItem::with_id(
-                app,
-                "view_extensions",
-                "Extensions",
-                true,
-                None::<&str>,
-            )?;
             let view_settings = MenuItem::with_id(
                 app,
                 "view_settings",
@@ -99,7 +79,7 @@ pub fn run() {
                 app,
                 "View",
                 true,
-                &[&view_extensions, &view_settings],
+                &[&view_settings],
             )?;
 
             // macOS reserves the first submenu for the application menu.
@@ -141,9 +121,6 @@ pub fn run() {
                     "select_all" => {
                         let _ = app_handle.emit("menu-select-all", ());
                     }
-                    "view_extensions" => {
-                        let _ = app_handle.emit("menu-open-extensions", ());
-                    }
                     "view_settings" => {
                         let _ = app_handle.emit("menu-open-settings", ());
                     }
@@ -182,22 +159,6 @@ pub fn run() {
                 });
             }
 
-            // Spawn diagnostic forwarding thread (LSP -> frontend)
-            let lsp_mgr = app.state::<LspManager>();
-            if let Some(rx) = lsp_mgr.take_diag_rx() {
-                let diag_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    while let Ok((file_path, diagnostics)) = rx.recv() {
-                        #[derive(serde::Serialize, Clone)]
-                        struct DiagnosticEvent {
-                            file_path: String,
-                            diagnostics: Vec<lsp::client::LspDiagnostic>,
-                        }
-                        let _ = diag_handle.emit("lsp-diagnostics", DiagnosticEvent { file_path, diagnostics });
-                    }
-                });
-            }
-
             // Start file watcher and spawn forwarding thread
             let file_watcher = app.state::<watcher::FileWatcher>();
             file_watcher.start().expect("Failed to start file watcher");
@@ -217,19 +178,6 @@ pub fn run() {
                 });
             }
 
-            // Wire surface event sink
-            {
-                let surface_handle = app.handle().clone();
-                let sm = app.state::<Arc<extensions::surface::SurfaceManager>>();
-                sm.set_event_sink(Arc::new(move |event| {
-                    let _ = surface_handle.emit("surface-event", &event);
-                }));
-                let measure_handle = app.handle().clone();
-                sm.set_measure_sink(Arc::new(move |req| {
-                    let _ = measure_handle.emit("surface-measure-text", &req);
-                }));
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -244,7 +192,6 @@ pub fn run() {
             commands::file::create_directory,
             commands::file::rename_entry,
             commands::file::delete_entry,
-            commands::file::read_binary_file,
             commands::file::watch_file,
             commands::file::unwatch_file,
             // Terminal commands
@@ -254,12 +201,6 @@ pub fn run() {
             commands::terminal::terminal_kill,
             commands::terminal::terminal_resync,
             commands::terminal::set_terminal_theme,
-            // Syntax highlighting
-            commands::syntax::highlight_code,
-            commands::syntax::syntax_open,
-            commands::syntax::syntax_close,
-            commands::syntax::syntax_edit,
-            commands::syntax::syntax_languages,
             // Search
             commands::search::list_workspace_files,
             commands::search::workspace_search,
@@ -267,97 +208,7 @@ pub fn run() {
             commands::settings::load_settings,
             commands::settings::save_settings,
             commands::settings::add_recent_folder,
-            // LSP
-            commands::lsp::lsp_start,
-            commands::lsp::lsp_did_change,
-            commands::lsp::lsp_did_change_incremental,
-            commands::lsp::lsp_did_save,
-            commands::lsp::lsp_format_document,
-            commands::lsp::lsp_did_close,
-            commands::lsp::lsp_completion,
-            commands::lsp::lsp_hover,
-            commands::lsp::lsp_definition,
-            commands::lsp::lsp_type_definition,
-            commands::lsp::lsp_inlay_hints,
-            commands::lsp::lsp_signature_help,
-            commands::lsp::lsp_code_action,
-            commands::lsp::lsp_document_symbol,
-            commands::lsp::lsp_workspace_symbol,
-            commands::lsp::lsp_rename,
-            commands::lsp::lsp_references,
-            commands::lsp::lsp_stop,
-            commands::lsp::lsp_status,
-            // Git
-            commands::git::git_status,
-            commands::git::git_branch,
-            commands::git::git_stage,
-            commands::git::git_unstage,
-            commands::git::git_commit,
-            commands::git::git_diff_file,
-            commands::git::git_diff_staged,
-            commands::git::git_show_file,
-            commands::git::git_log_graph,
-            commands::git::git_is_repo,
-            commands::git::git_push,
-            commands::git::git_pull,
-            commands::git::git_fetch,
-            commands::git::git_ahead_behind,
-            commands::git::git_branch_list,
-            commands::git::git_branch_create,
-            commands::git::git_branch_switch,
-            commands::git::git_branch_delete,
-            commands::git::git_stash_save,
-            commands::git::git_stash_pop,
-            commands::git::git_stash_list,
-            commands::git::git_stash_drop,
-            commands::git::git_commit_amend,
-            commands::git::git_conflict_markers,
-            commands::git::git_resolve_conflict,
-            commands::git::git_remote_list,
-            commands::git::git_remote_add,
-            commands::git::git_remote_remove,
-            commands::git::git_remote_rename,
-            commands::git::git_remote_set_url,
-            commands::git::git_diff_hunks,
-            commands::git::git_blame,
             // Extensions
-            commands::extensions::ext_list,
-            commands::extensions::ext_load,
-            commands::extensions::ext_unload,
-            commands::extensions::ext_restore,
-            commands::extensions::ext_gateway_connect,
-            commands::extensions::ext_gateway_send,
-            commands::extensions::ext_gateway_disconnect,
-            commands::extensions::ext_call,
-            commands::extensions::ext_install,
-            commands::extensions::ext_uninstall,
-            // Surface
-            commands::surface::surface_measure_text_response,
-            commands::surface::surface_get_last_paint,
-            commands::surface::surface_resize_notify,
-            // Browser
-            commands::browser::create_browser_view,
-            commands::browser::navigate_browser_view,
-            commands::browser::resize_browser_view,
-            commands::browser::show_browser_view,
-            commands::browser::hide_browser_view,
-            commands::browser::close_browser_view,
-            commands::browser::hide_all_browser_views,
-            commands::browser::show_all_browser_views,
-            commands::browser::browser_go_back,
-            commands::browser::browser_go_forward,
-            commands::browser::browser_reload,
-            commands::browser::scan_local_ports,
-            commands::browser::browser_module_launch,
-            commands::browser::browser_module_navigate,
-            commands::browser::browser_module_refresh,
-            commands::browser::browser_module_poll,
-            commands::browser::browser_module_on_click,
-            commands::browser::browser_module_on_key,
-            commands::browser::browser_module_on_resize,
-            commands::browser::browser_module_on_visibility,
-            commands::browser::browser_module_on_mouse_move,
-            commands::browser::browser_module_close,
             // Session
             commands::session::save_session,
             commands::session::load_session,
@@ -375,6 +226,14 @@ pub fn run() {
             commands::filebuffer::large_file_line_count,
             commands::filebuffer::large_file_close,
             // AI Completion
+            // Headless assistants
+            commands::agent::agent_detect,
+            commands::agent::agent_send,
+            commands::agent::agent_cancel,
+            commands::agent::mcp_start,
+            commands::agent::mcp_stop,
+            commands::agent::mcp_set_tools,
+            commands::agent::mcp_tool_result,
             commands::writing_ai::writing_ai_generate,
             commands::lookup::lookup_selection_text,
             commands::speech::speech_voices,
@@ -389,11 +248,9 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 commands::speech::shutdown();
-                let lsp = app_handle.state::<LspManager>();
-                lsp.stop_all();
             }
         });
 }

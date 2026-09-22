@@ -3,10 +3,14 @@
 Phase 0 provides a command service inside the application. It operates the same
 state and actions used by the UI. It does not execute shell command strings.
 
-## Human command entry
+## Command entry
 
-Open the command line with **Ctrl+`**, enter an app command, and press Enter.
-Arguments are an optional JSON object after the command name:
+The in-app command line was removed; it exposed raw JSON to writers. The catalog
+is now reached by the app's own controls, by a connected assistant over the local
+MCP server, and by in-process calls. A writer-facing text entry point is specified
+in [Phase 4](../growth/phases/phase-4.md).
+
+Command names take an optional JSON object of arguments:
 
 ```text
 help

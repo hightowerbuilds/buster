@@ -29,22 +29,6 @@ fn default_terminal_scrollback_rows() -> u32 {
     10_000
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct EditorLanguageSettings {
-    #[serde(default)]
-    pub tab_size: Option<u32>,
-    #[serde(default)]
-    pub use_spaces: Option<bool>,
-    #[serde(default)]
-    pub word_wrap: Option<bool>,
-    #[serde(default)]
-    pub format_on_save: Option<bool>,
-    #[serde(default)]
-    pub auto_save: Option<bool>,
-    #[serde(default)]
-    pub auto_save_delay_ms: Option<u32>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub word_wrap: bool,
@@ -89,15 +73,9 @@ pub struct AppSettings {
     #[serde(default)]
     pub keybindings: HashMap<String, String>,
     #[serde(default)]
-    pub syntax_colors: HashMap<String, String>,
-    #[serde(default)]
-    pub format_on_save: bool,
-    #[serde(default)]
     pub auto_save: bool,
     #[serde(default = "default_auto_save_delay_ms")]
     pub auto_save_delay_ms: u32,
-    #[serde(default)]
-    pub language_settings: HashMap<String, EditorLanguageSettings>,
     #[serde(default = "default_blog_theme")]
     pub blog_theme: String,
     #[serde(default = "default_true")]
@@ -148,7 +126,7 @@ fn default_ai_provider() -> String {
     "ollama".to_string()
 }
 fn default_ai_model() -> String {
-    "claude-haiku-4-5-20250514".to_string()
+    "claude-haiku-4-5-20251001".to_string()
 }
 fn default_ollama_model() -> String {
     "gemma3:4b".to_string()
@@ -219,11 +197,8 @@ impl Default for AppSettings {
             agent_max_commands: 5,
             agent_timeout_secs: 300,
             keybindings: HashMap::new(),
-            syntax_colors: HashMap::new(),
-            format_on_save: false,
             auto_save: false,
             auto_save_delay_ms: 1500,
-            language_settings: HashMap::new(),
             blog_theme: "normal".to_string(),
             show_indent_guides: true,
             show_whitespace: false,
@@ -234,7 +209,7 @@ impl Default for AppSettings {
             ai_completion_enabled: false,
             ai_provider: "ollama".to_string(),
             ai_api_key: String::new(),
-            ai_model: "claude-haiku-4-5-20250514".to_string(),
+            ai_model: "claude-haiku-4-5-20251001".to_string(),
             ai_local_model: "gemma3:4b".to_string(),
             ai_ollama_url: "http://localhost:11434".to_string(),
             ai_stop_on_newline: true,
@@ -379,55 +354,6 @@ mod tests {
     }
 
     #[test]
-    fn settings_language_overrides_round_trip() {
-        let mut settings = AppSettings::default();
-        settings.format_on_save = true;
-        settings.auto_save = true;
-        settings.auto_save_delay_ms = 2000;
-        settings.language_settings.insert(
-            "rust".to_string(),
-            super::EditorLanguageSettings {
-                tab_size: Some(2),
-                use_spaces: Some(false),
-                word_wrap: None,
-                format_on_save: Some(false),
-                auto_save: None,
-                auto_save_delay_ms: Some(1000),
-            },
-        );
-
-        let json = serde_json::to_string(&settings).unwrap();
-        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
-        let rust = decoded.language_settings.get("rust").unwrap();
-
-        assert_eq!(decoded.format_on_save, true);
-        assert_eq!(decoded.auto_save, true);
-        assert_eq!(decoded.auto_save_delay_ms, 2000);
-        assert_eq!(rust.tab_size, Some(2));
-        assert_eq!(rust.use_spaces, Some(false));
-        assert_eq!(rust.format_on_save, Some(false));
-        assert_eq!(rust.auto_save_delay_ms, Some(1000));
-    }
-
-    #[test]
-    fn settings_font_and_syntax_colors_round_trip() {
-        let mut settings = AppSettings::default();
-        settings.font_family = "Fira Code, monospace".to_string();
-        settings
-            .syntax_colors
-            .insert("keyword".to_string(), "#ff00aa".to_string());
-
-        let json = serde_json::to_string(&settings).unwrap();
-        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(decoded.font_family, "Fira Code, monospace");
-        assert_eq!(
-            decoded.syntax_colors.get("keyword"),
-            Some(&"#ff00aa".to_string())
-        );
-    }
-
-    #[test]
     fn settings_missing_format_and_auto_save_defaults() {
         let json = r#"{
             "word_wrap": true,
@@ -440,10 +366,8 @@ mod tests {
 
         let decoded: AppSettings = serde_json::from_str(json).unwrap();
 
-        assert_eq!(decoded.format_on_save, false);
         assert_eq!(decoded.auto_save, false);
         assert_eq!(decoded.auto_save_delay_ms, 1500);
-        assert!(decoded.language_settings.is_empty());
     }
 
     #[test]
@@ -534,7 +458,7 @@ mod tests {
 
         assert!(!decoded.ai_completion_enabled);
         assert_eq!(decoded.ai_provider, "ollama");
-        assert_eq!(decoded.ai_model, "claude-haiku-4-5-20250514");
+        assert_eq!(decoded.ai_model, "claude-haiku-4-5-20251001");
         assert_eq!(decoded.ai_local_model, "gemma3:4b");
         assert_eq!(decoded.ai_ollama_url, "http://localhost:11434");
         assert!(decoded.ai_stop_on_newline);

@@ -7,10 +7,9 @@
  */
 
 import { type Component, type JSX, batch, untrack, createEffect, createSignal, Show, onCleanup } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createStore } from "solid-js/store";
 import { BusterContext, type BusterContextValue, type EngineMap } from "./buster-context";
 import type { BusterStoreState } from "./store-types";
-import type { Tab } from "./tab-types";
 import type { EditorEngine } from "../editor/engine";
 import { showInfo, showError } from "./notify";
 import { createBusterActions } from "./buster-actions";
@@ -26,6 +25,8 @@ import { CommandFailure } from "./feature-commands";
 import { createWritingAppearance, registerWritingAppearanceCommands, WRITING_APPEARANCE_KEY } from "./writing-appearance";
 import { createWritingFormatting, registerWritingFormattingCommands } from "./writing-format";
 import { createSearchPortal, registerSearchPortalCommands } from "./search-portal";
+import { createAgentConnection, registerAgentCommands } from "./agent-connection";
+import { createMcpBridge } from "./mcp-bridge";
 
 import { setWorkspaceRootIpc, loadBackupBuffer, watchFile, unwatchFile } from "./ipc";
 import type { AppSettings } from "./ipc";
@@ -35,12 +36,6 @@ import { prepareSessionRestore } from "./session-restore";
 import { isNotesPath, movedFilePath } from "./notes-storage";
 import { initializeNotesWorkspace } from "./ipc";
 import { setupFileWatcher } from "./file-watcher";
-import { setupSurfaceMeasureListener } from "./surface-measure";
-// Surface events use a different shape than the IPC SurfaceEvent type
-interface SurfaceTabEvent {
-  type: string;
-  data: { tab_id: string; label?: string; extension_id?: string; tab_type?: string };
-}
 import { setupMenuHandlers } from "./menu-handlers";
 import { type PanelCount } from "./panel-count";
 import { listen } from "@tauri-apps/api/event";
@@ -68,11 +63,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   effect_vignette: 0,
   effect_grain: 0,
   keybindings: {},
-  syntax_colors: {},
-  format_on_save: false,
   auto_save: false,
   auto_save_delay_ms: 1500,
-  language_settings: {},
   blog_theme: "normal",
   show_indent_guides: true,
   show_whitespace: false,
@@ -83,7 +75,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   ai_completion_enabled: false,
   ai_provider: "ollama",
   ai_api_key: "",
-  ai_model: "claude-haiku-4-5-20250514",
+  ai_model: "claude-haiku-4-5-20251001",
   ai_local_model: "gemma3:4b",
   ai_ollama_url: "http://localhost:11434",
   ai_stop_on_newline: true,
@@ -115,8 +107,6 @@ const INITIAL_STATE: BusterStoreState = {
   findVisible: false,
   paletteVisible: false,
   paletteInitialQuery: "",
-  branchPickerVisible: false,
-  syncing: false,
   fileLoading: false,
 
   panelCount: 1 as PanelCount,
@@ -125,8 +115,6 @@ const INITIAL_STATE: BusterStoreState = {
   sidebarWidth: 220,
   sidebarVisible: true,
 
-  gitBranchName: null,
-  diffHunksMap: {},
 
   dirtyCloseTabId: null,
   dirtyCloseFileName: "",
@@ -135,7 +123,6 @@ const INITIAL_STATE: BusterStoreState = {
 
   searchMatches: [],
   currentSearchIdx: -1,
-  diagnosticsMap: {},
 
   settings: DEFAULT_SETTINGS,
   palette: CATPPUCCIN,
@@ -151,8 +138,6 @@ const INITIAL_STATE: BusterStoreState = {
 
   recentFiles: JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || "[]"),
   tabTrapping: true,
-  lspState: "inactive",
-  lspLanguages: [],
 };
 
 // ── Provider component ───────────────────────────────────────
@@ -302,6 +287,13 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     save: value => localStorage.setItem(WRITING_APPEARANCE_KEY, value),
   });
   registerWritingAppearanceCommands(commands, appearance);
+  const agent = createAgentConnection({ cwd: () => store.notesRoot ?? store.workspaceRoot });
+  registerAgentCommands(commands, agent);
+  onCleanup(agent.dispose);
+  // Publish the catalog so a connected assistant can operate the app.
+  const mcp = createMcpBridge({ commands });
+  void mcp.start().catch(error => console.warn("Assistant tool server unavailable:", error));
+  onCleanup(mcp.dispose);
   onCleanup(speech.dispose);
 
   const autoSaveInterval = setInterval(actions.saveSessionNow, 30_000);
@@ -332,7 +324,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
         dirtySinceByTab.set(tab.id, now);
       }
 
-      const editorSettings = resolveEditorSettings(store.settings, tab.path);
+      const editorSettings = resolveEditorSettings(store.settings);
       const managedNote = isNotesPath(tab.path, store.notesRoot);
       if (!managedNote && !editorSettings.auto_save) continue;
 
@@ -420,50 +412,11 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     },
   }).then(u => menuListeners.push(u));
 
-  // LSP diagnostics listener
-  listen<{ file_path: string; diagnostics: { file_path: string; line: number; col: number; end_line: number; end_col: number; severity: number; message: string }[] }>("lsp-diagnostics", (event) => {
-    const { file_path, diagnostics } = event.payload;
-    if (diagnostics.length === 0) {
-      setStore("diagnosticsMap", produce(dm => { delete dm[file_path]; }));
-    } else {
-      setStore("diagnosticsMap", file_path, diagnostics.map(d => ({
-        line: d.line, col: d.col, endLine: d.end_line, endCol: d.end_col,
-        severity: d.severity, message: d.message,
-      })));
-    }
-  }).then(u => menuListeners.push(u));
-
-  // Surface events from extensions and built-in browser
-  listen<SurfaceTabEvent>("surface-event", (event) => {
-    const ev = event.payload;
-    if (ev.type === "tab_created") {
-      const tabId = ev.data.tab_id;
-      const label = ev.data.label ?? "Extension";
-      const existing = store.tabs.find(t => t.id === tabId);
-      if (!existing) {
-        const tabType = ev.data.tab_type === "browser" ? "browser" : "surface";
-        const newTab: Tab = {
-          id: tabId,
-          name: label,
-          path: JSON.stringify({ extension_id: ev.data.extension_id }),
-          dirty: false,
-          type: tabType,
-        };
-        setStore("tabs", [...store.tabs, newTab]);
-      }
-      actions.switchToTab(tabId);
-    }
-  }).then(u => menuListeners.push(u));
-
-  // Surface text-measurement listener
-  setupSurfaceMeasureListener().then(u => menuListeners.push(u));
-
   // Menu handlers (Cmd+Z, Cmd+C, etc.)
   setupMenuHandlers({
     activeEngine: actions.activeEngine,
     changeDirectory: actions.changeDirectory,
     closeDirectory: actions.closeDirectory,
-    openExtensions: actions.createExtensionsTab,
     openSettings: actions.createSettingsTab,
     closeActiveTab: () => {
       const id = store.activeTabId;
@@ -510,10 +463,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
           const term = tab.id.match(/^term_tab_(\d+)$/);
           if (file) setStore("fileTabCounter", c => Math.max(c, Number(file[1])));
           if (term) setStore("terminalCounter", c => Math.max(c, Number(term[1])));
-          if (tab.type === "file" && tab.path) {
-            watchFile(tab.path).catch(() => {});
-            if (session.workspace_root) actions.attemptLspStart(tab.path, session.workspace_root);
-          }
+          if (tab.type === "file" && tab.path) watchFile(tab.path).catch(() => {});
         }
         setStore("activeTabId", restored.activeTabId);
         if (restored.skipped.length) showInfo(`Skipped ${restored.skipped.length} unavailable or retired session tabs`);
@@ -538,7 +488,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
 
   // ── Build context value ─────────────────────────────────────
 
-  const ctx: BusterContextValue = { store, setStore, engines, actions, commands, writing, speech, appearance, formatting, search };
+  const ctx: BusterContextValue = { store, setStore, engines, actions, commands, writing, speech, appearance, formatting, search, agent };
 
   return (
     <BusterContext.Provider value={ctx}>

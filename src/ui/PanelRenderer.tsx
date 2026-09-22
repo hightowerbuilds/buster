@@ -6,7 +6,7 @@
  * (breadcrumbs, blog mode, editor engine lifecycle).
  */
 
-import { createSignal, createEffect, createMemo, createRoot, Show, type Accessor, type JSX } from "solid-js";
+import { createSignal, createEffect, createRoot, Show, type Accessor, type JSX } from "solid-js";
 import CanvasEditor from "../editor/CanvasEditor";
 import WritingViewport from "./WritingViewport";
 import { isMarkdownPath } from "../editor/writing-viewport";
@@ -15,8 +15,6 @@ import CanvasBreadcrumbs from "./CanvasBreadcrumbs";
 import type { Tab } from "../lib/tab-types";
 import type { PanelDeps, FileTabDeps } from "../lib/panel-registry";
 import { getPanel } from "../lib/panel-registry";
-import { lspDocumentSymbol, type LspDocumentSymbol } from "../lib/ipc";
-import { symbolBreadcrumbChain } from "../editor/symbol-breadcrumbs";
 import { relativeTo } from "buster-path";
 import { resolveEditorSettings } from "../lib/editor-settings";
 
@@ -98,40 +96,12 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
 
     const isMd = () => isMarkdownPath(languagePath());
     const blogActive = () => blogModeSet().has(tab.id);
-    const editorSettings = () => resolveEditorSettings(deps.settings(), languagePath());
+    const editorSettings = () => resolveEditorSettings(deps.settings());
     const previewText = () => {
       const engine = deps.engineMap.get(tab.id);
       engine?.editSeq();
       return engine?.getText() ?? initialText;
     };
-    const [symbols, setSymbols] = createSignal<LspDocumentSymbol[]>([]);
-    let symbolRequestSeq = 0;
-
-    createEffect(() => {
-      const active = isActive();
-      const root = deps.workspaceRoot();
-      const fp = currentTab().path;
-      if (!active || !root || !fp) {
-        setSymbols([]);
-        return;
-      }
-
-      const requestSeq = ++symbolRequestSeq;
-      lspDocumentSymbol(fp, root)
-        .then((next) => {
-          if (requestSeq === symbolRequestSeq) setSymbols(next);
-        })
-        .catch(() => {
-          if (requestSeq === symbolRequestSeq) setSymbols([]);
-        });
-    });
-
-    const symbolSegments = createMemo(() => {
-      if (!isActive()) return [];
-      return symbolBreadcrumbChain(symbols(), deps.cursorLine(), deps.cursorCol())
-        .map((symbol) => symbol.name);
-    });
-
     const toggleBlog = () => {
       setBlogModeSet(prev => {
         const next = new Set(prev);
@@ -152,7 +122,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
     return wrapPanel(tab.id, (
       <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", "flex-direction": "column" }}>
         <Show when={breadcrumbs().length > 1}>
-          <CanvasBreadcrumbs segments={breadcrumbs()} symbolSegments={symbolSegments()} />
+          <CanvasBreadcrumbs segments={breadcrumbs()} />
         </Show>
         <Show when={isMd()}>
           <button
@@ -201,8 +171,6 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             fontSize={deps.settings().font_size}
             lineNumbers={deps.settings().line_numbers}
             autocomplete={deps.settings().autocomplete}
-            diagnostics={deps.diagnosticsMap().get(tab.path) ?? []}
-            diffHunks={deps.diffHunksMap()[tab.id] ?? []}
             minimap={deps.settings().minimap}
             onGoToFile={async (path, line, col) => {
               await deps.handleFileSelect(path);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjacentPane, closeWritingPane, newPaneWorkspace, paneGeometry, resizeActivePane, resizePaneSplit, restorePaneWorkspace, showTabInPane, splitWritingPane } from "./writing-panes";
+import { adjacentPane, closeWritingPane, newPaneWorkspace, paneGeometry, resizeActivePane, resizePaneSplit, restorePaneWorkspace, showTabInPane, splitWritingPane, parsePaneAction } from "./writing-panes";
 
 describe("writing pane layout", () => {
   it("preserves note identity through nested splits and focuses existing views", () => {
@@ -65,5 +65,25 @@ describe("writing pane layout", () => {
     expect(() => restorePaneWorkspace({ ...w, activePaneId: "missing" }, new Set(["a"]), "a")).toThrow("Invalid");
     expect(() => restorePaneWorkspace({ ...w, layout: { kind: "split", id: "x", axis: "row", ratio: 0.5, first: w.layout, second: w.layout } }, new Set(["a"]), "a")).toThrow("Invalid");
     expect(restorePaneWorkspace(null, new Set(["a"]), "a").panes[0].tabId).toBe("a");
+  });
+});
+
+describe("parsePaneAction", () => {
+  it("parses every menu option the toolbar offers", () => {
+    expect(parsePaneAction("zoom")).toEqual({ kind: "zoom" });
+    for (const direction of ["left", "right", "up", "down"] as const) {
+      expect(parsePaneAction(`split:${direction}`)).toEqual({ kind: "split", direction });
+    }
+    expect(parsePaneAction("swap:pane-1")).toEqual({ kind: "swap", paneId: "pane-1" });
+  });
+
+  it("keeps pane ids containing a colon intact", () => {
+    expect(parsePaneAction("swap:a:b")).toEqual({ kind: "swap", paneId: "a:b" });
+  });
+
+  it("returns null for the placeholder and unknown values", () => {
+    for (const value of ["", "Panes…", "split:", "split:sideways", "swap:", "close:x", "zoom:x"]) {
+      expect(parsePaneAction(value)).toBeNull();
+    }
   });
 });

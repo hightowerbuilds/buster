@@ -156,3 +156,30 @@ export function restorePaneWorkspace(value: unknown, tabIds: Set<string>, active
   if (leaves.size !== ids.size || !ids.has(state.activePaneId) || (state.zoomedPaneId !== null && state.zoomedPaneId !== state.activePaneId)) return fail();
   return { version: 1, layout, panes, activePaneId: state.activePaneId, zoomedPaneId: state.zoomedPaneId };
 }
+
+/** A pane-menu selection: either a direction to split, a pane to swap with, or zoom. */
+export type PaneMenuAction =
+  | { kind: "split"; direction: PaneDirection }
+  | { kind: "swap"; paneId: string }
+  | { kind: "zoom" };
+
+const PANE_DIRECTIONS: PaneDirection[] = ["left", "right", "up", "down"];
+
+/**
+ * Parse one pane-menu option value. The menu carries every pane operation, so
+ * unknown or malformed values resolve to null rather than a guessed action.
+ */
+export function parsePaneAction(value: string): PaneMenuAction | null {
+  if (value === "zoom") return { kind: "zoom" };
+  const separator = value.indexOf(":");
+  if (separator < 0) return null;
+  const verb = value.slice(0, separator);
+  const argument = value.slice(separator + 1);
+  if (!argument) return null;
+  if (verb === "split") {
+    const direction = PANE_DIRECTIONS.find(d => d === argument);
+    return direction ? { kind: "split", direction } : null;
+  }
+  if (verb === "swap") return { kind: "swap", paneId: argument };
+  return null;
+}

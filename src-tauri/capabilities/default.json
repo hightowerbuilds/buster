@@ -20,9 +20,6 @@
       "identifier": "fs:scope",
       "allow": [{ "path": "**" }]
     },
-    "shell:default",
-    "shell:allow-spawn",
-    "shell:allow-stdin-write",
     "updater:default"
   ]
 }

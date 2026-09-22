@@ -16,10 +16,9 @@ function fixture() {
   engine.markDirty();
   const [store, setStore] = createStore({ workspaceRoot: null, tabs: [
     { id: "file_1", type: "file", name: "Draft.md", path: "/notes/Draft.md", dirty: true },
-  ], settings: { format_on_save: false, language_settings: {} } } as BusterStoreState);
+  ] } as BusterStoreState);
   const engines = { get: () => engine } as unknown as EngineMap;
-  const actions = createSaveActions(store, setStore, engines, () => store.tabs[0], vi.fn(),
-    vi.fn(async () => {}), vi.fn(), vi.fn(async () => {}));
+  const actions = createSaveActions(store, setStore, engines, () => store.tabs[0], vi.fn());
   return { engine, store, actions };
 }
 

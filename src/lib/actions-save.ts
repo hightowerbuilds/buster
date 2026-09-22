@@ -4,13 +4,9 @@ import type { EngineMap } from "./buster-context";
 import type { Tab } from "./tab-types";
 import type { EditorEngine } from "../editor/engine";
 import { basename } from "buster-path";
-import { writeFile, lspDidChange, lspDidSave, lspFormatDocument } from "./ipc";
+import { writeFile } from "./ipc";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { showError, showSuccess } from "./notify";
-import { setRefreshDir } from "../ui/SidebarTree";
-import { resolveEditorSettings } from "./editor-settings";
-import { applyTextEdits } from "../editor/apply-text-edits";
-import { formatJsonEngine } from "../editor/json-format";
 import { isNotesPath } from "./notes-storage";
 
 export function createSaveActions(
@@ -19,9 +15,6 @@ export function createSaveActions(
   engines: EngineMap,
   activeTab: () => Tab | undefined,
   addRecentFile: (path: string, name: string) => void,
-  fetchDiffHunks: (tabId: string, filePath: string) => Promise<void>,
-  loadFileContent: (path: string) => Promise<{ content: string; fileName: string; filePath: string }>,
-  refreshGitBranch: (root: string) => Promise<void>,
   pendingNotes: Map<string, Promise<void>> = new Map(),
 ) {
   const savingTabs = new Set<string>();
@@ -35,43 +28,9 @@ export function createSaveActions(
     }
   }
 
-  async function syncLspDocument(savePath: string, engine: EditorEngine) {
-    try {
-      await lspDidChange(savePath, engine.getText(), engine.editSeq());
-      engine.takeEditDeltas();
-    } catch {
-      // Some file types have no running LSP server. Saving should still proceed.
-    }
-  }
-
-  async function formatBeforeSave(tab: Tab, engine: EditorEngine, savePath: string) {
-    const editorSettings = resolveEditorSettings(store.settings, savePath);
-    if (!editorSettings.format_on_save) return;
-
-    try {
-      if (editorSettings.languageId === "json") {
-        const indent = editorSettings.use_spaces ? " ".repeat(editorSettings.tab_size) : "\t";
-        formatJsonEngine(engine, indent);
-        await syncLspDocument(savePath, engine);
-        return;
-      }
-
-      await syncLspDocument(savePath, engine);
-      const edits = await lspFormatDocument(savePath, editorSettings.tab_size, editorSettings.use_spaces);
-      const fileEdits = edits.filter(edit => edit.file_path === savePath);
-      if (applyTextEdits(engine, fileEdits)) {
-        await syncLspDocument(savePath, engine);
-      }
-    } catch (error) {
-      console.warn(`Format on save failed for ${tab.name}:`, error);
-    }
-  }
-
   async function doSave(tab: Tab, engine: EditorEngine, savePath: string, options: { silent?: boolean } = {}): Promise<void> {
     const originalPath = tab.path;
-    await formatBeforeSave(tab, engine, savePath);
 
-    await syncLspDocument(savePath, engine);
     const text = engine.getText();
     const savedRevision = engine.editSeq();
     await writeFileSmart(savePath, text, savePath === tab.path && isNotesPath(savePath, store.notesRoot));
@@ -85,9 +44,7 @@ export function createSaveActions(
       t.id === tab.id ? { ...t, path: savePath, name: fileName, dirty: engine.dirty() } : t
     ));
 
-    lspDidSave(savePath).catch(e => console.warn("LSP didSave failed:", e));
     addRecentFile(savePath, fileName);
-    fetchDiffHunks(tab.id, savePath);
     if (!options.silent) showSuccess("Saved");
   }
 
@@ -151,30 +108,5 @@ export function createSaveActions(
     } catch { showError("Failed to save"); }
   }
 
-  async function handleSync() {
-    if (store.syncing) return;
-    setStore("syncing", true);
-    try {
-      const root = store.workspaceRoot;
-      if (root) await refreshGitBranch(root);
-      if (root) setRefreshDir(root);
-
-      for (const tab of store.tabs) {
-        if (tab.type !== "file" || !tab.path) continue;
-        const engine = engines.get(tab.id);
-        if (!engine || engine.dirty()) continue;
-        try {
-          const { content } = await loadFileContent(tab.path);
-          if (content !== engine.getText()) engine.loadText(content);
-        } catch {
-          showError(`Failed to sync ${tab.name}`);
-        }
-        fetchDiffHunks(tab.id, tab.path);
-      }
-      showSuccess("Synced");
-    } catch { showError("Sync failed"); }
-    finally { setStore("syncing", false); }
-  }
-
-  return { writeFileSmart, handleSave, handleSaveAs, handleSync, saveTab };
+  return { writeFileSmart, handleSave, handleSaveAs, saveTab };
 }

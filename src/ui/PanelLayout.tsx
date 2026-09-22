@@ -1,6 +1,6 @@
 import { type Component, type JSX, For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { useBuster } from "../lib/buster-context";
-import { MAX_PANES, paneGeometry, type PaneDirection, type PaneDivider, type PaneRect, type PaneNode } from "../lib/writing-panes";
+import { MAX_PANES, paneGeometry, parsePaneAction, type PaneDivider, type PaneRect, type PaneNode } from "../lib/writing-panes";
 import type { Tab } from "../lib/tab-types";
 import { showError } from "../lib/notify";
 import WritingLayoutControls from "./WritingLayoutControls";
@@ -11,8 +11,6 @@ const PanelLayout: Component<PanelLayoutProps> = props => {
   const { store, actions, search, formatting } = useBuster();
   const state = () => store.paneWorkspace;
   const [size, setSize] = createSignal({ width: 1000, height: 600 });
-  const [direction, setDirection] = createSignal<PaneDirection>("right");
-  const [content, setContent] = createSignal<"note" | "terminal" | "empty">("note");
   let viewport!: HTMLDivElement;
   let endDrag: (() => void) | undefined;
   const geometry = createMemo(() => paneGeometry(state().layout, size().width, size().height));
@@ -26,7 +24,18 @@ const PanelLayout: Component<PanelLayoutProps> = props => {
     width: `${r?.width ?? 0}px`, height: header ? "34px" : `${Math.max(0, (r?.height ?? 0) - 34)}px`,
   });
   function safely(run: () => unknown) { try { run(); } catch (e) { showError(e instanceof Error ? e.message : String(e)); } }
-  function split() { safely(() => actions.panes.splitPane(direction(), content())); }
+  const atMax = () => state().panes.length >= MAX_PANES;
+  const otherPanes = () => state().panes.filter(p => p.id !== state().activePaneId);
+  /** One menu drives every pane operation. */
+  function runPaneAction(value: string) {
+    const action = parsePaneAction(value);
+    if (!action) return;
+    safely(() => {
+      if (action.kind === "split") actions.panes.splitPane(action.direction);
+      else if (action.kind === "swap") actions.panes.swapPanes(state().activePaneId, action.paneId);
+      else actions.panes.zoomPane();
+    });
+  }
   onMount(() => {
     const measure = () => setSize({ width: viewport.clientWidth, height: viewport.clientHeight });
     const observer = new ResizeObserver(measure); observer.observe(viewport); measure();
@@ -63,24 +72,29 @@ const PanelLayout: Component<PanelLayoutProps> = props => {
       search.open(target?.paneId ?? state().activePaneId);
     })} />
     <div class="writing-toolbar" role="toolbar" aria-label="Writing panes">
-      <button onClick={() => actions.createNewFile()}>+ New note</button>
-      <select aria-label="Split direction" value={direction()} onChange={e => setDirection(e.currentTarget.value as PaneDirection)}>
-        <option value="right">Right</option><option value="left">Left</option><option value="down">Below</option><option value="up">Above</option>
-      </select>
-      <select aria-label="New pane content" value={content()} onChange={e => setContent(e.currentTarget.value as "note" | "terminal" | "empty")}>
-        <option value="note">New note</option><option value="terminal">Terminal</option><option value="empty">Empty pane</option>
-      </select>
-      <button disabled={state().panes.length >= MAX_PANES} onClick={split}>Split</button>
-      <button onClick={() => actions.panes.zoomPane()}>{state().zoomedPaneId ? "Restore panes" : "Maximize"}</button>
-      <select aria-label="Swap active pane with" value="" onChange={e => { if (e.currentTarget.value) actions.panes.swapPanes(state().activePaneId, e.currentTarget.value); e.currentTarget.value = ""; }}>
-        <option value="">Swap with…</option>
-        <For each={state().panes.filter(p => p.id !== state().activePaneId)}>{p => <option value={p.id}>{paneTab(p.id)?.name ?? "Empty pane"}</option>}</For>
+      <select class="pane-menu" aria-label="Pane actions" value=""
+        onChange={e => { const value = e.currentTarget.value; e.currentTarget.value = ""; runPaneAction(value); }}>
+        <option value="">Panes…</option>
+        <optgroup label="Split active pane">
+          <option value="split:right" disabled={atMax()}>Right</option>
+          <option value="split:left" disabled={atMax()}>Left</option>
+          <option value="split:up" disabled={atMax()}>Above</option>
+          <option value="split:down" disabled={atMax()}>Below</option>
+        </optgroup>
+        <optgroup label="Layout">
+          <option value="zoom">{state().zoomedPaneId ? "Restore panes" : "Maximize active pane"}</option>
+        </optgroup>
+        <Show when={otherPanes().length > 0}>
+          <optgroup label="Swap active pane with">
+            <For each={otherPanes()}>{p => <option value={`swap:${p.id}`}>{paneTab(p.id)?.name ?? "Empty pane"}</option>}</For>
+          </optgroup>
+        </Show>
       </select>
       <WritingLayoutControls />
       <details class="pane-shortcuts"><summary>Shortcuts</summary><div>
         <p>⌘D: split right · ⌘⇧D: split below</p><p>⌘⌥ arrows: focus pane · ⌘⌥⇧ arrows: grow pane</p>
         <p>⌘⇧Enter: maximize / restore · ⌘⇧W: close pane</p>
-        <p>⌘W: close document or terminal · Ctrl+`: app commands</p>
+        <p>⌘W: close document or terminal</p>
         <p>Select text for Copy / Paste · ⌘⇧Space: focus or reopen selection actions · Escape: dismiss</p>
         <button onClick={() => actions.createKeybindingsTab()}>Customize bindings</button>
         <p>Up to six panes. Closing a pane keeps its note or shell in the tab bar.</p>

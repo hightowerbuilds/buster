@@ -720,8 +720,6 @@ BusterMark supports 1 to 6 simultaneous panels. The dock bar at the bottom of th
 | Rerack | 3 | Alternative three-panel layout |
 | HQ | 6 | 3x2 grid |
 
-Click a layout in the dock bar or use the command line switchboard (**Ctrl+`**) to switch.
-
 ### Panel Resizing
 
 Panels are separated by draggable dividers. Click and drag a divider to resize adjacent panels. Each panel has a minimum size of 12% of the container.
@@ -1150,7 +1148,7 @@ Dirty files (files with unsaved changes) are backed up separately to `~/.buster/
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+` | Command line switchboard |
+| Cmd+` | New terminal |
 | Cmd+= | Zoom in |
 | Cmd+- | Zoom out |
 | Cmd+0 | Reset zoom |
