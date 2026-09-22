@@ -71,6 +71,7 @@ describe("writing pane layout", () => {
 describe("parsePaneAction", () => {
   it("parses every menu option the toolbar offers", () => {
     expect(parsePaneAction("zoom")).toEqual({ kind: "zoom" });
+    expect(parsePaneAction("close")).toEqual({ kind: "close" });
     for (const direction of ["left", "right", "up", "down"] as const) {
       expect(parsePaneAction(`split:${direction}`)).toEqual({ kind: "split", direction });
     }

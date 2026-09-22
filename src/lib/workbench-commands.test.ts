@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createWorkbenchCommands } from "./workbench-commands";
 import { createStore } from "solid-js/store";
-import { createPaneActions } from "./actions-panes";
 import { newPaneWorkspace, showTabInPane } from "./writing-panes";
 import type { BusterStoreState } from "./store-types";
 vi.mock("./focus-service", () => ({ focusTabPanel: vi.fn() }));
@@ -23,18 +22,17 @@ function fixture() {
     setStore("tabs", [...store.tabs, { id, name: "Note.md", type: "file", path: "", dirty: false }]);
     focusTab(id); return id;
   });
-  const panes = createPaneActions(store, setStore, createNote, createTerminal);
   const service = createWorkbenchCommands({ tabs: () => store.tabs, activeTabId: () => store.activeTabId,
     workspaceRoot: () => "/notes", terminalId: () => undefined,
     document: () => ({ text, revision: 7, dirty: true }), createTerminal, focusTab,
-    paneWorkspace: () => store.paneWorkspace, panes, createNote });
+    createNote });
   return { service, store, createTerminal, createNote, focusTab, edit: (next: string) => { text = next; } };
 }
 
 describe("live workbench commands", () => {
   it("publishes the same complete catalog used by help and AI discovery", async () => {
     const { service } = fixture();
-    expect(service.describe()).toHaveLength(19);
+    expect(service.describe()).toHaveLength(13);
     const result = await service.executeLine("help", "help");
     expect(result).toMatchObject({ ok: true, data: { commands: service.describe() } });
     expect(await service.executeLine('commands describe {"name":"terminal create"}', "describe")).toMatchObject({
@@ -69,30 +67,40 @@ describe("live workbench commands", () => {
     expect(await service.executeLine('panel focus {"tabId":"file_1"}', "focus")).toMatchObject({ ok: true });
     expect(focusTab).toHaveBeenCalledWith("file_1");
   });
-  it("creates one note and pane on AI retry, then closes only the view", async () => {
+  it("creates one note per AI request id and lists it as a tab", async () => {
     const { service, store, createNote } = fixture();
-    const request = { requestId: "split", command: "panel split", args: { direction: "right", content: "note" } };
+    const request = { requestId: "make", command: "document create", args: {} };
     expect(await service.dispatch(request, "ai")).toMatchObject({ ok: true });
+    // A repeated request id must share the first result rather than create twice.
     await service.dispatch(request, "ai");
     expect(createNote).toHaveBeenCalledOnce();
-    expect(store.paneWorkspace.panes).toHaveLength(2);
-    const paneId = store.paneWorkspace.activePaneId;
-    const tabId = store.activeTabId;
-    expect(await service.dispatch({ requestId: "zoom", command: "panel zoom", args: { paneId } }, "user")).toMatchObject({ ok: true, data: { maximized: true } });
-    expect(await service.dispatch({ requestId: "close", command: "panel close", args: { paneId } }, "ai")).toMatchObject({ ok: true });
-    expect(store.paneWorkspace.panes).toHaveLength(1);
-    expect(store.tabs.some(t => t.id === tabId)).toBe(true);
-    expect(await service.executeLine("layout inspect", "layout")).toMatchObject({ ok: true });
+
+    const listed = await service.executeLine("panel list", "list");
+    expect(listed).toMatchObject({ ok: true });
+    if (listed.ok) {
+      const panels = (listed.data as { panels: { tabId: string; active: boolean }[] }).panels;
+      expect(panels.map(panel => panel.tabId)).toEqual(store.tabs.map(tab => tab.id));
+      expect(panels.filter(panel => panel.active)).toHaveLength(1);
+    }
   });
 
-  it("validates pane targets and size limits before creating content", async () => {
-    const { service, store, createNote } = fixture();
-    expect(await service.dispatch({ requestId: "missing", command: "panel split", args: { paneId: "missing", direction: "right" } }, "ai")).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
-    expect(createNote).not.toHaveBeenCalled();
-    for (let n = 0; n < 5; n++) await service.executeLine('panel split {"direction":"right"}', `split-${n}`);
-    expect(store.paneWorkspace.panes).toHaveLength(6);
-    expect(await service.executeLine('panel split {"direction":"right"}', "overflow")).toMatchObject({ ok: false, error: { code: "LIMIT_REACHED" } });
-    expect(createNote).toHaveBeenCalledTimes(5);
+  it("focuses an open tab and refuses an unknown one", async () => {
+    const { service, store, focusTab } = fixture();
+    const tabId = store.tabs[0].id;
+    expect(await service.dispatch({ requestId: "focus", command: "panel focus", args: { tabId } }, "ai"))
+      .toMatchObject({ ok: true, data: { tabId } });
+    expect(focusTab).toHaveBeenCalledWith(tabId);
+
+    expect(await service.dispatch({ requestId: "missing", command: "panel focus", args: { tabId: "nope" } }, "ai"))
+      .toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  });
+
+  it("no longer exposes the removed pane commands", async () => {
+    const { service } = fixture();
+    for (const command of ["panel split", "panel close", "panel zoom", "panel swap", "panel resize", "layout inspect"]) {
+      expect(await service.dispatch({ requestId: `gone-${command}`, command, args: {} }, "ai"))
+        .toMatchObject({ ok: false, error: { code: "UNKNOWN_COMMAND" } });
+    }
   });
 
 });

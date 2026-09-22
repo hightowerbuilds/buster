@@ -18,7 +18,6 @@ import { createPanelRenderer } from "./ui/PanelRenderer";
 
 import { focusTabPanel, focusSidebarPrimary, restorePrimaryWorkspaceFocus, sidebarHasFocus } from "./lib/focus-service";
 import "./styles/ide.css";
-import { showError } from "./lib/notify";
 
 const App: Component = () => {
   const { store, setStore, engines, actions } = useBuster();
@@ -50,8 +49,6 @@ const App: Component = () => {
     }
   }
 
-  function splitRight() { try { actions.panes.splitPane("right"); } catch (e) { showError(String(e)); } }
-  function splitDown() { try { actions.panes.splitPane("down"); } catch (e) { showError(String(e)); } }
   function closeSplit() { actions.panes.closePane(); }
 
   // ── Command registry + keyboard handler ─────────────────
@@ -83,12 +80,7 @@ const App: Component = () => {
     updateSettings: actions.updateSettings,
     tabTrapping: () => store.tabTrapping,
     setTabTrapping: (v: boolean) => setStore("tabTrapping", v),
-    splitRight,
-    splitDown,
     closeSplit,
-    navigatePane: actions.panes.navigatePane,
-    resizePane: actions.panes.resizePane,
-    zoomPane: () => actions.panes.zoomPane(),
     closeTabOrSplit: () => {
       const id = store.activeTabId;
       if (id) actions.handleTabClose(id);

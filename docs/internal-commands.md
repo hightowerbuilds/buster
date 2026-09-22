@@ -25,8 +25,6 @@ terminal list
 terminal focus {"tabId":"term_tab_1"}
 panel list
 panel focus {"tabId":"file_1"}
-panel split {"direction":"right","content":"note"}
-layout inspect
 history list
 ```
 
@@ -36,36 +34,14 @@ confirms the tab was created; PTY initialization happens asynchronously. Use
 `terminal list` to inspect whether a PTY ID has been assigned. An initialized PTY
 ID does not certify that its shell process is still running.
 
-Phase 2 expands the catalog to **66 commands**. `panel list` lists stable pane
-IDs and their current tab IDs, including empty panes. `panel focus` accepts either
-`paneId` or the legacy `tabId`, never both. `document create` accepts an optional
-`paneId`; `panel split` accepts `direction` (left/right/up/down), optional `paneId`,
-and `content` (note/terminal/empty). New splits default to a note.
+Splitting was removed in favour of plain tabs, so `panel list` reports open tabs and
+`panel focus` activates one. `document create` opens a note in a new tab.
 
 New notes now provision a Markdown file in the persistent Notes home. The returned
 tab exists immediately; disk creation follows asynchronously. Inspect
 `document list` for its assigned path. On creation failure the draft remains open
 with no path and the UI reports the error. Managed notes autosave; the Desktop
 BusterMark symlink points to the same files.
-
-Use the IDs from `layout inspect` for these operations:
-
-```text
-panel focus {"paneId":"<pane ID>"}
-panel swap {"first":"<pane ID>","second":"<another pane ID>"}
-panel resize {"splitId":"<split ID>","ratio":0.6}
-panel zoom {"paneId":"<pane ID>"}
-panel close {"paneId":"<pane ID>"}
-```
-
-Resize ratios are between 0.1 and 0.9; displayed geometry also enforces minimum
-pane dimensions. Zoom toggles maximize/restore. Closing a pane retains its draft
-or running terminal in the tab bar. Closing the document/terminal tab is a
-separate operation, with existing unsaved-change protection for documents.
-There is a six-pane limit (`LIMIT_REACHED`). Each document currently has one live
-view; opening an already visible document focuses its pane. Layouts are saved
-with the periodic session snapshot. Named `layout save`/`layout restore` commands
-and simultaneous views of one document remain planned.
 
 ## Markdown formatting
 
@@ -125,9 +101,8 @@ passage with its source label as a new unsaved note; it does not modify the sour
 AI review opens the existing review workflow and waits for explicit Generate.
 
 Reopening from the same source focuses its existing portal; changed source context
-refreshes the query without searching. At six panes the portal temporarily uses
-its source pane while preserving the source tab and engine. Return to source
-remains available. Starting review at the limit reuses the portal's view while
+refreshes the query without searching. The portal opens as its own tab, preserving
+the source tab and engine. Return to source remains available. Starting review while
 retaining its tab. Results are temporary; keep a note to retain a passage. Model
 and web search follow the Claude/Codex connection milestone.
 
@@ -262,8 +237,8 @@ actions are unavailable in this increment. New errors are `STALE_SELECTION`,
 ## Lookup and AI review
 
 `selection lookup` and `selection ai` take the same captured target as Copy/Paste
-and return `{reviewId, tabId}`. Results open beside the source in an empty or new
-pane. At the six-pane limit, close a pane view first; its note remains in a tab.
+and return `{reviewId, tabId}`. Results open in their own tab; the source note stays
+open in its own.
 Lookup uses active macOS dictionaries offline, for single-line queries up to 256
 Unicode characters. An absent definition provides dictionary setup guidance.
 

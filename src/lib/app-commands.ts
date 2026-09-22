@@ -80,12 +80,7 @@ export interface CommandDeps {
   updateSettings: (s: import("./ipc").AppSettings) => void;
   tabTrapping: Accessor<boolean>;
   setTabTrapping: (v: boolean) => void;
-  splitRight: () => void;
-  splitDown: () => void;
   closeSplit: () => void;
-  navigatePane: (direction: import("./writing-panes").PaneDirection) => void;
-  resizePane: (direction: import("./writing-panes").PaneDirection) => void;
-  zoomPane: () => void;
   closeTabOrSplit: () => void;
   navigateBack: () => void;
   navigateForward: () => void;
@@ -118,7 +113,7 @@ function moveTab(deps: Pick<CommandDeps, "tabs" | "activeTabId" | "switchToTab">
 /** Default hotkey for each command. "Mod" maps to Cmd on Mac, Ctrl on Win/Linux. */
 export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "file.openFolder": "Mod+o",
-  // file.closeTab has no default hotkey — Cmd+W is now view.closeSplit
+  // file.closeTab has no default hotkey — Cmd+W closes the open tab
   "terminal.new": "Mod+t",
   "terminal.newAlt": "Mod+`",
   "view.commandPalette": "Mod+p",
@@ -143,15 +138,7 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "editor.prevProblem": "Shift+F8",
   "view.focusNextRegion": "F6",
   "view.focusPrevRegion": "Shift+F6",
-  "view.splitRight": "Mod+d",
-  "view.splitDown": "Mod+Shift+d",
   "view.closeSplit": "Mod+w",
-  "pane.close": "Mod+Shift+w",
-  "pane.zoom": "Mod+Shift+Enter",
-  ...Object.fromEntries(["left", "right", "up", "down"].flatMap(direction => [
-    [`pane.focus.${direction}`, `Mod+Alt+Arrow${direction[0].toUpperCase() + direction.slice(1)}`],
-    [`pane.resize.${direction}`, `Mod+Alt+Shift+Arrow${direction[0].toUpperCase() + direction.slice(1)}`],
-  ])),
   "editor.toggleTabTrapping": "Ctrl+m",
   "tabs.prev": "Mod+Shift+[",
   "tabs.next": "Mod+Shift+]",
@@ -178,12 +165,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "file.openFolder", label: "Open Folder", category: "File", keybinding: "Mod+O", execute: () => deps.changeDirectory() },
     { id: "file.closeTab", label: "Close Tab", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
-    { id: "pane.close", label: "Close Pane (Keep Content)", category: "Panes", execute: deps.closeSplit },
-    { id: "pane.zoom", label: "Maximize / Restore Pane", category: "Panes", execute: deps.zoomPane },
-    ...(["left", "right", "up", "down"] as const).flatMap(direction => [
-      { id: `pane.focus.${direction}`, label: `Focus ${direction}`, category: "Panes", execute: () => deps.navigatePane(direction) },
-      { id: `pane.resize.${direction}`, label: `Grow ${direction}`, category: "Panes", execute: () => deps.resizePane(direction) },
-    ]),
     { id: "editor.goToLine", label: "Go to Line...", category: "Editor", keybinding: "Ctrl+G", execute: () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); } },
     { id: "editor.goToSymbol", label: "Go to Symbol in File...", category: "Editor", keybinding: "Mod+Shift+O", execute: () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); } },
     { id: "editor.workspaceSymbol", label: "Go to Symbol in Workspace...", category: "Editor", keybinding: "Mod+Shift+T", execute: () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); } },
@@ -198,9 +179,7 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "view.settings", label: "Settings", category: "View", keybinding: "Mod+,", execute: () => deps.createSettingsTab() },
     { id: "view.keybindings", label: "Keyboard Shortcuts", category: "View", keybinding: "Mod+K Mod+S", execute: () => deps.createKeybindingsTab() },
     { id: "view.toggleSidebar", label: "Toggle Sidebar", category: "View", keybinding: "Mod+B", execute: () => deps.setSidebarVisible(v => !v) },
-    { id: "view.splitRight", label: "Split Right", category: "View", keybinding: "Mod+D", execute: () => deps.splitRight() },
-    { id: "view.splitDown", label: "Split Down", category: "View", keybinding: "Mod+Shift+D", execute: () => deps.splitDown() },
-    { id: "view.closeSplit", label: "Close Tab / Panel", category: "View", keybinding: "Mod+W", execute: () => deps.closeTabOrSplit() },
+    { id: "view.closeSplit", label: "Close Tab", category: "View", keybinding: "Mod+W", execute: () => deps.closeTabOrSplit() },
     { id: "editor.toggleWhitespace", label: "Toggle Render Whitespace", category: "Editor", execute: () => {
       const s = deps.settings();
       deps.updateSettings({ ...s, show_whitespace: !s.show_whitespace });
@@ -279,14 +258,6 @@ export function buildHotkeyDefinitions(
     callback: () => deps.setSidebarVisible(v => !v),
     options: { ignoreInputs: false },
   });
-  add("pane.close", () => deps.closeSplit());
-  add("pane.zoom", () => deps.zoomPane());
-  for (const direction of ["left", "right", "up", "down"] as const) {
-    add(`pane.focus.${direction}`, () => deps.navigatePane(direction));
-    add(`pane.resize.${direction}`, () => deps.resizePane(direction));
-  }
-  add("view.splitRight", () => deps.splitRight());
-  add("view.splitDown", () => deps.splitDown());
   add("view.closeSplit", () => deps.closeTabOrSplit());
   // Root hotkeys run before Solid's delegated terminal key handler. Disable the
   // editor binding outside documents so Cmd+F can reach terminal search.

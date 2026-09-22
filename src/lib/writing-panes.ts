@@ -161,6 +161,7 @@ export function restorePaneWorkspace(value: unknown, tabIds: Set<string>, active
 export type PaneMenuAction =
   | { kind: "split"; direction: PaneDirection }
   | { kind: "swap"; paneId: string }
+  | { kind: "close" }
   | { kind: "zoom" };
 
 const PANE_DIRECTIONS: PaneDirection[] = ["left", "right", "up", "down"];
@@ -171,6 +172,7 @@ const PANE_DIRECTIONS: PaneDirection[] = ["left", "right", "up", "down"];
  */
 export function parsePaneAction(value: string): PaneMenuAction | null {
   if (value === "zoom") return { kind: "zoom" };
+  if (value === "close") return { kind: "close" };
   const separator = value.indexOf(":");
   if (separator < 0) return null;
   const verb = value.slice(0, separator);

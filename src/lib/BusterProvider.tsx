@@ -179,8 +179,6 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     },
     createTerminal: actions.createTerminalTab,
     focusTab: (id) => { actions.switchToTab(id); focusTabPanel(id); },
-    paneWorkspace: () => store.paneWorkspace,
-    panes: actions.panes,
     createNote: actions.createNewFile,
   });
 

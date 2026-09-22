@@ -16,10 +16,7 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
   return {
     createNewFile: vi.fn(),
     handleSaveAs: vi.fn(),
-    splitRight: vi.fn(),
-    splitDown: vi.fn(),
     closeSplit: vi.fn(),
-    navigatePane: vi.fn(), resizePane: vi.fn(), zoomPane: vi.fn(),
     closeTabOrSplit: vi.fn(),
     handleSave: vi.fn(),
     changeDirectory: vi.fn(),
@@ -62,10 +59,6 @@ describe("tab hotkeys", () => {
     fireHotkey(defs, "Mod+w");
     expect(deps.closeTabOrSplit).toHaveBeenCalledOnce();
     expect(deps.closeSplit).not.toHaveBeenCalled();
-    fireHotkey(defs, "Mod+Shift+w");
-    expect(deps.closeSplit).toHaveBeenCalledOnce();
-    fireHotkey(defs, "Mod+Alt+ArrowRight");
-    expect(deps.navigatePane).toHaveBeenCalledWith("right");
   });
 
   it("lets terminal find and Escape reach the focused panel", () => {

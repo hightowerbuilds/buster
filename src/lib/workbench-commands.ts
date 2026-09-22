@@ -1,6 +1,4 @@
 import { CommandFailure, FeatureCommands, emptyArgs, type CommandSchema } from "./feature-commands";
-import { requirePane, type PaneDirection, type PaneWorkspace } from "./writing-panes";
-import type { PaneActions } from "./actions-panes";
 import type { Tab } from "./tab-types";
 
 export interface WorkbenchCommandDeps {
@@ -11,8 +9,6 @@ export interface WorkbenchCommandDeps {
   document: (tabId: string) => { text: string; revision: number; dirty: boolean } | null;
   createTerminal: () => string;
   focusTab: (tabId: string) => void;
-  paneWorkspace: () => PaneWorkspace;
-  panes: PaneActions;
   createNote: () => string;
 }
 
@@ -60,59 +56,18 @@ export function createWorkbenchCommands(deps: WorkbenchCommandDeps): FeatureComm
     }));
   add("workspace inspect", "Inspect the current workspace root and open tabs.", emptyArgs,
     object({ root: string, tabs: array(tabSchema) }), "read", () => ({ root: deps.workspaceRoot() ?? "", tabs: deps.tabs().map(tabData) }));
-  const paneTarget = object({ paneId: { type: "string", minLength: 1 } });
-  const paneResult = object({ paneId: string });
-  const directionSchema: CommandSchema = { type: "string", enum: ["left", "right", "up", "down"] };
-  const ensurePane = (paneId: unknown) => {
-    if (!deps.paneWorkspace().panes.some(p => p.id === paneId)) throw new CommandFailure("NOT_FOUND", "No pane exists with that ID.");
-    return paneId as string;
-  };
-  add("panel list", "List stable pane identities and their current note/tool references.", emptyArgs,
-    object({ panels: array(object({ paneId: string, tabId: string, active: boolean, maximized: boolean })) }), "read", () => ({
-      panels: deps.paneWorkspace().panes.map(p => ({ paneId: p.id, tabId: p.tabId ?? "", active: p.id === deps.paneWorkspace().activePaneId,
-        maximized: p.id === deps.paneWorkspace().zoomedPaneId })),
+  add("panel list", "List open tabs and which one is active.", emptyArgs,
+    object({ panels: array(object({ tabId: string, active: boolean })) }), "read", () => ({
+      panels: deps.tabs().map(tab => ({ tabId: tab.id, active: tab.id === deps.activeTabId() })),
     }));
-  add("panel focus", "Focus a stable pane, or activate a tab using the legacy tabId argument.",
-    object({ paneId: string, tabId: string }, []), object({ paneId: string, tabId: string }), "write", args => {
-      if (!!args.paneId === !!args.tabId) throw new CommandFailure("INVALID_ARGUMENTS", "Supply exactly one of paneId or tabId.");
-      if (args.paneId) deps.panes.focusPane(ensurePane(args.paneId));
-      else deps.focusTab(requireTab(args.tabId).id);
-      const p = requirePane(deps.paneWorkspace(), deps.paneWorkspace().activePaneId);
-      return { paneId: p.id, tabId: p.tabId ?? "" };
-    }, ['panel focus {"paneId":"<pane ID>"}']);
-  add("document create", "Create a Markdown note in the chosen pane, keeping replaced content open. Its Notes-home file is created asynchronously; inspect document list for the assigned path or a retained unsaved draft on failure.",
-    object({ paneId: string }, []), object({ tabId: string, paneId: string }), "write", args => {
-      if (args.paneId) deps.panes.focusPane(ensurePane(args.paneId));
-      return { tabId: deps.createNote(), paneId: deps.paneWorkspace().activePaneId };
-    });
-  add("panel split", "Split a pane beside a new note, terminal, or empty view. Limited to six panes.",
-    object({ paneId: string, direction: directionSchema, content: { type: "string", enum: ["note", "terminal", "empty"] } }, ["direction"]),
-    paneResult, "write", args => {
-      const paneId = args.paneId ? ensurePane(args.paneId) : deps.paneWorkspace().activePaneId;
-      if (deps.paneWorkspace().panes.length >= 6) throw new CommandFailure("LIMIT_REACHED", "The workspace supports up to six panes.");
-      return { paneId: deps.panes.splitPane(args.direction as PaneDirection, (args.content ?? "note") as "note" | "terminal" | "empty", paneId) };
-    }, ['panel split {"direction":"right","content":"note"}']);
-  add("panel close", "Close a view, keeping its note or running terminal in the tab bar. Does not delete content or stop a shell.",
-    paneTarget, paneResult, "write", args => { const paneId = ensurePane(args.paneId); deps.panes.closePane(paneId); return { paneId }; });
-  add("panel zoom", "Toggle maximization of a pane, preserving the split arrangement.", paneTarget,
-    object({ paneId: string, maximized: boolean }), "write", args => {
-      const paneId = ensurePane(args.paneId); deps.panes.zoomPane(paneId);
-      return { paneId, maximized: deps.paneWorkspace().zoomedPaneId === paneId };
-    });
-  add("panel swap", "Swap two pane contents without recreating their editors or shells.",
-    object({ first: string, second: string }), object({ first: string, second: string }), "write", args => {
-      const first = ensurePane(args.first), second = ensurePane(args.second); deps.panes.swapPanes(first, second); return { first, second };
-    });
-  add("panel resize", "Move a split divider to a ratio between 0.1 and 0.9; pane minimum dimensions still apply.",
-    object({ splitId: string, ratio: number }), object({ splitId: string, ratio: number }), "write", args => {
-      const ratio = args.ratio as number;
-      if (ratio < 0.1 || ratio > 0.9) throw new CommandFailure("INVALID_ARGUMENTS", "ratio must be between 0.1 and 0.9.");
-      try { deps.panes.resizeSplit(args.splitId as string, ratio); }
-      catch { throw new CommandFailure("NOT_FOUND", "No split exists with that ID."); }
-      return { splitId: args.splitId, ratio };
-    });
-  add("layout inspect", "Inspect stable pane IDs, split ratios, active pane, and zoom state.", emptyArgs,
-    object({ workspace: { type: "object", additionalProperties: true } }), "read", () => ({ workspace: JSON.parse(JSON.stringify(deps.paneWorkspace())) }));
+  add("panel focus", "Activate an open tab.",
+    object({ tabId: string }), object({ tabId: string }), "write", args => {
+      const tab = requireTab(args.tabId);
+      deps.focusTab(tab.id);
+      return { tabId: tab.id };
+    }, ['panel focus {"tabId":"file_1"}']);
+  add("document create", "Create a Markdown note in a new tab. Its Notes-home file is created asynchronously; inspect document list for the assigned path or a retained unsaved draft on failure.",
+    emptyArgs, object({ tabId: string }), "write", () => ({ tabId: deps.createNote() }));
   add("document list", "List open writing documents, including untitled drafts.", emptyArgs,
     object({ documents: array(tabSchema) }), "read", () => ({ documents: deps.tabs().filter(tab => tab.type === "file").map(tabData) }));
   add("document read", "Read a live editor buffer, including unsaved changes and its revision.", target,
