@@ -2,18 +2,22 @@
 @import "./base.css";
 @import "./sidebar.css";
 @import "./tabbar.css";
-@import "./panel-layout.css";
-@import "./terminal.css";
+@import "./command-line.css";
 @import "./find-replace.css";
 @import "./command-palette.css";
+@import "./welcome.css";
 @import "./statusbar.css";
 @import "./settings.css";
+@import "./git-panel.css";
 @import "./git-graph.css";
+@import "./extensions.css";
 @import "./dirty-close.css";
+@import "./conflict.css";
 @import "./blog-preview.css";
+@import "./diff-view.css";
 @import "./problems.css";
 @import "./search-results.css";
 @import "./ai-settings.css";
 
-@import "./writing-panes.css";
+@import "./tab-workspace.css";
 @import "./selection-actions.css";

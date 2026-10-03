@@ -1,0 +1,175 @@
+/* Conflict Resolution */
+.conflict-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.conflict-dialog {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  min-width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+  gap: 12px;
+}
+
+.conflict-title {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: normal;
+}
+
+.conflict-filepath {
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.conflict-region {
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.conflict-region-header {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  background: var(--bg-surface0);
+  border-bottom: 1px solid var(--border);
+}
+
+.conflict-ours {
+  background: rgba(166, 227, 161, 0.08);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-bottom: 1px solid var(--border);
+}
+
+.conflict-ours-label {
+  font-size: 10px;
+  color: var(--green);
+  margin-bottom: 4px;
+}
+
+.conflict-theirs {
+  background: rgba(137, 180, 250, 0.08);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.conflict-theirs-label {
+  font-size: 10px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.conflict-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--bg-surface0);
+  border-top: 1px solid var(--border);
+}
+
+.conflict-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+}
+
+.conflict-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.conflict-btn-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conflict-resolved-badge {
+  font-size: 10px;
+  color: var(--green);
+  margin-left: auto;
+  padding: 2px 6px;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.conflict-save-btn {
+  background: var(--accent);
+  color: var(--bg-crust);
+  border: none;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: normal;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+}
+
+.conflict-save-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.conflict-cancel-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+}
+
+.conflict-cancel-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.conflict-loading {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.conflict-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 20px;
+  text-align: center;
+}

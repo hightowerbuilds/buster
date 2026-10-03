@@ -2,7 +2,7 @@
 
 BusterMark is being rebuilt as a writing workbench with AI integration, using Tauri, Rust, and SolidJS.
 
-This reference describes the inherited implementation. The active rebuild scope and progress live in [Phase 0](../growth/phases/phase-0.md) and [Phase 1](../growth/phases/phase-1.md); sections below may describe features being retired.
+This reference describes the inherited implementation, including retired terminal and pane features. For the current macOS writing workspace, shared Linux revision, development commands, and platform differences, see [macOS parity](macos-parity.md) and the [README](../README.md). Historical phase plans below are retained for reference.
 
 ---
 
@@ -623,7 +623,7 @@ The footer's **Terminal** and **Settings** buttons open or focus those tools;
 **Notes** creates a new `.md` file in the app's Notes home.
 
 On initial setup, the Notes home is created in the application's persistent data
-directory and linked from **Desktop/BusterMark**. This is one set of real files,
+directory and linked from **Desktop/bustermark-workspace** (or `~/Desktop` when XDG maps the Desktop to the home folder). This is one set of real files,
 not an export or a second copy. New notes autosave after a short typing pause.
 Files and subfolders created in the Notes Explorer appear through that Desktop
 link. If the Desktop name already belongs to something else, it is preserved and
@@ -662,11 +662,11 @@ Drag files and folders within the explorer to move them between directories.
 
 ## Command Palette
 
-The command palette is the central navigation and command interface. Open it with **Cmd+P** (Quick Open) or **Cmd+Shift+P** (Command Search).
+The command palette is the central navigation and command interface. Open it with **Cmd+Option+P** (Quick Open) or **Cmd+Shift+P** (Command Search). **Cmd+P** opens BusterMark's print confirmation dialog.
 
 ### Quick Open
 
-**Cmd+P** opens fuzzy file search. Type part of a file name to filter. Results are scored by match quality and show the file path. The search respects `.gitignore` — ignored files are excluded.
+**Cmd+Option+P** opens fuzzy file search. Type part of a file name to filter. Results are scored by match quality and show the file path. The search respects `.gitignore` — ignored files are excluded.
 
 Recent files appear at the top of the list before you start typing.
 
@@ -719,6 +719,8 @@ BusterMark supports 1 to 6 simultaneous panels. The dock bar at the bottom of th
 | Quint | 5 | Five-panel arrangement |
 | Rerack | 3 | Alternative three-panel layout |
 | HQ | 6 | 3x2 grid |
+
+Click a layout in the dock bar or use the command line switchboard (**Ctrl+`**) to switch.
 
 ### Panel Resizing
 
@@ -1090,7 +1092,8 @@ Dirty files (files with unsaved changes) are backed up separately to `~/.buster/
 | Cmd+O | Open folder |
 | Cmd+S | Save file |
 | Cmd+W | Close tab |
-| Cmd+P | Quick Open (fuzzy file search) |
+| Cmd+P | Print current document |
+| Cmd+Option+P | Quick Open (fuzzy file search) |
 | Cmd+Shift+P | Show all commands |
 | Cmd+, | Settings |
 | Cmd+B | Toggle sidebar |
@@ -1148,7 +1151,7 @@ Dirty files (files with unsaved changes) are backed up separately to `~/.buster/
 
 | Shortcut | Action |
 |----------|--------|
-| Cmd+` | New terminal |
+| Ctrl+` | Command line switchboard |
 | Cmd+= | Zoom in |
 | Cmd+- | Zoom out |
 | Cmd+0 | Reset zoom |

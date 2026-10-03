@@ -1,6 +1,5 @@
 import { createStore } from "solid-js/store";
 import type { EditorEngine } from "../editor/engine";
-import type { PaneWorkspace } from "./writing-panes";
 import { captureSelection, type SelectionTarget } from "./selection-commands";
 import { CommandFailure, type FeatureCommands, type CommandSchema } from "./feature-commands";
 
@@ -10,11 +9,11 @@ export interface SearchPortalState {
   status: "ready" | "completed"; results: SearchHit[]; searchedNotes: number; skippedNotes: number; truncated: boolean;
 }
 export interface SearchPortalDeps {
-  workspace(): PaneWorkspace;
+  activeTabId(): string | null;
   notes(): Array<{ tabId: string; name: string }>;
   engine(tabId: string): EditorEngine | undefined;
   hasTab(tabId: string): boolean;
-  openPanel(id: string, sourcePaneId: string): string;
+  openPanel(id: string, sourceTabId: string): string;
   focusPanel(tabId: string): void;
   closePanel(tabId: string): void;
   focusSource(target: SelectionTarget): void;
@@ -39,16 +38,14 @@ export function createSearchPortal(deps: SearchPortalDeps) {
     const engine = deps.hasTab(target.tabId) ? deps.engine(target.tabId) : undefined;
     return !engine || engine.editSeq() !== target.revision || engine.getTextRange(target.range.anchor, target.range.head) !== target.text;
   }
-  function open(paneId = deps.workspace().activePaneId, initialQuery?: string) {
-    const pane = deps.workspace().panes.find(item => item.id === paneId);
-    if (!pane) fail("NOT_FOUND", "This writing pane is no longer open.");
-    // Reopening the portal from its own toolbar focuses it and never submits a query.
-    const existing = Object.values(portals).find(item => item.tabId === pane!.tabId);
+  function open(tabId = deps.activeTabId(), initialQuery?: string) {
+    if (!tabId || !deps.hasTab(tabId)) return fail("NOT_FOUND", "This tab is no longer open.");
+    const existing = Object.values(portals).find(item => item.tabId === tabId);
     if (existing) { deps.focusPanel(existing.tabId); return { portalId: existing.id, tabId: existing.tabId }; }
-    const engine = pane!.tabId ? deps.engine(pane!.tabId) : undefined;
-    const selection = engine && pane!.tabId ? captureSelection(paneId, pane!.tabId, engine) : null;
-    const source = selection ?? (engine && pane!.tabId ? {
-      paneId, tabId: pane!.tabId, revision: engine.editSeq(),
+    const engine = deps.engine(tabId);
+    const selection = engine ? captureSelection(tabId, engine) : null;
+    const source = selection ?? (engine ? {
+      tabId, revision: engine.editSeq(),
       range: { anchor: { ...engine.cursor() }, head: { ...engine.cursor() } }, text: "",
     } : null);
     const query = initialQuery !== undefined ? queryValue(initialQuery, true) : (selection?.text.trim().split(/\r?\n/)[0].slice(0, MAX_QUERY) ?? "");
@@ -61,7 +58,7 @@ export function createSearchPortal(deps: SearchPortalDeps) {
     }
     const id = crypto.randomUUID();
     setPortals(id, { id, tabId: "", source: copy(source), query, status: "ready", results: [], searchedNotes: 0, skippedNotes: 0, truncated: false });
-    try { setPortals(id, "tabId", deps.openPanel(id, paneId)); }
+    try { setPortals(id, "tabId", deps.openPanel(id, tabId)); }
     catch (error) { setPortals(id, undefined!); throw error; }
     return { portalId: id, tabId: portals[id].tabId };
   }
@@ -78,7 +75,6 @@ export function createSearchPortal(deps: SearchPortalDeps) {
       if (!remaining || results.length >= MAX_RESULTS) { truncated = true; break; }
       searchedNotes++;
       const revision = engine.editSeq();
-      const paneId = deps.workspace().panes.find(pane => pane.tabId === note.tabId)?.id ?? "";
       for (let line = 0; line < engine.lineCount(); line++) {
         const fullLine = engine.getLine(line);
         const text = fullLine.slice(0, remaining);
@@ -89,7 +85,7 @@ export function createSearchPortal(deps: SearchPortalDeps) {
         while ((match = pattern.exec(text))) {
           const start = match.index, end = start + match[0].length;
           const range = (a: number, b: number) => ({ anchor: { line, col: a }, head: { line, col: b } });
-          const base = { paneId, tabId: note.tabId, revision };
+          const base = { tabId: note.tabId, revision };
           let a = Math.max(0, start - 90), b = Math.min(text.length, end + 90);
           // Snippets retain whole UTF-16 surrogate pairs around the matched passage.
           if (a > 0 && /[\uDC00-\uDFFF]/.test(text[a]) && /[\uD800-\uDBFF]/.test(text[a - 1])) a--;
@@ -133,7 +129,7 @@ export function createSearchPortal(deps: SearchPortalDeps) {
     const hit = requireHit(id, resultId);
     if (!deps.reviewPassage) fail("UNAVAILABLE", "AI review is unavailable.");
     if (stale(hit.passage)) fail("STALE_RESULT", "This note changed after the search. Search again before reviewing this passage.");
-    // The provider focuses the note, resolves its current pane, selects this passage,
+    // The provider focuses the note,  selects this passage,
     // and opens the existing review. Opening never submits text to a model.
     return deps.reviewPassage!(copy(hit.passage), requirePortal(id).tabId);
   }
@@ -153,14 +149,14 @@ export function registerSearchPortalCommands(commands: FeatureCommands, service:
   const object = (properties: Record<string, CommandSchema>, required = Object.keys(properties)): CommandSchema => ({ type: "object", properties, required, additionalProperties: false });
   const id = object({ portalId: string }), result = object({ portalId: string, resultId: string });
   const examples: Record<string, object> = {
-    "search portal open": { paneId: "<pane ID>" }, "search query": { portalId: "<portal ID>", query: "clear writing" },
+    "search portal open": { tabId: "<tab ID>" }, "search query": { portalId: "<portal ID>", query: "clear writing" },
     "search read": { portalId: "<portal ID>" }, "search source": { portalId: "<portal ID>", resultId: "<result ID>" },
     "search keep": { portalId: "<portal ID>", resultId: "<result ID>" }, "search review": { portalId: "<portal ID>", resultId: "<result ID>" }, "search portal close": { portalId: "<portal ID>" },
   };
   const add = (name: string, description: string, inputSchema: CommandSchema, run: (args: any) => unknown, effect: "read" | "write" = "write") =>
     commands.register({ name, description, inputSchema, outputSchema: { type: "object", additionalProperties: true }, run, effect, version: 1, examples: [`${name} ${JSON.stringify(examples[name])}`] });
   add("search portal open", "Open or focus local open-note search. Captures the source and seeds an editable query from selection; never runs a search or sends to a model.",
-    object({ paneId: string, query: { type: "string" } }, []), args => service.open(args.paneId, args.query));
+    object({ tabId: string, query: { type: "string" } }, []), args => service.open(args.tabId, args.query));
   add("search query", "Search the current text of open notes locally (including unsaved changes). Literal case-insensitive phrase, 1–256 characters, single-line matches; at most 100 results and one million characters scanned. No network access.",
     object({ portalId: string, query: string }), args => service.query(args.portalId, args.query));
   add("search read", "Read source, query, bounded results, stale flags, and scan limits for this temporary portal.", id, args => service.read(args.portalId), "read");

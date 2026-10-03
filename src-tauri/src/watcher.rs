@@ -45,6 +45,7 @@ impl FileWatcher {
         let suppress = self.suppress_set.clone();
         let debounce = self.debounce_map.clone();
         let tx = self.event_tx.clone();
+        let watched = self.watched_paths.clone();
 
         let watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
@@ -55,7 +56,7 @@ impl FileWatcher {
 
                 // Only care about data modifications and creates (overwrite)
                 match event.kind {
-                    EventKind::Modify(notify::event::ModifyKind::Data(_)) => {}
+                    EventKind::Modify(_) => {}
                     EventKind::Create(_) => {}
                     _ => return,
                 }
@@ -65,6 +66,8 @@ impl FileWatcher {
                         Ok(p) => p.to_string_lossy().to_string(),
                         Err(_) => path.to_string_lossy().to_string(),
                     };
+
+                    if !watched.lock().unwrap().contains(&canonical) { continue; }
 
                     // Check self-save suppression
                     if let Ok(set) = suppress.lock() {
@@ -110,7 +113,7 @@ impl FileWatcher {
         }
 
         if let Some(ref mut w) = *self.watcher.lock().unwrap() {
-            w.watch(&canonical, RecursiveMode::NonRecursive)
+            w.watch(canonical.parent().ok_or("File has no parent")?, RecursiveMode::NonRecursive)
                 .map_err(|e| format!("Watch failed: {}", e))?;
         }
         self.watched_paths.lock().unwrap().insert(canonical_key);
@@ -139,7 +142,11 @@ impl FileWatcher {
         }
 
         if let Some(ref mut w) = *self.watcher.lock().unwrap() {
-            let _ = w.unwatch(Path::new(&canonical_key)); // Ignore errors (path may already be unwatched)
+            let parent = Path::new(&canonical_key).parent();
+            let shared = self.watched_paths.lock().unwrap().iter().any(|p| Path::new(p).parent() == parent);
+            if !shared {
+                if let Some(parent) = parent { let _ = w.unwatch(parent); }
+            }
         }
 
         // Clean up debounce and suppression entries.
@@ -169,5 +176,32 @@ impl FileWatcher {
                 set.remove(&canonical);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parent_watch_survives_atomic_replacement_and_shared_unwatch() {
+        let dir = tempfile::tempdir().unwrap();
+        // macOS's temporary directory is reached through /var -> /private/var.
+        // Watcher events deliberately return canonical paths on every platform.
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let first = root.join("first.md");
+        let second = root.join("second.md");
+        std::fs::write(&first, "old").unwrap();
+        std::fs::write(&second, "old").unwrap();
+        let watcher = FileWatcher::new();
+        let events = watcher.take_event_rx().unwrap();
+        watcher.start().unwrap();
+        watcher.watch(first.to_str().unwrap()).unwrap();
+        watcher.watch(second.to_str().unwrap()).unwrap();
+        crate::storage::write(&first, b"replacement", true).unwrap();
+        assert_eq!(events.recv_timeout(Duration::from_secs(3)).unwrap(), first.to_str().unwrap());
+        watcher.unwatch(first.to_str().unwrap()).unwrap();
+        crate::storage::write(&second, b"still watched", true).unwrap();
+        assert_eq!(events.recv_timeout(Duration::from_secs(3)).unwrap(), second.to_str().unwrap());
+        watcher.unwatch(second.to_str().unwrap()).unwrap();
     }
 }

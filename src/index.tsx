@@ -21,9 +21,10 @@ const queryClient = new QueryClient({
   },
 });
 
-// Canvas UI measures text on its first paint. Load the local UI faces before
-// mounting so cached widths and hit targets use Lato from the start.
+// Canvas UI measures text on its first paint. Load the local UI and monospace faces before
+// mounting so cached widths and hit targets use Lato and JetBrains Mono from the start.
 Promise.all([
+  document.fonts.load('400 14px "JetBrains Mono"'),
   document.fonts.load('400 13px "Lato"'),
   document.fonts.load('700 13px "Lato"'),
   document.fonts.load('italic 400 13px "Lato"'),

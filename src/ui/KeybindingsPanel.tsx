@@ -33,7 +33,7 @@ function formatCommandLabel(commandId: string): string {
   return commandId.replace(/\./g, ": ").replace(/([A-Z])/g, " $1").trim();
 }
 
-const CATEGORY_ORDER = ["File", "Editor", "View", "Terminal", "Git", "Browser", "Tabs"];
+const CATEGORY_ORDER = ["File", "Editor", "View", "Git", "Browser", "Tabs"];
 
 const KeybindingsPanel: Component<KeybindingsPanelProps> = (props) => {
   const entries = createMemo<ShortcutEntry[]>(() => {

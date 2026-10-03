@@ -4,25 +4,33 @@
  */
 
 import type { Tab } from "./tab-types";
-import type { SearchMatch, AppSettings } from "./ipc";
+import type { SplitView } from "./split-view";
+import type { SearchMatch, DiffHunk, AppSettings } from "./ipc";
 import type { ThemePalette } from "./theme";
-import type { PanelCount } from "./panel-count";
-import type { PaneWorkspace } from "./writing-panes";
 
+export type LspState = "inactive" | "starting" | "active" | "error" | "crashed";
 
 export interface RecentFile {
   path: string;
   name: string;
 }
 
+export interface Diagnostic {
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  severity: number;
+  message: string;
+}
+
 export interface BusterStoreState {
   // ── Tabs ────────────────────────────────────────────────
   tabs: Tab[];
   activeTabId: string | null;
+  splitView: SplitView | null;
   fileTexts: Record<string, string>;
   scrollPositions: Record<string, number>;
-  termPtyIds: Record<string, string>;
-  terminalCounter: number;
   fileTabCounter: number;
 
   // ── Cursor ──────────────────────────────────────────────
@@ -33,15 +41,17 @@ export interface BusterStoreState {
   findVisible: boolean;
   paletteVisible: boolean;
   paletteInitialQuery: string;
+  branchPickerVisible: boolean;
+  syncing: boolean;
   fileLoading: boolean;
 
   // ── Layout ──────────────────────────────────────────────
-  panelCount: PanelCount;
-  splitDirection: "row" | "column";
-  paneWorkspace: PaneWorkspace;
   sidebarWidth: number;
   sidebarVisible: boolean;
 
+  // ── Git ─────────────────────────────────────────────────
+  gitBranchName: string | null;
+  diffHunksMap: Record<string, DiffHunk[]>;
 
   // ── Dialogs ─────────────────────────────────────────────
   dirtyCloseTabId: string | null;
@@ -52,6 +62,7 @@ export interface BusterStoreState {
   // ── Editor data ────────────────────────────────────────
   searchMatches: SearchMatch[];
   currentSearchIdx: number;
+  diagnosticsMap: Record<string, Diagnostic[]>;
 
   // ── Settings / theme ───────────────────────────────────
   settings: AppSettings;
@@ -70,6 +81,8 @@ export interface BusterStoreState {
   // ── Misc ───────────────────────────────────────────────
   recentFiles: RecentFile[];
   tabTrapping: boolean;
+  lspState: LspState;
+  lspLanguages: string[];
 }
 
 export interface NavHistoryEntry {

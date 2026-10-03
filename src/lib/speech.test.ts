@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createEditorEngine } from "../editor/engine";
 import { FeatureCommands } from "./feature-commands";
 import { captureSelection } from "./selection-commands";
-import { newPaneWorkspace, showTabInPane } from "./writing-panes";
 import { createSpeech, registerSpeechCommands, type SpeechEvent, type SpeechTransport } from "./speech";
 
 function deferred<T>() {
@@ -10,11 +9,10 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function fixture() {
+function fixture(available = true) {
   const engine = createEditorEngine("Private prefix. Hello 🌎 reader! Private suffix.");
   engine.setSelection({ line: 0, col: 16 }, { line: 0, col: 32 });
-  let workspace = newPaneWorkspace("note");
-  const target = captureSelection(workspace.activePaneId, "note", engine)!;
+  const target = captureSelection("note", engine)!;
   const tabs = new Set(["note"]);
   let receive!: (event: SpeechEvent) => void;
   const unlisten = vi.fn();
@@ -25,17 +23,34 @@ function fixture() {
     listen: vi.fn<SpeechTransport["listen"]>(async handler => { receive = handler; return unlisten; }),
   };
   const focusSource = vi.fn();
-  const speech = createSpeech({ workspace: () => workspace, engine: id => id === "note" ? engine : undefined,
+  const speech = createSpeech({ engine: id => id === "note" ? engine : undefined,
     hasTab: id => tabs.has(id), focusSource, transport });
-  const commands = new FeatureCommands(); registerSpeechCommands(commands, speech);
+  const commands = new FeatureCommands(); registerSpeechCommands(commands, speech, available);
   const run = (command: string, args: object = {}, requestId = crypto.randomUUID()) => commands.dispatch({ command, args: { ...args }, requestId }, "ai");
   const start = () => speech.read(target, "voice", 0.5, 1);
   const speaking = async () => { const result = start(); await vi.waitFor(() => expect(speech.state.job?.status).toBe("speaking")); return result.jobId; };
   return { engine, target, tabs, speech, transport, focusSource, unlisten, commands, run, start, speaking,
-    event: (event: SpeechEvent) => receive(event), focusElsewhere: () => { workspace = showTabInPane(workspace, "other"); } };
+    event: (event: SpeechEvent) => receive(event),  };
 }
 
 describe("local selection speech", () => {
+  it("stops active speech when its source closes without repeated stop requests", async () => {
+    const f = fixture(); const id = await f.speaking();
+    f.tabs.delete("note"); f.speech.reconcile(); f.speech.reconcile();
+    await vi.waitFor(() => expect(f.speech.state.job?.status).toBe("stopped"));
+    expect(f.transport.control).toHaveBeenCalledExactlyOnceWith(id, "stop");
+    f.event({ jobId: id, state: "speaking", start: 0, length: 5 });
+    expect(f.speech.state.job?.status).toBe("stopped");
+  });
+
+  it("cancels pending speech startup when the source closes", async () => {
+    const f = fixture();
+    f.start(); f.tabs.delete("note"); f.speech.reconcile();
+    await Promise.resolve(); await Promise.resolve();
+    expect(f.speech.state.job?.status).toBe("stopped");
+    expect(f.transport.start).not.toHaveBeenCalled();
+  });
+
   it("prepares without speaking, lists installed voices, and captures immutable text", async () => {
     const f = fixture();
     expect(f.speech.prepare(f.target)).toEqual({ tabId: "note", ready: true });
@@ -49,7 +64,7 @@ describe("local selection speech", () => {
 
   it("sends only the capture after focus and selection move; source navigation never moves the caret", async () => {
     const f = fixture(); f.speech.prepare(f.target);
-    f.focusElsewhere(); f.engine.setCursor({ line: 0, col: 0 });
+     f.engine.setCursor({ line: 0, col: 0 });
     const id = await f.speaking();
     expect(f.transport.start).toHaveBeenCalledExactlyOnceWith({ jobId: id, text: f.target.text, voiceId: "voice", rate: 0.5, volume: 1 });
     expect(f.transport.listen.mock.invocationCallOrder[0]).toBeLessThan(f.transport.start.mock.invocationCallOrder[0]);
@@ -63,7 +78,7 @@ describe("local selection speech", () => {
     const f = fixture(); const id = await f.speaking();
     f.engine.setSelection({ line: 0, col: 0 }, { line: 0, col: 7 });
     expect(() => f.speech.prepare(f.target)).toThrow("selection changed");
-    const next = captureSelection(f.target.paneId, "note", f.engine)!;
+    const next = captureSelection("note", f.engine)!;
     f.speech.prepare(next);
     expect(f.speech.state.prepared?.text).toBe("Private");
     expect(f.speech.state.job?.target.text).toBe(f.target.text);
@@ -94,7 +109,7 @@ describe("local selection speech", () => {
     expect(() => f.speech.read({ ...f.target, text: " " }, "voice", 0.5, 1)).toThrow("containing text");
     expect(() => f.speech.read({ ...f.target, text: "a".repeat(32769) }, "voice", 0.5, 1)).toThrow("32 KiB");
     f.engine.setSelection({ line: 0, col: 22 }, { line: 0, col: 23 });
-    const split = captureSelection(f.target.paneId, "note", f.engine)!;
+    const split = captureSelection("note", f.engine)!;
     expect(() => f.speech.read(split, "voice", 0.5, 1)).toThrow("source note changed");
     expect(f.transport.start).not.toHaveBeenCalled();
   });
@@ -266,4 +281,11 @@ describe("local selection speech", () => {
     await f.speech.control(id, "stop"); expect(f.speech.hide()).toEqual({ visible: false });
     expect(f.speech.state.visible).toBe(false);
   });
+});
+
+it("marks Linux speech unavailable and refuses calls before invoking native services", async () => {
+ const f = fixture(false);
+ expect(f.commands.describe().filter(c => c.name.startsWith("speech") || c.name === "selection voice").every(c => !c.available)).toBe(true);
+ expect((await f.run("selection voice", f.target)).ok).toBe(false);
+ expect(f.transport.voices).not.toHaveBeenCalled(); f.speech.dispose();
 });

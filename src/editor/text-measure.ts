@@ -39,7 +39,9 @@ export function getCharWidthForFont(fontFamily: string | null | undefined, fontS
   const seg = prepareWithSegments("M", font);
   const lines = layoutWithLines(seg, Infinity, fontSize);
   w = lines.lines.length > 0 ? Math.floor(lines.lines[0].width) : Math.floor(fontSize * 0.6);
-  charWidthCache.set(key, w);
+  // A width measured while a web font is still loading comes from a fallback face; don't keep it.
+  const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+  if (!fonts || fonts.check(font)) charWidthCache.set(key, w);
   return w;
 }
 

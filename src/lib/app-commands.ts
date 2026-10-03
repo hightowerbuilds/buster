@@ -8,8 +8,10 @@
 
 import { registry, type Command } from "./command-registry";
 import { announce } from "./a11y";
+import { showError, showSuccess } from "./notify";
 import type { Accessor, Setter } from "solid-js";
 import type { EditorEngine } from "../editor/engine";
+import { formatJsonEngine } from "../editor/json-format";
 import type { CreateHotkeyDefinition } from "@tanstack/solid-hotkeys";
 import type { RegisterableHotkey } from "@tanstack/hotkeys";
 
@@ -19,18 +21,25 @@ import type { RegisterableHotkey } from "@tanstack/hotkeys";
 const REGION_SELECTORS = [
   { selector: '.sidebar-wrap[role="complementary"]', label: "Sidebar" },
   { selector: '.editor-area[role="main"]', label: "Editor" },
-  { selector: '.dock-bar[role="navigation"]', label: "Dock" },
+  { selector: '.assistant-sidebar[role="complementary"]', label: "Language Model" },
+  { selector: '.footer-nav', label: "Footer" },
 ];
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"]), canvas';
 
 /** Focus the first focusable element inside a region. */
 function focusRegion(regionEl: Element, label: string) {
+  const visibleTarget = (selector: string) => Array.from(regionEl.querySelectorAll<HTMLElement>(selector))
+    .find(el => !el.closest('[hidden], [inert], [aria-hidden="true"]') && el.getClientRects().length > 0);
   if (label === "Editor") {
-    const textarea = regionEl.querySelector<HTMLElement>(".canvas-editor textarea, .canvas-terminal textarea");
-    if (textarea) { textarea.focus({ preventScroll: true }); announce(label); return; }
+    const editor = visibleTarget('[data-tab-focus-target="true"], .canvas-editor textarea');
+    if (editor) { editor.focus({ preventScroll: true }); announce(label); return; }
   }
-  const first = regionEl.querySelector<HTMLElement>(FOCUSABLE);
+  if (label === "Language Model") {
+    const input = visibleTarget("[data-assistant-input]");
+    if (input) { input.focus({ preventScroll: true }); announce(label); return; }
+  }
+  const first = visibleTarget(FOCUSABLE);
   if (first) { first.focus({ preventScroll: true }); announce(label); }
 }
 
@@ -61,6 +70,7 @@ export interface CommandDeps {
   createNewFile: () => void;
   handleSave: () => void;
   handleSaveAs: () => void;
+  handlePrint: () => void;
   changeDirectory: () => void;
   handleTabClose: (id: string) => void;
   activeTabId: Accessor<string | null>;
@@ -70,18 +80,20 @@ export interface CommandDeps {
   setFindVisible: Setter<boolean>;
   setPaletteVisible: Setter<boolean>;
   setPaletteInitialQuery: Setter<string>;
-  createTerminalTab: () => void;
   createSettingsTab: () => void;
   createKeybindingsTab: () => void;
+  createGitTab: () => void;
+  createBrowserTab: () => void;
+  toggleAssistant: () => void;
   setSidebarVisible: Setter<boolean>;
+  jumpToDiagnostic: (direction: 1 | -1) => void;
   findVisible: Accessor<boolean>;
   paletteVisible: Accessor<boolean>;
   settings: Accessor<import("./ipc").AppSettings>;
   updateSettings: (s: import("./ipc").AppSettings) => void;
   tabTrapping: Accessor<boolean>;
   setTabTrapping: (v: boolean) => void;
-  closeSplit: () => void;
-  closeTabOrSplit: () => void;
+  closeActiveTab: () => void;
   navigateBack: () => void;
   navigateForward: () => void;
 }
@@ -112,11 +124,12 @@ function moveTab(deps: Pick<CommandDeps, "tabs" | "activeTabId" | "switchToTab">
 
 /** Default hotkey for each command. "Mod" maps to Cmd on Mac, Ctrl on Win/Linux. */
 export const DEFAULT_KEYBINDINGS: Record<string, string> = {
+  "file.newFile": "Mod+n",
+  "file.save": "Mod+s",
+  "file.saveAs": "Mod+Shift+s",
+  "file.print": "Mod+p",
   "file.openFolder": "Mod+o",
-  // file.closeTab has no default hotkey — Cmd+W closes the open tab
-  "terminal.new": "Mod+t",
-  "terminal.newAlt": "Mod+`",
-  "view.commandPalette": "Mod+p",
+  "view.commandPalette": "Mod+Alt+p",
   "view.showCommands": "Mod+Shift+p",
   "view.settings": "Mod+,",
   "view.keybindings": "Mod+k Mod+s",
@@ -134,11 +147,12 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "editor.zoomReset": "Mod+0",
   "git.open": "Mod+Shift+g",
   "browser.open": "Mod+Shift+b",
+  "assistant.toggle": "Mod+Shift+a",
   "editor.nextProblem": "F8",
   "editor.prevProblem": "Shift+F8",
   "view.focusNextRegion": "F6",
   "view.focusPrevRegion": "Shift+F6",
-  "view.closeSplit": "Mod+w",
+  "file.closeTab": "Mod+w",
   "editor.toggleTabTrapping": "Ctrl+m",
   "tabs.prev": "Mod+Shift+[",
   "tabs.next": "Mod+Shift+]",
@@ -162,6 +176,7 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "file.newFile", label: "New Note", category: "File", keybinding: "Mod+N", execute: () => deps.createNewFile() },
     { id: "file.save", label: "Save", category: "File", keybinding: "Mod+S", execute: () => deps.handleSave() },
     { id: "file.saveAs", label: "Save As...", category: "File", keybinding: "Mod+Shift+S", execute: () => deps.handleSaveAs() },
+    { id: "file.print", label: "Print…", category: "File", keybinding: "Mod+P", when: () => !!deps.activeEngine(), execute: () => deps.handlePrint() },
     { id: "file.openFolder", label: "Open Folder", category: "File", keybinding: "Mod+O", execute: () => deps.changeDirectory() },
     { id: "file.closeTab", label: "Close Tab", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
@@ -170,16 +185,28 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "editor.workspaceSymbol", label: "Go to Symbol in Workspace...", category: "Editor", keybinding: "Mod+Shift+T", execute: () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); } },
     { id: "editor.foldAll", label: "Fold All", category: "Editor", keybinding: "Mod+Alt+[", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.foldAll() },
     { id: "editor.unfoldAll", label: "Unfold All", category: "Editor", keybinding: "Mod+Alt+]", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.unfoldAll() },
+    { id: "editor.formatJson", label: "Format JSON", category: "Editor", when: () => !!deps.activeEngine(), execute: () => {
+      const engine = deps.activeEngine();
+      if (!engine) return;
+      try {
+        const indent = deps.settings().use_spaces !== false ? " ".repeat(deps.settings().tab_size || 2) : "\t";
+        formatJsonEngine(engine, indent);
+        showSuccess("JSON formatted");
+      } catch {
+        showError("Invalid JSON");
+      }
+    } },
     { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }) },
     { id: "editor.zoomOut", label: "Zoom Out", category: "View", keybinding: "Mod+-", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }) },
     { id: "editor.zoomReset", label: "Reset Zoom", category: "View", keybinding: "Mod+0", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }) },
-    { id: "terminal.new", label: "New Tab", category: "Terminal", keybinding: "Mod+T", execute: () => deps.createTerminalTab() },
-    { id: "view.commandPalette", label: "Command Palette", category: "View", keybinding: "Mod+P", execute: () => { deps.setPaletteInitialQuery(""); deps.setPaletteVisible(true); } },
+    { id: "view.commandPalette", label: "Command Palette", category: "View", keybinding: "Mod+Alt+P", execute: () => { deps.setPaletteInitialQuery(""); deps.setPaletteVisible(true); } },
     { id: "view.showCommands", label: "Show All Commands", category: "View", keybinding: "Mod+Shift+P", execute: () => { deps.setPaletteInitialQuery(">"); deps.setPaletteVisible(true); } },
     { id: "view.settings", label: "Settings", category: "View", keybinding: "Mod+,", execute: () => deps.createSettingsTab() },
     { id: "view.keybindings", label: "Keyboard Shortcuts", category: "View", keybinding: "Mod+K Mod+S", execute: () => deps.createKeybindingsTab() },
     { id: "view.toggleSidebar", label: "Toggle Sidebar", category: "View", keybinding: "Mod+B", execute: () => deps.setSidebarVisible(v => !v) },
-    { id: "view.closeSplit", label: "Close Tab", category: "View", keybinding: "Mod+W", execute: () => deps.closeTabOrSplit() },
+    { id: "git.open", label: "Git", category: "Git", keybinding: "Mod+Shift+G", execute: () => deps.createGitTab() },
+    { id: "assistant.toggle", label: "Toggle Language Model", category: "View", keybinding: "Mod+Shift+A", execute: () => deps.toggleAssistant() },
+    { id: "browser.open", label: "Open Browser", category: "Browser", keybinding: "Mod+Shift+B", execute: () => deps.createBrowserTab() },
     { id: "editor.toggleWhitespace", label: "Toggle Render Whitespace", category: "Editor", execute: () => {
       const s = deps.settings();
       deps.updateSettings({ ...s, show_whitespace: !s.show_whitespace });
@@ -190,6 +217,8 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     } },
     { id: "editor.navigateBack", label: "Go Back", category: "Editor", keybinding: "Ctrl+-", execute: () => deps.navigateBack() },
     { id: "editor.navigateForward", label: "Go Forward", category: "Editor", keybinding: "Ctrl+Shift+-", execute: () => deps.navigateForward() },
+    { id: "editor.nextProblem", label: "Go to Next Problem", category: "Editor", keybinding: "F8", execute: () => deps.jumpToDiagnostic(1) },
+    { id: "editor.prevProblem", label: "Go to Previous Problem", category: "Editor", keybinding: "Shift+F8", execute: () => deps.jumpToDiagnostic(-1) },
     { id: "view.focusNextRegion", label: "Focus Next Region", category: "View", keybinding: "F6", execute: () => cycleRegion(1) },
     { id: "view.focusPrevRegion", label: "Focus Previous Region", category: "View", keybinding: "Shift+F6", execute: () => cycleRegion(-1) },
     { id: "editor.toggleTabTrapping", label: "Toggle Tab Key Moves Focus", category: "Editor", keybinding: "Ctrl+M", execute: () => { const next = !deps.tabTrapping(); deps.setTabTrapping(next); announce(next ? "Tab key inserts tab character" : "Tab key moves focus", "assertive"); } },
@@ -241,13 +270,10 @@ export function buildHotkeyDefinitions(
   };
 
   add("file.save", () => deps.handleSave());
+  add("file.newFile", () => deps.createNewFile());
+  add("file.saveAs", () => deps.handleSaveAs());
+  add("file.print", () => deps.handlePrint());
   add("file.openFolder", () => deps.changeDirectory());
-  // file.closeTab has no hotkey — accessible via command palette
-  add("terminal.new", () => deps.createTerminalTab());
-  // Ctrl+` as secondary terminal shortcut
-  if (hk("terminal.newAlt")) {
-    defs.push({ hotkey: hk("terminal.newAlt")! as RegisterableHotkey, callback: () => deps.createTerminalTab() });
-  }
   add("view.commandPalette", () => { deps.setPaletteInitialQuery(""); deps.setPaletteVisible(true); });
   add("view.showCommands", () => { deps.setPaletteInitialQuery(">"); deps.setPaletteVisible(true); });
   add("view.settings", () => deps.createSettingsTab());
@@ -258,7 +284,7 @@ export function buildHotkeyDefinitions(
     callback: () => deps.setSidebarVisible(v => !v),
     options: { ignoreInputs: false },
   });
-  add("view.closeSplit", () => deps.closeTabOrSplit());
+  add("file.closeTab", () => deps.closeActiveTab());
   // Root hotkeys run before Solid's delegated terminal key handler. Disable the
   // editor binding outside documents so Cmd+F can reach terminal search.
   const findHotkey = hk("editor.find");
@@ -278,6 +304,17 @@ export function buildHotkeyDefinitions(
   add("editor.zoomIn", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }));
   add("editor.zoomOut", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }));
   add("editor.zoomReset", () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }));
+  add("git.open", () => deps.createGitTab());
+  add("browser.open", () => deps.createBrowserTab());
+  const assistantHotkey = hk("assistant.toggle");
+  // Also works while typing in the composer or a note.
+  if (assistantHotkey && !isChord(assistantHotkey)) defs.push({
+    hotkey: assistantHotkey as RegisterableHotkey,
+    callback: () => deps.toggleAssistant(),
+    options: { ignoreInputs: false },
+  });
+  add("editor.nextProblem", () => deps.jumpToDiagnostic(1));
+  add("editor.prevProblem", () => deps.jumpToDiagnostic(-1));
   add("view.focusNextRegion", () => cycleRegion(1));
   add("view.focusPrevRegion", () => cycleRegion(-1));
   add("editor.toggleTabTrapping", () => {

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./a11y", () => ({
@@ -16,8 +17,8 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
   return {
     createNewFile: vi.fn(),
     handleSaveAs: vi.fn(),
-    closeSplit: vi.fn(),
-    closeTabOrSplit: vi.fn(),
+    handlePrint: vi.fn(),
+    closeActiveTab: vi.fn(),
     handleSave: vi.fn(),
     changeDirectory: vi.fn(),
     handleTabClose: vi.fn(),
@@ -28,13 +29,16 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
     setFindVisible: vi.fn(),
     setPaletteVisible: vi.fn(),
     setPaletteInitialQuery: vi.fn(),
-    createTerminalTab: vi.fn(),
     createSettingsTab: vi.fn(),
     createKeybindingsTab: vi.fn(),
+    createGitTab: vi.fn(),
+    createBrowserTab: vi.fn(),
+    toggleAssistant: vi.fn(),
     setSidebarVisible: vi.fn(),
+    jumpToDiagnostic: vi.fn(),
     findVisible: () => false,
     paletteVisible: () => false,
-    settings: () => ({ word_wrap: true, font_size: 14, font_family: "JetBrains Mono, Menlo, Monaco, Consolas, monospace", tab_size: 4, use_spaces: true, minimap: false, line_numbers: true, cursor_blink: true, autocomplete: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, auto_save: false, auto_save_delay_ms: 1500, blog_theme: "normal", show_indent_guides: true, show_whitespace: false, terminal_font_family: "", terminal_shell: "", terminal_bell_mode: "visual", terminal_scrollback_rows: 10_000, ai_completion_enabled: false, ai_provider: "ollama", ai_api_key: "", ai_model: "claude-haiku-4-5-20251001", ai_local_model: "gemma3:4b", ai_ollama_url: "http://localhost:11434", ai_stop_on_newline: true, ai_debounce_local_ms: 1500, ai_debounce_cloud_ms: 500, ai_min_prefix_chars: 3, ai_cache_enabled: true, ai_cache_size: 24, ai_disabled_languages: [], ai_token_budget_monthly: 0 }),
+    settings: () => ({ word_wrap: true, font_size: 14, font_family: "JetBrains Mono, Menlo, Monaco, Consolas, monospace", tab_size: 4, use_spaces: true, minimap: false, line_numbers: true, cursor_blink: true, autocomplete: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, syntax_colors: {}, format_on_save: false, auto_save: false, auto_save_delay_ms: 1500, language_settings: {}, blog_theme: "normal", show_indent_guides: true, show_whitespace: false, terminal_font_family: "", terminal_shell: "", terminal_bell_mode: "visual", terminal_scrollback_rows: 10_000, ai_completion_enabled: false, ai_provider: "ollama", ai_api_key: "", ai_model: "claude-haiku-4-5-20250514", ai_local_model: "gemma3:4b", ai_ollama_url: "http://localhost:11434", ai_stop_on_newline: true, ai_debounce_local_ms: 1500, ai_debounce_cloud_ms: 500, ai_min_prefix_chars: 3, ai_cache_enabled: true, ai_cache_size: 24, ai_disabled_languages: [], ai_token_budget_monthly: 0 }),
     updateSettings: vi.fn(),
     tabTrapping: () => true,
     setTabTrapping: vi.fn(),
@@ -51,14 +55,44 @@ function fireHotkey(defs: ReturnType<typeof buildHotkeyDefinitions>, hotkey: str
 }
 
 describe("tab hotkeys", () => {
-  it("registers pane shortcuts once and keeps tab-close distinct from pane-close", () => {
+  it("uses Command-P for printing and keeps the palette on Command-Option-P", () => {
+    const deps = makeDeps(); const definitions = buildHotkeyDefinitions(deps);
+    fireHotkey(definitions, "Mod+p"); expect(deps.handlePrint).toHaveBeenCalledOnce();
+    expect(deps.setPaletteVisible).not.toHaveBeenCalled();
+    fireHotkey(definitions, "Mod+Alt+p"); expect(deps.setPaletteVisible).toHaveBeenCalledWith(true);
+  });
+  it("cycles into the active block editor instead of a cached hidden editor or toolbar", () => {
+    const region = document.createElement("main");
+    region.className = "editor-area"; region.setAttribute("role", "main");
+    region.innerHTML = '<button>Formatting</button><div aria-hidden="true"><div class="canvas-editor"><textarea></textarea></div></div><div contenteditable="true" tabindex="0" data-tab-focus-target="true"></div>';
+    document.body.append(region);
+    Object.defineProperty(region, "offsetParent", { value: document.body });
+    const active = region.querySelector<HTMLElement>('[data-tab-focus-target]')!;
+    const rect = vi.spyOn(active, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
+    try {
+      fireHotkey(buildHotkeyDefinitions(makeDeps()), "F6");
+      expect(document.activeElement).toBe(active);
+    } finally { rect.mockRestore(); region.remove(); }
+  });
+
+  it("registers tab close and ignores retired pane shortcuts", () => {
     const deps = makeDeps();
-    const defs = buildHotkeyDefinitions(deps);
+    const defs = buildHotkeyDefinitions(deps, { "pane.close": "Mod+Shift+w", "view.splitRight": "Mod+d" });
     const keys = defs.map(def => String(def.hotkey));
     expect(new Set(keys).size).toBe(keys.length);
     fireHotkey(defs, "Mod+w");
-    expect(deps.closeTabOrSplit).toHaveBeenCalledOnce();
-    expect(deps.closeSplit).not.toHaveBeenCalled();
+    expect(deps.closeActiveTab).toHaveBeenCalledOnce();
+    expect(keys).not.toContain("Mod+d");
+    expect(keys).not.toContain("Mod+Shift+w");
+    expect(Object.keys(DEFAULT_KEYBINDINGS).some(key => key.startsWith("pane.") || key.startsWith("view.split"))).toBe(false);
+  });
+
+  it("toggles the assistant from its default shortcut, including inside text inputs", () => {
+    const deps = makeDeps();
+    const defs = buildHotkeyDefinitions(deps);
+    fireHotkey(defs, "Mod+Shift+a");
+    expect(deps.toggleAssistant).toHaveBeenCalledOnce();
+    expect(defs.find(def => String(def.hotkey) === "Mod+Shift+a")?.options).toMatchObject({ ignoreInputs: false });
   });
 
   it("lets terminal find and Escape reach the focused panel", () => {

@@ -9,9 +9,8 @@ export default function WritingViewport(props: { tabId: string; markdown: boolea
   const [size, setSize] = createSignal({ width: 0, height: 0 });
   let root!: HTMLDivElement;
   let inner!: HTMLDivElement;
-  const paneId = () => store.paneWorkspace.panes.find(pane => pane.tabId === props.tabId)?.id;
-  const box = createMemo(() => writingViewportBox(size().width, size().height, appearance.forPane(paneId()), props.markdown));
-  const background = createMemo(() => props.markdown ? writingPalette(store.palette, appearance.forPane(paneId())).editorBg : store.palette.editorBg);
+  const box = createMemo(() => writingViewportBox(size().width, size().height, appearance.forTab(props.tabId), props.markdown));
+  const background = createMemo(() => props.markdown ? writingPalette(store.palette, appearance.forTab(props.tabId)).editorBg : store.palette.editorBg);
   onMount(() => {
     const measure = () => setSize({ width: root.clientWidth, height: root.clientHeight });
     measure();

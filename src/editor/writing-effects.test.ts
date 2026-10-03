@@ -92,8 +92,11 @@ describe("writing render geometry", () => {
       width: 500, height: 300, scrollTop: 0, lines: ["first", "second", "third"], fontSize: 20, lineHeight: 40,
       lineNumbers: false, wordWrap: true, cursors: [{ line: 1, col: 2 }], cursorVisible: true,
       selStart: { line: 1, col: 0 }, selEnd: { line: 1, col: 2 }, searchMatches: [], currentSearchIdx: -1,
-      hasBuffer: true, palette, phantomTexts: [], minimap: false, bracketMatch: null, foldedLines: new Set(), foldStartLines: new Set(), isFoldable: () => false,
-      cursorStyle: "line", tabSize: 2, showIndentGuides: false, showWhitespace: false,
+      diagnostics: [], lineTokens: [], completionVisible: false, completionItems: [], completionIdx: 0,
+      hoverText: "", hoverPos: null, hasBuffer: true, signatureHelp: null, codeActionLine: null,
+      codeActionMenuVisible: false, codeActionItems: [], codeActionIdx: 0, palette, phantomTexts: [], diffHunks: [],
+      blameData: null, minimap: false, bracketMatch: null, foldedLines: new Set(), foldStartLines: new Set(), isFoldable: () => false,
+      cursorStyle: "line", tabSize: 2, showIndentGuides: false, showWhitespace: false, renameState: null, errorPeekLine: null,
       writingStyle: { focusDim: 0.45, contrast: true, pulse: 0 },
     };
     renderEditor(canvas, params);

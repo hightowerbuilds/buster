@@ -16,8 +16,7 @@ export function createSessionActions(
     return {
       workspaceRoot: store.workspaceRoot,
       activeTabId: store.activeTabId,
-      panelCount: store.panelCount,
-      paneWorkspace: store.paneWorkspace,
+      splitView: store.splitView ? { ...store.splitView } : null,
       sidebarVisible: store.sidebarVisible,
       sidebarWidth: store.sidebarWidth,
       tabs: [...store.tabs],
@@ -27,10 +26,16 @@ export function createSessionActions(
     };
   }
 
-  async function saveSessionNow() {
-    if (!restoreReady) return;
+  async function saveSessionNow(strict = false) {
+    if (!restoreReady) {
+      if (strict) throw new Error("Session recovery has not completed; existing recovery data is preserved.");
+      return;
+    }
     try { await persistSession(buildSnapshot()); }
-    catch (e) { logWarn("Session save failed", e); }
+    catch (e) {
+      if (strict) throw e;
+      logWarn("Session save failed", e);
+    }
   }
 
   return { buildSnapshot, saveSessionNow, finishSessionRestore };

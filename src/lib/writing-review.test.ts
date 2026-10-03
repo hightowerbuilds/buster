@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createEditorEngine } from "../editor/engine";
 import { CommandFailure, FeatureCommands } from "./feature-commands";
 import { captureSelection } from "./selection-commands";
-import { newPaneWorkspace, showTabInPane, splitWritingPane } from "./writing-panes";
 import { createWritingReview, registerWritingReviewCommands, type WritingRequest } from "./writing-review";
 
 const original = "A café 世界 passage. Private surrounding context.";
@@ -12,25 +11,24 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function fixture() {
+function fixture(dictionaryAvailable = true) {
   const engine = createEditorEngine(original);
   const other = createEditorEngine("Another note.");
   engine.setSelection({ line: 0, col: 2 }, { line: 0, col: 9 });
-  let workspace = newPaneWorkspace("draft");
   const tabs = new Set(["draft", "other"]);
-  const target = captureSelection(workspace.activePaneId, "draft", engine)!;
+  const target = captureSelection("draft", engine)!;
   const requests: Array<{ request: WritingRequest; token: (text: string) => void; signal: AbortSignal; task: ReturnType<typeof deferred<void>> }> = [];
   const generate = vi.fn((request: WritingRequest, token: (text: string) => void, signal: AbortSignal) => {
     const task = deferred<void>(); requests.push({ request, token, signal, task }); return task.promise;
   });
   const lookup = vi.fn(async (_text: string): Promise<{ definition: string | null; source: string }> => ({ definition: "A coffeehouse.", source: "macOS Dictionary" }));
-  const openPanel = vi.fn((id: string, _kind: "lookup" | "ai", _paneId: string) => { const tabId = `review_${id}`; tabs.add(tabId); return tabId; });
+  const openPanel = vi.fn((id: string, _kind: "lookup" | "ai", _tabId: string) => { const tabId = `review_${id}`; tabs.add(tabId); return tabId; });
   const closePanel = vi.fn((tabId: string) => { tabs.delete(tabId); });
   const createNote = vi.fn((_text: string, _reviewTabId: string) => "new-note");
   const focusSource = vi.fn();
-  const review = createWritingReview({ workspace: () => workspace, engine: id => id === "draft" ? engine : id === "other" ? other : undefined,
+  const review = createWritingReview({ engine: id => id === "draft" ? engine : id === "other" ? other : undefined,
     hasTab: id => tabs.has(id), openPanel, closePanel, createNote, focusSource, generate, lookup });
-  const commands = new FeatureCommands(); registerWritingReviewCommands(commands, review);
+  const commands = new FeatureCommands(); registerWritingReviewCommands(commands, review, dictionaryAvailable);
   const run = (command: string, args: object = target, requestId: string = crypto.randomUUID()) => commands.dispatch({ command, args: { ...args }, requestId }, "ai");
   async function completed(text = "Polished passage.") {
     const { reviewId } = review.start(target, "ai");
@@ -40,8 +38,8 @@ function fixture() {
     return reviewId;
   }
   return { engine, other, target, tabs, review, commands, run, completed, requests, generate, lookup, openPanel, closePanel, createNote, focusSource,
-    focusElsewhere: () => { workspace = showTabInPane(splitWritingPane(workspace, "right"), "other"); },
-    replaceSourcePane: () => { workspace = showTabInPane(workspace, "other"); } };
+
+    closeSource: () => { tabs.delete("draft"); } };
 }
 
 describe("writing review", () => {
@@ -50,7 +48,7 @@ describe("writing review", () => {
     const { reviewId } = f.review.start(f.target, "ai");
     expect(f.generate).not.toHaveBeenCalled();
     expect(f.review.reviews[reviewId].status).toBe("ready");
-    f.focusElsewhere(); f.engine.clearSelection();
+     f.engine.clearSelection();
     f.review.generate(reviewId, "openai", " chosen-model ", "Rewrite plainly.");
     expect(f.requests[0].request).toEqual({ requestId: expect.any(String), provider: "openai", model: "chosen-model", instruction: "Rewrite plainly.", text: "café 世界" });
     f.requests[0].token("Clear writing"); f.requests[0].task.resolve();
@@ -84,7 +82,7 @@ describe("writing review", () => {
   });
 
   it("never applies to a closed source, even if another note is focused", async () => {
-    const f = fixture(); const id = await f.completed(); f.tabs.delete("draft"); f.focusElsewhere();
+    const f = fixture(); const id = await f.completed(); f.tabs.delete("draft");
     expect(await f.run("review apply", { reviewId: id, mode: "replace" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(await f.run("review source", { reviewId: id })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(f.other.getText()).toBe("Another note.");
@@ -142,12 +140,30 @@ describe("writing review", () => {
     expect(f.review.reviews[reviewId]).toBeUndefined(); expect(f.engine.getText()).toBe(original);
   });
 
+  it("closing a source cancels generation and ignores late output while retaining the review", async () => {
+    const f = fixture(); const { reviewId } = f.review.start(f.target, "ai");
+    f.review.generate(reviewId, "ollama", "writer", "Rewrite.");
+    f.requests[0].token("Partial");
+    f.closeSource(); f.review.reconcile();
+    expect(f.requests[0].signal.aborted).toBe(true);
+    f.requests[0].token(" late"); f.requests[0].task.resolve();
+    await Promise.resolve(); await Promise.resolve();
+    expect(f.review.reviews[reviewId]).toMatchObject({ status: "canceled", output: "Partial" });
+    expect(f.other.getText()).toBe("Another note.");
+  });
+
+  it("keeps completed output after source-close reconciliation", async () => {
+    const f = fixture(); const id = await f.completed();
+    f.closeSource(); f.review.reconcile();
+    expect(f.review.apply(id, "new-note")).toMatchObject({ tabId: "new-note" });
+  });
+
   it("discard closes the review without changing the source or selection", async () => {
     const f = fixture(); const id = await f.completed(); const tabId = f.review.reviews[id].tabId;
     expect(await f.run("review discard", { reviewId: id })).toMatchObject({ ok: true, data: { discarded: true } });
     expect(f.closePanel).toHaveBeenCalledExactlyOnceWith(tabId);
     expect(f.review.reviews[id]).toBeUndefined();
-    expect(captureSelection(f.target.paneId, "draft", f.engine)).toEqual(f.target);
+    expect(captureSelection("draft", f.engine)).toEqual(f.target);
     expect(f.engine.getText()).toBe(original);
   });
 
@@ -164,13 +180,13 @@ describe("writing review", () => {
     expect(f.engine.getText()).toBe(original);
   });
 
-  it("rejects stale selections, replaced source panes, and failed panel creation without orphaned reviews", async () => {
+  it("rejects stale selections, closed source tabs, and failed panel creation without orphaned reviews", async () => {
     const f = fixture(); f.engine.clearSelection();
     expect(await f.run("selection ai")).toMatchObject({ ok: false, error: { code: "STALE_SELECTION" } });
     expect(f.openPanel).not.toHaveBeenCalled();
-    const g = fixture(); g.replaceSourcePane();
-    expect(await g.run("selection ai")).toMatchObject({ ok: false, error: { code: "STALE_SELECTION" } });
-    const h = fixture(); h.openPanel.mockImplementation(() => { throw new CommandFailure("LIMIT_REACHED", "No pane available"); });
+    const g = fixture(); g.closeSource();
+    expect(await g.run("selection ai")).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    const h = fixture(); h.openPanel.mockImplementation(() => { throw new CommandFailure("LIMIT_REACHED", "Cannot open review"); });
     expect(await h.run("selection ai")).toMatchObject({ ok: false, error: { code: "LIMIT_REACHED" } });
     expect(Object.keys(h.review.reviews)).toEqual([]); expect(h.generate).not.toHaveBeenCalled();
   });
@@ -196,4 +212,12 @@ describe("writing review", () => {
     await Promise.resolve(); await Promise.resolve();
     expect(f.review.reviews[reviewId]).toBeUndefined(); expect(f.engine.getText()).toBe(original);
   });
+});
+
+it("marks Linux dictionary lookup unavailable without disabling AI review", async () => {
+ const f = fixture(false);
+ expect(f.commands.describe("selection lookup")[0].available).toBe(false);
+ expect((await f.run("selection lookup")).ok).toBe(false);
+ expect(f.lookup).not.toHaveBeenCalled();
+ expect((await f.run("selection ai")).ok).toBe(true); f.review.dispose();
 });

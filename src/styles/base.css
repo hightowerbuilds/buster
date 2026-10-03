@@ -3,18 +3,18 @@
 :root {
   --font-ui: "Lato", sans-serif;
   --font-mono: "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
-  --bg-base: #1e1e2e;
-  --bg-mantle: #181825;
-  --bg-crust: #11111b;
-  --bg-surface0: #313244;
-  --bg-surface1: #45475a;
-  --bg-surface2: #585b70;
-  --text: #cdd6f4;
-  --text-dim: #a6adc8;
-  --text-muted: #7f849c;
+  --bg-base: #0c0c0c;
+  --bg-mantle: #090909;
+  --bg-crust: #050505;
+  --bg-surface0: #1a1a1a;
+  --bg-surface1: #262626;
+  --bg-surface2: #363636;
+  --text: #e2e2e2;
+  --text-dim: #a3a3a3;
+  --text-muted: #767676;
   --accent: #89b4fa;
   --accent2: #f5c2e7;
-  --border: #313244;
+  --border: #1c1c1c;
   --red: #f38ba8;
   --green: #a6e3a1;
   --yellow: #f9e2af;
@@ -83,19 +83,6 @@ button, input, select, textarea {
   height: 100%;
   position: relative;
   cursor: text;
-}
-
-/* Dock Bar — full-width bottom navigation */
-.dock-bar {
-  display: flex;
-  align-items: center;
-  background: var(--bg-crust);
-  border-top: 1px solid var(--border);
-  height: 38px;
-  flex-shrink: 0;
-  padding: 0 4px;
-  margin-bottom: 12px;
-  gap: 2px;
 }
 
 /* Scrollbar */

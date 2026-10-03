@@ -19,7 +19,7 @@ export function createFocusTrap(
     const el = getContainer();
     if (!el) return [];
     return Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (node) => !node.hasAttribute("disabled") && node.offsetParent !== null,
+      (node) => !node.matches(":disabled") && node.offsetParent !== null,
     );
   }
 

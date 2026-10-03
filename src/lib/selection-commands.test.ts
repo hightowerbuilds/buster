@@ -2,26 +2,23 @@ import { describe, expect, it, vi } from "vitest";
 import { createEditorEngine } from "../editor/engine";
 import { FeatureCommands } from "./feature-commands";
 import { captureSelection, registerSelectionCommands } from "./selection-commands";
-import { newPaneWorkspace, splitWritingPane, showTabInPane } from "./writing-panes";
 
 function fixture() {
   const engine = createEditorEngine("A café 世界 passage.");
   engine.setSelection({ line: 0, col: 2 }, { line: 0, col: 9 });
-  let workspace = newPaneWorkspace("draft");
-  const paneId = workspace.activePaneId;
+  let closed = false;
   const service = new FeatureCommands();
   const readClipboard = vi.fn(async () => "replacement\r\ntext");
   const writeClipboard = vi.fn(async () => true);
-  registerSelectionCommands(service, { workspace: () => workspace, engine: id => id === "draft" ? engine : undefined, readClipboard, writeClipboard });
-  const target = captureSelection(paneId, "draft", engine)!;
+  registerSelectionCommands(service, { hasTab: id => id === "draft" && !closed, engine: id => id === "draft" ? engine : undefined, readClipboard, writeClipboard });
+  const target = captureSelection("draft", engine)!;
   const run = (command: string, args: object = target, requestId: string = crypto.randomUUID()) => service.dispatch({ command, args: { ...args }, requestId }, "ai");
-  return { engine, target, run, readClipboard, writeClipboard, changePane: () => { workspace = showTabInPane(workspace, "other"); },
-    focusElsewhere: () => { workspace = splitWritingPane(workspace, "right"); } };
+  return { engine, target, run, readClipboard, writeClipboard, closeSource: () => { closed = true; } };
 }
 describe("selection commands", () => {
   it("captures Unicode text without accessing the clipboard and validates range setting", async () => {
     const f = fixture();
-    expect(await f.run("selection read", { paneId: f.target.paneId })).toMatchObject({ ok: true, data: { text: "café 世界", revision: 0 } });
+    expect(await f.run("selection read", { tabId: f.target.tabId })).toMatchObject({ ok: true, data: { text: "café 世界", revision: 0 } });
     expect(f.readClipboard).not.toHaveBeenCalled();
     expect(f.writeClipboard).not.toHaveBeenCalled();
     expect(await f.run("selection set", f.target)).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENTS" } });
@@ -33,7 +30,7 @@ describe("selection commands", () => {
     const f = fixture();
     await Promise.all([f.run("selection copy", f.target, "same"), f.run("selection copy", f.target, "same")]);
     expect(f.writeClipboard).toHaveBeenCalledExactlyOnceWith("café 世界");
-    expect(captureSelection(f.target.paneId, "draft", f.engine)).toEqual(f.target);
+    expect(captureSelection("draft", f.engine)).toEqual(f.target);
   });
   it("pastes once, normalizes line endings, and isolates paste from subsequent typing in undo history", async () => {
     const f = fixture();
@@ -63,10 +60,10 @@ describe("selection commands", () => {
       expect(f.engine.getText()).toBe(expected);
     }
   });
-  it("keeps explicit source targeting after focus changes and rejects a replaced pane", async () => {
-    const f = fixture(); f.focusElsewhere();
+  it("keeps explicit source targeting after focus changes and rejects a closed source tab", async () => {
+    const f = fixture();
     expect(await f.run("selection paste")).toMatchObject({ ok: true, data: { tabId: "draft" } });
-    const g = fixture(); g.changePane();
+    const g = fixture(); g.closeSource();
     expect(await g.run("selection paste")).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(g.readClipboard).not.toHaveBeenCalled();
   });

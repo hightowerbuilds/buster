@@ -1074,8 +1074,23 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
 
     // ── Bulk operations ─────────────────────────────────────────
 
+    /** Publish a rich-editor transaction while retaining the shared undo/save history. */
+    replaceDocument(text: string, selection: Selection) {
+      recordUndo();
+      batch(() => {
+        setLines(text.split("\n"));
+        setCursor(clamp(selection.head, lines()));
+        setSel(selection.anchor.line === selection.head.line && selection.anchor.col === selection.head.col
+          ? null : { anchor: clamp(selection.anchor, lines()), head: clamp(selection.head, lines()) });
+        setExtras([]);
+        afterEdit(null);
+      });
+    },
+
     /** Replace entire document (e.g., on file open). */
     loadText(text: string, newFilePath?: string) {
+      const ending: LineEnding = text.includes("\r\n") ? "CRLF" : "LF";
+      text = text.replace(/\r\n/g, "\n");
       let ls: string[];
       if (text.length === 0) {
         ls = [""];
@@ -1100,7 +1115,9 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         setExtras([]);
         setSel(null);
         setDirty(false);
-        setEditSeq(0);
+        // Reloading must invalidate captured AI edits/selections, including revision zero.
+        setEditSeq(sequence => sequence + 1);
+        setLineEnding(ending);
         if (newFilePath !== undefined) setPath(newFilePath);
       });
       undoStack = [];
@@ -1109,7 +1126,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       pendingSnapshot = null;
       desiredCol = null;
       editDeltas = [];
-      fullSyncNeeded = false;
+      fullSyncNeeded = true;
       invalidateCache();
     },
 

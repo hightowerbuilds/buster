@@ -15,8 +15,8 @@ pub struct NotesWorkspace {
 fn desktop_link(root: &Path, desktop: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(desktop).map_err(|e| e.to_string())?;
     for suffix in 0..100 {
-        let name = if suffix == 0 { "BusterMark".to_string() }
-            else { format!("BusterMark Notes {}", suffix) };
+        let name = if suffix == 0 { "bustermark-workspace".to_string() }
+            else { format!("bustermark-workspace-{}", suffix) };
         let link = desktop.join(name);
         match fs::symlink_metadata(&link) {
             Ok(meta) => {
@@ -40,7 +40,12 @@ fn desktop_link(root: &Path, desktop: &Path) -> Result<PathBuf, String> {
             Err(e) => return Err(e.to_string()),
         }
     }
-    Err("No free BusterMark shortcut name was found on the Desktop".into())
+    Err("No free bustermark-workspace shortcut name was found on the Desktop".into())
+}
+
+// XDG treats a Desktop directory equal to $HOME as disabled; fall back to an existing ~/Desktop.
+fn desktop_folder(configured: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    configured.or_else(|| home.map(|home| home.join("Desktop")).filter(|desktop| desktop.is_dir()))
 }
 
 #[tauri::command]
@@ -51,7 +56,8 @@ pub fn initialize_notes_workspace(app: tauri::AppHandle, state: tauri::State<Wor
     let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
     let root_string = root.to_string_lossy().into_owned();
     state.set_notes_root(root_string.clone());
-    let shortcut = dirs::desktop_dir().ok_or("Desktop folder was not found".to_string())
+    let shortcut = desktop_folder(dirs::desktop_dir(), dirs::home_dir())
+        .ok_or("Desktop folder was not found".to_string())
         .and_then(|desktop| desktop_link(&root, &desktop));
     let (desktop_link, warning) = match shortcut {
         Ok(path) => (Some(path.to_string_lossy().into_owned()), None),
@@ -89,14 +95,25 @@ mod tests {
     #[test]
     fn existing_folder_and_unrelated_broken_link_are_preserved() {
         let (base, root, desktop) = fixture();
-        fs::create_dir_all(desktop.join("BusterMark")).unwrap();
-        fs::write(desktop.join("BusterMark/keep.md"), "keep").unwrap();
-        std::os::unix::fs::symlink(base.join("missing"), desktop.join("BusterMark Notes 1")).unwrap();
+        fs::create_dir_all(desktop.join("bustermark-workspace")).unwrap();
+        fs::write(desktop.join("bustermark-workspace/keep.md"), "keep").unwrap();
+        std::os::unix::fs::symlink(base.join("missing"), desktop.join("bustermark-workspace-1")).unwrap();
         let link = desktop_link(&root, &desktop).unwrap();
-        assert_eq!(link, desktop.join("BusterMark Notes 2"));
+        assert_eq!(link, desktop.join("bustermark-workspace-2"));
         assert_eq!(desktop_link(&root, &desktop).unwrap(), link);
-        assert_eq!(fs::read_to_string(desktop.join("BusterMark/keep.md")).unwrap(), "keep");
-        assert_eq!(fs::read_link(desktop.join("BusterMark Notes 1")).unwrap(), base.join("missing"));
+        assert_eq!(fs::read_to_string(desktop.join("bustermark-workspace/keep.md")).unwrap(), "keep");
+        assert_eq!(fs::read_link(desktop.join("bustermark-workspace-1")).unwrap(), base.join("missing"));
+        fs::remove_dir_all(base).unwrap();
+    }
+    #[test]
+    fn desktop_falls_back_to_existing_home_desktop_only() {
+        let (base, _root, desktop) = fixture();
+        let configured = base.join("Configured");
+        assert_eq!(desktop_folder(Some(configured.clone()), Some(base.clone())), Some(configured));
+        assert_eq!(desktop_folder(None, Some(base.clone())), None);
+        fs::create_dir_all(&desktop).unwrap();
+        assert_eq!(desktop_folder(None, Some(base.clone())), Some(desktop));
+        assert_eq!(desktop_folder(None, None), None);
         fs::remove_dir_all(base).unwrap();
     }
 }

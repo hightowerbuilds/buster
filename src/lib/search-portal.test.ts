@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createEditorEngine } from "../editor/engine";
 import { FeatureCommands } from "./feature-commands";
-import { newPaneWorkspace } from "./writing-panes";
 import { createSearchPortal, registerSearchPortalCommands } from "./search-portal";
 
 function fixture(text = "Hello world.\nAnother café passage.") {
   const engine = createEditorEngine(text);
   const other = createEditorEngine("Unsaved café [brackets] café.");
-  let workspace = newPaneWorkspace("draft");
+  let activeTabId = "draft";
   const tabs = new Set(["draft", "other", "loading"]);
   const openPanel = vi.fn((id: string) => { const tabId = `portal_${id}`; tabs.add(tabId); return tabId; });
   const focusSource = vi.fn();
@@ -15,13 +14,13 @@ function fixture(text = "Hello world.\nAnother café passage.") {
   const closePanel = vi.fn((id: string) => tabs.delete(id));
   const createNote = vi.fn((_: string, _tabId: string) => { tabs.add("kept"); return "kept"; });
   const reviewPassage = vi.fn(() => ({ reviewId: "review" }));
-  const service = createSearchPortal({ workspace: () => workspace, notes: () => [{ tabId: "draft", name: "Draft.md" }, { tabId: "other", name: "Untitled.md" }, { tabId: "loading", name: "Loading.md" }],
+  const service = createSearchPortal({ activeTabId: () => activeTabId, notes: () => [{ tabId: "draft", name: "Draft.md" }, { tabId: "other", name: "Untitled.md" }, { tabId: "loading", name: "Loading.md" }],
     engine: id => id === "draft" ? engine : id === "other" ? other : undefined, hasTab: id => tabs.has(id), openPanel, focusSource, focusPanel, closePanel, createNote, reviewPassage });
   const commands = new FeatureCommands(); registerSearchPortalCommands(commands, service);
   const run = (command: string, args = {}, requestId: string = crypto.randomUUID()) => commands.dispatch({ command, args, requestId }, "ai");
   const open = () => service.open().portalId;
   return { service, engine, other, openPanel, focusPanel, focusSource, createNote, reviewPassage, closePanel, tabs, run, open,
-    displayPortal: (tabId: string) => { workspace = { ...workspace, panes: workspace.panes.map(pane => ({ ...pane, tabId })) }; } };
+    displayPortal: (tabId: string) => { activeTabId = tabId; } };
 }
 
 describe("local search portal", () => {
@@ -120,9 +119,9 @@ describe("local search portal", () => {
     expect(f.engine.getText()).toBe(original);
     const another = f.open(); f.tabs.delete(f.service.portals[another].tabId); f.service.reconcile(); expect(f.service.portals[another]).toBeUndefined();
   });
-  it("failed pane creation rolls back the portal and invalid panes have no side effects", () => {
+  it("failed tab creation rolls back the portal and invalid tabs have no side effects", () => {
     const f = fixture(); expect(() => f.service.open("missing")).toThrow("no longer open");
-    f.openPanel.mockImplementationOnce(() => { throw new Error("Pane unavailable"); });
-    expect(f.open).toThrow("Pane unavailable"); expect(Object.keys(f.service.portals)).toHaveLength(0);
+    f.openPanel.mockImplementationOnce(() => { throw new Error("Tab unavailable"); });
+    expect(f.open).toThrow("Tab unavailable"); expect(Object.keys(f.service.portals)).toHaveLength(0);
   });
 });

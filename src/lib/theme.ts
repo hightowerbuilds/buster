@@ -222,26 +222,27 @@ export function withSyntaxOverrides(
 
 // --- Catppuccin Mocha (the default) ---
 
+// Dark mode: neutral near-black surfaces and text with Catppuccin's accents and syntax colours.
 export const CATPPUCCIN: ThemePalette = {
-  editorBg: "#1e1e2e",
-  gutterBg: "#181825",
-  surface0: "#313244",
-  surface1: "#45475a",
-  surface2: "#585b70",
+  editorBg: "#0c0c0c",
+  gutterBg: "#090909",
+  surface0: "#1a1a1a",
+  surface1: "#262626",
+  surface2: "#363636",
 
-  text:      "#cdd6f4",
-  textDim:   "#a6adc8",
-  textMuted: "#585b70",
+  text:      "#e2e2e2",
+  textDim:   "#a3a3a3",
+  textMuted: "#5c5c5c",
 
   accent:    "#89b4fa",
   accent2:   "#f5c2e7",
   cursor:    "#f5e0dc",
   cursorAlt: "#f5c2e7",
 
-  border:          "#313244",
-  selection:       "rgba(68, 68, 119, 0.6)",
+  border:          "#1c1c1c",
+  selection:       "rgba(255, 255, 255, 0.16)",
   searchHighlight: "rgba(249, 226, 175, 0.25)",
-  currentLine:     "rgba(49, 50, 68, 0.5)",
+  currentLine:     "rgba(255, 255, 255, 0.035)",
 
   error:   "#f38ba8",
   warning: "#fab387",
@@ -284,9 +285,9 @@ export const CATPPUCCIN: ThemePalette = {
   grain: 0,
   accentRgb: [137, 180, 250],
 
-  cssBase:   "#1e1e2e",
-  cssMantle: "#181825",
-  cssCrust:  "#11111b",
+  cssBase:   "#0c0c0c",
+  cssMantle: "#090909",
+  cssCrust:  "#050505",
 };
 
 // --- Light theme ---
@@ -564,33 +565,6 @@ export function importVSCodeTheme(json: VSCodeThemeJSON, fx: ThemeEffects): Them
     cssBase: editorBg,
     cssMantle: sidebarBg,
     cssCrust: darken(editorBg, 0.15),
-  };
-}
-
-// --- Derive terminal ANSI colors from the app palette ---
-
-export function paletteToTerminalColors(p: ThemePalette): Record<string, string> {
-  return {
-    background:    p.editorBg,
-    foreground:    p.text,
-    cursor:        p.cursor,
-    selection:     p.surface1,
-    black:         p.cssCrust,
-    red:           p.error,
-    green:         p.syntax.string || "#a6e3a1",
-    yellow:        p.warning,
-    blue:          p.accent,
-    magenta:       p.accent2,
-    cyan:          p.info,
-    white:         p.textDim,
-    brightBlack:   p.textMuted,
-    brightRed:     p.error,
-    brightGreen:   p.syntax.string || "#a6e3a1",
-    brightYellow:  p.warning,
-    brightBlue:    p.accent,
-    brightMagenta: p.accent2,
-    brightCyan:    p.info,
-    brightWhite:   p.text,
   };
 }
 

@@ -12,9 +12,11 @@ export function createSettingsActions(
   setStore: SetStoreFunction<BusterStoreState>,
   rebuildPalette: (s: AppSettings) => void,
 ) {
+  let saveQueue = Promise.resolve();
   function updateSettings(newSettings: AppSettings) {
     setStore("settings", newSettings);
-    saveSettingsIpc(newSettings).catch(() => showError("Failed to save settings"));
+    const snapshot = JSON.parse(JSON.stringify(newSettings)) as AppSettings;
+    saveQueue = saveQueue.then(() => saveSettingsIpc(snapshot)).catch(error => showError(`Settings were not saved: ${String(error)}`));
     document.documentElement.style.fontSize = `${newSettings.ui_zoom}%`;
     rebuildPalette(newSettings);
   }
@@ -23,6 +25,7 @@ export function createSettingsActions(
     try {
       const s = await loadSettingsIpc();
       setStore("settings", s);
+      if (s.ai_credential_error) showError(s.ai_credential_error);
       document.documentElement.style.fontSize = `${s.ui_zoom}%`;
       rebuildPalette(s);
     } catch (e) { console.warn("Failed to load settings:", e); }

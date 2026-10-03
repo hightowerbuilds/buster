@@ -69,7 +69,7 @@ describe("pre-defined palettes", () => {
   });
 
   it("CATPPUCCIN has dark backgrounds", () => {
-    // Catppuccin Mocha bg should be dark (#1e1e2e)
+    // The dark palette's background is near-black (#0c0c0c)
     expect(CATPPUCCIN.editorBg).toMatch(HEX_RE);
     const r = parseInt(CATPPUCCIN.editorBg.slice(1, 3), 16);
     expect(r).toBeLessThan(80); // dark

@@ -9,6 +9,21 @@
 const FOCUSABLE = 'textarea:not([disabled]), input:not([disabled]), button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 let focusRequest = 0;
 
+/** Keep arrow-key navigation in the tab list and cancel pending panel focus. */
+export function retainTabListFocus(tabList: HTMLElement): void {
+  ++focusRequest;
+  tabList.focus({ preventScroll: true });
+}
+
+/** Return to the creation action when the last tab closes. */
+export function focusNewNote(): void {
+  const request = ++focusRequest;
+  requestAnimationFrame(() => {
+    if (request !== focusRequest) return;
+    document.querySelector<HTMLButtonElement>('.footer-nav [data-new-tab="note"]')?.focus({ preventScroll: true });
+  });
+}
+
 /** Focus the content area of a tab panel by its ID. */
 export function focusTabPanel(tabId: string): void {
   const request = ++focusRequest;
@@ -29,7 +44,7 @@ export function focusTabPanel(tabId: string): void {
     return document.activeElement === target;
   };
   if (focus()) return;
-  // A surrounding Solid batch may still be publishing the new pane. Retry
+  // A surrounding Solid batch may still be publishing the new tab. Retry
   // before the browser can deliver the next input event, with one frame fallback
   // only for a panel whose DOM genuinely is not ready yet.
   queueMicrotask(() => {

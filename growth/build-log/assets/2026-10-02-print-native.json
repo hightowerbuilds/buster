@@ -1,0 +1,92 @@
+{
+  "ok": true,
+  "checks": [
+    "Running in native macOS WebKit",
+    "Print confirmation uses the app modal style",
+    "Opening print never sends a job",
+    "User Cancel sends nothing",
+    "File Print and Escape use the same cancellable dialog",
+    "portrait-all is a real native PDF",
+    "Command-P prints the complete captured draft",
+    "Invalid range stays in the styled dialog",
+    "portrait-page-two is a real native PDF",
+    "Printing retains the same editor and draft",
+    "Actual model request includes document_print",
+    "Model opens the same styled confirmation",
+    "Model waits for confirmation",
+    "Model receives cancellation without a job",
+    "Actual model request includes document_print",
+    "Model opens the same styled confirmation",
+    "landscape-a4 is a real native PDF",
+    "Model receives native PDF success after confirmation",
+    "Actual model request includes document_print",
+    "Model opens the same styled confirmation",
+    "Stopping a model request sends no additional job",
+    "Model printing preserves note content and editor identity"
+  ],
+  "root": "<isolated-test-notes>",
+  "jobs": [
+    {
+      "options": {
+        "destination": "pdf",
+        "printerId": "HP OfficeJet 3830 series",
+        "copies": 1,
+        "paper": "letter",
+        "orientation": "portrait",
+        "pages": "all",
+        "firstPage": 1,
+        "lastPage": 1,
+        "duplex": "one-sided"
+      },
+      "pdfPath": "<isolated-test-notes>/portrait-all.pdf"
+    },
+    {
+      "options": {
+        "destination": "pdf",
+        "printerId": "HP OfficeJet 3830 series",
+        "copies": 1,
+        "paper": "letter",
+        "orientation": "portrait",
+        "pages": "range",
+        "firstPage": 2,
+        "lastPage": 2,
+        "duplex": "one-sided"
+      },
+      "pdfPath": "<isolated-test-notes>/portrait-page-two.pdf"
+    },
+    {
+      "options": {
+        "destination": "pdf",
+        "printerId": "HP OfficeJet 3830 series",
+        "copies": 1,
+        "paper": "a4",
+        "orientation": "landscape",
+        "pages": "all",
+        "firstPage": 1,
+        "lastPage": 1,
+        "duplex": "one-sided"
+      },
+      "pdfPath": "<isolated-test-notes>/landscape-a4.pdf"
+    }
+  ],
+  "pdfs": [
+    "<isolated-test-notes>/portrait-all.pdf",
+    "<isolated-test-notes>/portrait-page-two.pdf",
+    "<isolated-test-notes>/landscape-a4.pdf"
+  ],
+  "pdf_probe": {
+    "passed": true,
+    "letter_portrait_pages": 8,
+    "page_two_range_pages": 1,
+    "a4_landscape_pages": 11,
+    "checks": [
+      "paper dimensions",
+      "exact page-two text",
+      "Unicode text",
+      "complete draft",
+      "no app controls"
+    ]
+  },
+  "validated_on": "2026-10-01",
+  "fixture": "Model transport and save-location picker were fixtures; real app command handlers, WebKit, AppKit, native file storage and PDFKit were exercised. No physical printer jobs were submitted."
+}

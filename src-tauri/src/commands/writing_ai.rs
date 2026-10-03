@@ -115,7 +115,7 @@ pub async fn writing_ai_generate(
     state: State<'_, WritingAiState>,
     request: WritingRequest,
 ) -> Result<String, String> {
-    let settings = super::settings::load_settings(app.clone());
+    let settings = super::settings::load_settings(app.clone()).await;
     validate(&request, &settings.ai_provider)?;
     let mut cancelled = state
         .requests
@@ -159,7 +159,7 @@ fn request_body(request: &WritingRequest) -> Value {
     ]);
     match request.provider.as_str() {
         "ollama" => {
-            json!({"model":request.model, "messages":messages, "stream":true, "options":{"num_predict":2048}})
+            json!({"model":request.model, "messages":messages, "stream":true, "think":false, "options":{"num_predict":2048}})
         }
         "anthropic" => {
             json!({"model":request.model, "system":request.instruction, "messages":[{"role":"user", "content":request.text}], "stream":true, "max_tokens":2048})
@@ -416,6 +416,11 @@ mod tests {
         }
         assert_eq!(result, vec![("café 📝".into(), false), ("".into(), true)]);
     }
+    #[test]
+    fn local_writing_disables_thinking_to_preserve_response_budget() {
+        assert_eq!(request_body(&request("ollama"))["think"], false);
+    }
+
     #[test]
     fn handles_ollama_and_openai_completion() {
         let mut d = StreamDecoder::new("ollama");

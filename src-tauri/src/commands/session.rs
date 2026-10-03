@@ -28,8 +28,11 @@ pub struct SessionState {
     pub version: u32,
     pub workspace_root: Option<String>,
     pub active_tab_id: Option<String>,
-    pub layout_mode: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_view: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_mode: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_workspace: Option<serde_json::Value>,
     pub sidebar_visible: bool,
     pub sidebar_width: u32,
@@ -90,16 +93,33 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
 fn parse_session(content: &str) -> Result<SessionState, String> {
     let session: SessionState = serde_json::from_str(content)
         .map_err(|e| format!("Cannot read saved session; original data preserved: {e}"))?;
-    if session.version != 1 { return Err("Unsupported session version; original data preserved".into()); }
+    if session.version != 1 && session.version != 2 { return Err("Unsupported session version; original data preserved".into()); }
     Ok(session)
 }
 
+// Preserve the exact legacy session before replacing it. Backup buffers are
+// content-addressed and retained; this snapshot keeps their original references.
+fn preserve_legacy_session(path: &Path) -> Result<(), String> {
+    if !path.exists() { return Ok(()); }
+    let bytes = fs::read_to_string(path).map_err(|e| format!("Cannot preserve session: {e}"))?;
+    let old = parse_session(&bytes)?;
+    if old.version == 1 {
+        let backup = path.with_file_name("session-before-tabs-v1.json");
+        if !backup.exists() { atomic_write(&backup, bytes.as_bytes())?; }
+    }
+    Ok(())
+}
+
 #[command]
-pub fn save_session(app: AppHandle, session: SessionState) -> Result<(), String> {
+pub fn save_session(app: AppHandle, mut session: SessionState) -> Result<(), String> {
+    if session.version != 2 { return Err("New sessions must use version 2".into()); }
+    session.layout_mode = None;
+    session.pane_workspace = None;
     let dir = session_dir(&app);
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create session dir: {}", e))?;
 
     let path = session_path(&app);
+    preserve_legacy_session(&path)?;
     let json = serde_json::to_string_pretty(&session).map_err(|e| e.to_string())?;
     atomic_write(&path, json.as_bytes())?;
     Ok(())
@@ -156,13 +176,23 @@ pub fn clear_session(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Default)]
+pub struct CloseState {
+    pub ready: std::sync::atomic::AtomicBool,
+}
+
+#[command]
+pub fn set_close_handler_ready(state: tauri::State<'_, CloseState>, ready: bool) {
+    state.ready.store(ready, Ordering::SeqCst);
+}
+
 #[command]
 pub fn confirm_app_close(window: tauri::Window) -> Result<(), String> {
     // Clear crash flag on clean shutdown
     let dir = window.app_handle().path().app_config_dir().unwrap_or_else(|_| PathBuf::from("."));
     let flag = dir.join("session").join(".running");
     let _ = fs::remove_file(flag);
-    window.destroy().map_err(|e| format!("Failed to close window: {}", e))?;
+    window.app_handle().exit(0);
     Ok(())
 }
 
@@ -211,7 +241,8 @@ mod tests {
             version: 1,
             workspace_root: Some("/Users/luke/project".into()),
             active_tab_id: Some("file_1".into()),
-            layout_mode: "tabs".into(),
+            split_view: Some(serde_json::json!({"leftTabId": "file_1", "rightTabId": "settings_tab", "ratio": 0.6})),
+            layout_mode: None,
             pane_workspace: None,
             sidebar_visible: true,
             sidebar_width: 240,
@@ -248,10 +279,11 @@ mod tests {
         let restored: SessionState = serde_json::from_str(&json).unwrap();
 
         assert_eq!(restored.version, 1);
+        assert_eq!(restored.split_view, session.split_view);
         assert_eq!(restored.workspace_root, Some("/Users/luke/project".into()));
         assert_eq!(restored.tabs.len(), 2);
         assert_eq!(restored.tabs[0].tab_type, "file");
-        assert_eq!(restored.tabs[0].dirty, true);
+        assert!(restored.tabs[0].dirty);
         assert_eq!(restored.tabs[0].cursor_line, 42);
         assert_eq!(restored.tabs[1].tab_type, "terminal");
     }
@@ -291,13 +323,14 @@ mod tests {
     fn session_json_roundtrip_via_filesystem() {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
-        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(dir).unwrap();
 
         let session = SessionState {
             version: 1,
             workspace_root: None,
             active_tab_id: None,
-            layout_mode: "tabs".into(),
+            split_view: None,
+            layout_mode: None,
             pane_workspace: None,
             sidebar_visible: true,
             sidebar_width: 240,
@@ -348,9 +381,39 @@ mod tests {
     #[test]
     fn corrupt_and_future_sessions_fail_instead_of_becoming_empty() {
         assert!(parse_session("broken").is_err());
-        let json = r#"{"version":2,"workspace_root":null,"active_tab_id":null,"layout_mode":"tabs","sidebar_visible":true,"sidebar_width":240,"tabs":[],"timestamp":""}"#;
+        let json = r#"{"version":99,"workspace_root":null,"active_tab_id":null,"layout_mode":"tabs","sidebar_visible":true,"sidebar_width":240,"tabs":[],"timestamp":""}"#;
         assert!(parse_session(json).is_err());
-        assert!(parse_session(&json.replace("\"version\":2", "\"version\":1")).is_ok());
+        assert!(parse_session(&json.replace("\"version\":99", "\"version\":1")).is_ok());
+    }
+
+    #[test]
+    fn tab_session_preserves_original_before_migration() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.json");
+        let original = r#"{"version":1,"workspace_root":null,"active_tab_id":null,"layout_mode":"panels-3","pane_workspace":{"layout":"damaged"},"sidebar_visible":true,"sidebar_width":240,"tabs":[],"timestamp":""}"#;
+        fs::write(&path, original).unwrap();
+        preserve_legacy_session(&path).unwrap();
+        let backup = temp.path().join("session-before-tabs-v1.json");
+        assert_eq!(fs::read_to_string(&backup).unwrap(), original);
+        let mut next = parse_session(original).unwrap();
+        next.version = 2;
+        next.layout_mode = None;
+        next.pane_workspace = None;
+        let json = serde_json::to_string(&next).unwrap();
+        assert!(!json.contains("pane_workspace"));
+        assert!(!json.contains("layout_mode"));
+        atomic_write(&path, json.as_bytes()).unwrap();
+        assert_eq!(parse_session(&fs::read_to_string(&path).unwrap()).unwrap().version, 2);
+        preserve_legacy_session(&path).unwrap();
+        assert_eq!(fs::read_to_string(&backup).unwrap(), original);
+    }
+    #[test]
+    fn invalid_original_blocks_migration() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.json");
+        fs::write(&path, "damaged").unwrap();
+        assert!(preserve_legacy_session(&path).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "damaged");
     }
 
 }

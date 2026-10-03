@@ -2,7 +2,6 @@ import { createStore } from "solid-js/store";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { EditorEngine, Pos } from "../editor/engine";
-import type { PaneWorkspace } from "./writing-panes";
 import { captureSelection, snapshotSchema, type SelectionTarget } from "./selection-commands";
 import { CommandFailure, emptyArgs, objectResult, type FeatureCommands, type CommandSchema } from "./feature-commands";
 
@@ -28,7 +27,6 @@ export const nativeSpeechTransport: SpeechTransport = {
   listen: receive => listen<SpeechEvent>("speech-event", event => receive(event.payload)),
 };
 export interface SpeechDeps {
-  workspace(): PaneWorkspace;
   engine(tabId: string): EditorEngine | undefined;
   hasTab(tabId: string): boolean;
   focusSource(target: SelectionTarget): void;
@@ -69,8 +67,8 @@ export function createSpeech(deps: SpeechDeps) {
     if (!valid || engine.editSeq() !== target.revision || engine.getTextRange(target.range.anchor, target.range.head) !== target.text)
       fail("STALE_SELECTION", "The source note changed. Select the passage again before reading it.");
     if (current) {
-      const captured = captureSelection(target.paneId, target.tabId, engine);
-      if (!deps.workspace().panes.some(p => p.id === target.paneId && p.tabId === target.tabId) || !captured ||
+      const captured = captureSelection(target.tabId, engine);
+      if (!captured ||
         captured.revision !== target.revision || captured.text !== target.text || !samePos(captured.range.anchor, target.range.anchor) || !samePos(captured.range.head, target.range.head))
         fail("STALE_SELECTION", "The selection changed. Select the passage again.");
       if (engine.hasMultiCursors()) fail("UNAVAILABLE", "Use one selection for reading aloud.");
@@ -216,6 +214,11 @@ export function createSpeech(deps: SpeechDeps) {
     setState("visible", false);
     return { visible: false };
   }
+  function reconcile() {
+    const job = state.job;
+    if (job && active(job.status) && !deps.hasTab(job.target.tabId) && !stopping.has(job.id))
+      void control(job.id, "stop").catch(() => {});
+  }
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -226,16 +229,16 @@ export function createSpeech(deps: SpeechDeps) {
       void controls.catch(() => {}).then(() => deps.transport.control(id, "stop")).catch(() => {});
     }
   }
-  return { state, prepare, refreshVoices, read, control, source, stale, hide, dispose };
+  return { state, prepare, refreshVoices, read, control, source, stale, hide, reconcile, dispose };
 }
 export type SpeechService = ReturnType<typeof createSpeech>;
 
-export function registerSpeechCommands(commands: FeatureCommands, speech: SpeechService) {
+export function registerSpeechCommands(commands: FeatureCommands, speech: SpeechService, available = true) {
   const string: CommandSchema = { type: "string", minLength: 1 };
   const obj = (properties: Record<string, CommandSchema>): CommandSchema => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
   const job = obj({ jobId: string });
   const add = (name: string, description: string, inputSchema: CommandSchema, run: (args: any) => unknown, effect: "read" | "write" = "write") =>
-    commands.register({ name, description, inputSchema, outputSchema: objectResult, run, effect, version: 1, examples: [name] });
+    commands.register({ name, description: available ? description : "Unavailable on Linux: speech is deferred from this release.", inputSchema, outputSchema: objectResult, run, effect, version: 1, examples: [name], available: () => available });
   add("selection voice", "Open local macOS voice controls for a captured selection. Does not start audio.", snapshotSchema, target => speech.prepare(target));
   add("speech voices list", "List installed macOS voices without sending text or starting audio.", emptyArgs, async () => ({ voices: await speech.refreshVoices() }), "read");
   add("speech read", "Read only the captured, unchanged passage with an installed macOS voice. Rate is 0.1–1 and volume is 0–1. Returns a job immediately. Stop the current passage before starting another.",

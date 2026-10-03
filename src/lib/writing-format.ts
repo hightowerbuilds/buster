@@ -1,12 +1,12 @@
+import { blockEditors, type BlockFormat } from "../editor/block-editor";
 import { marked, type Token } from "marked";
 import { createSignal } from "solid-js";
 import type { EditorEngine, Pos, Selection } from "../editor/engine";
-import type { PaneWorkspace } from "./writing-panes";
 import type { Tab } from "./tab-types";
 import { CommandFailure, type FeatureCommands, type CommandSchema } from "./feature-commands";
 
-export interface FormatTarget { paneId: string; tabId: string; revision: number; range: Selection; text: string }
-export interface WritingFormattingDeps { workspace(): PaneWorkspace; tabs(): Tab[]; engine(tabId: string): EditorEngine | undefined }
+export interface FormatTarget { tabId: string; revision: number; range: Selection; text: string }
+export interface WritingFormattingDeps { tabs(): Tab[]; engine(tabId: string): EditorEngine | undefined }
 type Edit = { start: number; end: number; text: string };
 type InlineSpan = { start: number; end: number; marker: number; kind: string };
 const fail = (message: string): never => { throw new CommandFailure("UNSUPPORTED_FORMAT", message); };
@@ -103,30 +103,29 @@ export function createWritingFormatting(deps: WritingFormattingDeps) {
   // This ephemeral hint expires on any document edit; source text alone is ambiguous.
   const templates = new Map<string, { engine: EditorEngine; revision: number; kind: "strong" | "em"; start: number; size: number; caret: Pos }>();
   const [templateVersion, setTemplateVersion] = createSignal(0);
-  function source(paneId: string, tabId?: string) {
-    const pane = deps.workspace().panes.find(p => p.id === paneId);
-    const tab = deps.tabs().find(t => t.id === pane?.tabId);
-    if (!pane || !tab || (tabId && tab.id !== tabId)) throw new CommandFailure("NOT_FOUND", "The source note is no longer in this pane.");
+  function source(tabId: string) {
+    const tab = deps.tabs().find(t => t.id === tabId);
+    if (!tab) throw new CommandFailure("NOT_FOUND", "The source note is no longer open.");
     if (tab.type !== "file" || !/\.(?:md|markdown)$/i.test(tab.path || tab.name)) throw new CommandFailure("UNAVAILABLE", "Return to a Markdown note to use formatting.");
     const engine = deps.engine(tab.id);
     if (!engine || engine.hasMultiCursors()) throw new CommandFailure("UNAVAILABLE", "Formatting requires a ready Markdown note with one cursor.");
     return { tab, engine };
   }
-  function capture(paneId: string): FormatTarget {
-    const { tab, engine } = source(paneId);
+  function capture(tabId: string): FormatTarget {
+    const { tab, engine } = source(tabId);
     const range = engine.sel() || { anchor: engine.cursor(), head: engine.cursor() };
-    return { paneId, tabId: tab.id, revision: engine.editSeq(), range: { anchor: { ...range.anchor }, head: { ...range.head } }, text: engine.getTextRange(range.anchor, range.head) };
+    return { tabId: tab.id, revision: engine.editSeq(), range: { anchor: { ...range.anchor }, head: { ...range.head } }, text: engine.getTextRange(range.anchor, range.head) };
   }
   function validate(target: FormatTarget) {
-    const { engine } = source(target.paneId, target.tabId);
-    const current = capture(target.paneId);
+    const { engine } = source(target.tabId);
+    const current = capture(target.tabId);
     if (target.revision !== current.revision || target.text !== current.text || !same(target.range.anchor, current.range.anchor) || !same(target.range.head, current.range.head)) throw new CommandFailure("STALE_FORMAT_TARGET", "The note or selection changed. Return to the note and retry formatting.");
     return engine;
   }
   function edit(target: FormatTarget, edits: Edit[], insideMarker?: number, inline = false) {
     const engine = validate(target), before = engine.getText(), lines = before.split("\n");
     edits = edits.filter(e => before.slice(e.start, e.end) !== e.text).sort((a, b) => a.start - b.start);
-    if (!edits.length) return inspect(target.paneId);
+    if (!edits.length) return inspect(target.tabId);
     if (templates.delete(target.tabId)) setTemplateVersion(n => n + 1);
     const [start, end] = ordered(target.range), from = offset(lines, start), to = offset(lines, end);
     const map = (at: number, bias: "left" | "right") => {
@@ -153,9 +152,17 @@ export function createWritingFormatting(deps: WritingFormattingDeps) {
       if (a === b) engine.setCursor(low);
       else engine.setSelection(compare(target.range.anchor, target.range.head) <= 0 ? low : high, compare(target.range.anchor, target.range.head) <= 0 ? high : low);
     } finally { engine.endUndoGroup(); }
-    return inspect(target.paneId);
+    return inspect(target.tabId);
+  }
+  function formatBlocks(target: FormatTarget, kind: BlockFormat, value?: number | string) {
+    const controller = blockEditors.get(validate(target));
+    if (!controller) return false;
+    if (!controller.format(kind, value)) fail("This formatting is not available for the selected block.");
+    setTemplateVersion(n => n + 1);
+    return true;
   }
   function emphasis(target: FormatTarget, kind: "strong" | "em") {
+    if (formatBlocks(target, kind === "strong" ? "bold" : "italic")) return inspect(target.tabId);
     const engine = validate(target), lines = engine.getText().split("\n"), { first, last } = lineRange(target.range);
     const [start, end] = ordered(target.range), empty = same(start, end), edits: Edit[] = [];
     const pending = templates.get(target.tabId);
@@ -197,12 +204,13 @@ export function createWritingFormatting(deps: WritingFormattingDeps) {
       for (const id of templates.keys()) if (!deps.tabs().some(tab => tab.id === id)) templates.delete(id);
       templates.set(target.tabId, { engine, revision: engine.editSeq(), kind, start: edits[0].start, size: edits[0].text.length, caret: { ...engine.cursor() } });
       setTemplateVersion(n => n + 1);
-      return inspect(target.paneId);
+      return inspect(target.tabId);
     }
     return result;
   }
   function heading(target: FormatTarget, level: number) {
     if (!Number.isInteger(level) || level < 0 || level > 6) throw new CommandFailure("INVALID_ARGUMENTS", "Heading level must be 0 (paragraph) through 6.");
+    if (formatBlocks(target, "heading", level)) return inspect(target.tabId);
     const engine = validate(target), lines = engine.getText().split("\n"), { first, last } = lineRange(target.range), edits: Edit[] = [];
     guardBlocks(lines, first, last);
     for (let i = first; i <= last; i++) {
@@ -220,6 +228,7 @@ export function createWritingFormatting(deps: WritingFormattingDeps) {
   }
   function list(target: FormatTarget, kind: "unordered" | "ordered") {
     if (kind !== "unordered" && kind !== "ordered") throw new CommandFailure("INVALID_ARGUMENTS", "Choose an ordered or unordered list.");
+    if (formatBlocks(target, "list", kind)) return inspect(target.tabId);
     const engine = validate(target), lines = engine.getText().split("\n"), { first, last } = lineRange(target.range), edits: Edit[] = [];
     guardBlocks(lines, first, last);
     const selected = lines.slice(first, last + 1);
@@ -237,9 +246,11 @@ export function createWritingFormatting(deps: WritingFormattingDeps) {
     }
     return edit(target, edits);
   }
-  function inspect(paneId: string) {
+  function inspect(tabId: string) {
     templateVersion();
-    const target = capture(paneId), { engine } = source(paneId), lines = engine.getText().split("\n"), { first, last } = lineRange(target.range);
+    const target = capture(tabId), { engine } = source(tabId), lines = engine.getText().split("\n"), { first, last } = lineRange(target.range);
+    const controller = blockEditors.get(engine);
+    if (controller) return { target, ...controller.inspect() };
     const [a, b] = ordered(target.range);
     const states = lines.slice(first, last + 1).map((line, n) => {
       const i = first + n, from = i === a.line ? a.col : 0, to = i === b.line ? b.col : line.length;
@@ -263,17 +274,17 @@ export function registerWritingFormattingCommands(commands: FeatureCommands, ser
   const str: CommandSchema = { type: "string" }, num: CommandSchema = { type: "number" };
   const obj = (properties: Record<string, CommandSchema>): CommandSchema => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
   const pos = obj({ line: num, col: num });
-  const target = obj({ paneId: str, tabId: str, revision: num, range: obj({ anchor: pos, head: pos }), text: str });
-  const exampleTarget: FormatTarget = { paneId: "pane-id", tabId: "note-id", revision: 0, range: { anchor: { line: 0, col: 0 }, head: { line: 0, col: 5 } }, text: "Hello" };
+  const target = obj({ tabId: str, revision: num, range: obj({ anchor: pos, head: pos }), text: str });
+  const exampleTarget: FormatTarget = { tabId: "note-id", revision: 0, range: { anchor: { line: 0, col: 0 }, head: { line: 0, col: 5 } }, text: "Hello" };
   const examples: Record<string, object[]> = {
-    "format inspect": [{ paneId: "pane-id" }],
+    "format inspect": [{ tabId: "note-id" }],
     "format heading": [{ target: exampleTarget, level: 2 }, { target: exampleTarget, level: 0 }],
     "format bold": [{ target: exampleTarget }],
     "format italic": [{ target: exampleTarget }, { target: { ...exampleTarget, range: { anchor: { line: 0, col: 5 }, head: { line: 0, col: 5 } }, text: "" } }],
     "format list": [{ target: exampleTarget, kind: "unordered" }, { target: exampleTarget, kind: "ordered" }],
   };
   const add = (name: string, description: string, inputSchema: CommandSchema, run: (args: any) => unknown, effect: "read" | "write" = "write") => commands.register({ name, description, inputSchema, outputSchema: { type: "object" }, run, effect, version: 1, examples: examples[name].map(args => `${name} ${JSON.stringify(args)}`) });
-  add("format inspect", "Capture a Markdown note's stable target, including a collapsed caret, and current/mixed formatting states.", obj({ paneId: str }), a => service.inspect(a.paneId), "read");
+  add("format inspect", "Capture a Markdown note's stable target, including a collapsed caret, and current/mixed formatting states.", obj({ tabId: str }), a => service.inspect(a.tabId), "read");
   add("format heading", "Set current/selected prose lines to paragraph (0) or heading H1–H6. Requires the unchanged inspected target; one undo.", obj({ target, level: num }), a => service.heading(a.target, a.level));
   add("format bold", "Toggle complete strong emphasis or wrap selected plain text; a collapsed caret inserts paired markers. Complex Markdown returns a readable error.", obj({ target }), a => service.bold(a.target));
   add("format italic", "Toggle complete emphasis or wrap selected plain text; a collapsed caret inserts paired markers. Preserves line breaks and trailing spaces.", obj({ target }), a => service.italic(a.target));

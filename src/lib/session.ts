@@ -7,13 +7,11 @@ import {
   type SessionTab,
 } from "./ipc";
 import type { Tab } from "./tab-types";
-import { serializePanelCount, type PanelCount } from "./panel-count";
 
 export interface SessionSnapshot {
   workspaceRoot: string | null;
   activeTabId: string | null;
-  panelCount: PanelCount;
-  paneWorkspace?: import("./writing-panes").PaneWorkspace;
+  splitView?: import("./split-view").SplitView | null;
   sidebarVisible: boolean;
   sidebarWidth: number;
   tabs: Tab[];
@@ -40,11 +38,10 @@ function buildSessionState(snap: SessionSnapshot): SessionState {
   }));
 
   return {
-    version: 1,
+    version: 2,
     workspace_root: snap.workspaceRoot,
     active_tab_id: snap.activeTabId,
-    layout_mode: serializePanelCount(snap.paneWorkspace ? snap.paneWorkspace.panes.length as PanelCount : snap.panelCount),
-    pane_workspace: snap.paneWorkspace ? JSON.parse(JSON.stringify(snap.paneWorkspace)) : null,
+    split_view: snap.splitView ? { ...snap.splitView } : null,
     sidebar_visible: snap.sidebarVisible,
     sidebar_width: Number.isFinite(snap.sidebarWidth) ? Math.round(Math.min(600, Math.max(140, snap.sidebarWidth))) : 220,
     tabs: sessionTabs,

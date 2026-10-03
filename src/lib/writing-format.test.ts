@@ -2,18 +2,16 @@ import { describe, expect, it } from "vitest";
 import { createEditorEngine, type Selection } from "../editor/engine";
 import { createWritingFormatting, registerWritingFormattingCommands } from "./writing-format";
 import { FeatureCommands } from "./feature-commands";
-import { newPaneWorkspace, showTabInPane, splitWritingPane } from "./writing-panes";
 
 function fixture(text: string, range?: Selection) {
   const engine = createEditorEngine(text);
   if (range) engine.setSelection(range.anchor, range.head);
-  let workspace = newPaneWorkspace("note");
-  const paneId = workspace.activePaneId;
-  const service = createWritingFormatting({ workspace: () => workspace, tabs: () => [{ id: "note", name: "Untitled.md", path: "", type: "file", dirty: false }, { id: "other", name: "other.md", path: "", type: "file", dirty: false }], engine: id => id === "note" ? engine : undefined });
+  const tabId = "note";
+  let closed = false;
+  const service = createWritingFormatting({ tabs: () => closed ? [] : [{ id: "note", name: "Untitled.md", path: "", type: "file", dirty: false }, { id: "other", name: "other.md", path: "", type: "file", dirty: false }], engine: id => id === "note" ? engine : undefined });
   const commands = new FeatureCommands(); registerWritingFormattingCommands(commands, service);
-  return { engine, service, paneId, target: () => service.capture(paneId), commands,
-    swap: () => { workspace = showTabInPane(workspace, "other"); },
-    focusElsewhere: () => { workspace = splitWritingPane(workspace, "right"); } };
+  return { engine, service, tabId, target: () => service.capture(tabId), commands,
+    closeSource: () => { closed = true; } };
 }
 const range = (a: number, b: number, aLine = 0, bLine = aLine): Selection => ({ anchor: { line: aLine, col: a }, head: { line: bLine, col: b } });
 
@@ -40,7 +38,7 @@ describe("writing formatting", () => {
   });
   it("toggles complete emphasis, underscore syntax, markers-inclusive selections, and a caret inside", () => {
     for (const text of ["**word**", "__word__"]) for (const selected of [range(2, 6), range(0, 8)]) {
-      const f = fixture(text, selected); expect(f.service.inspect(f.paneId).bold).toBe(true);
+      const f = fixture(text, selected); expect(f.service.inspect(f.tabId).bold).toBe(true);
       f.service.bold(f.target()); expect(f.engine.getText()).toBe("word"); expect(f.engine.sel()).toEqual(range(0, 4));
     }
     const f = fixture("*word*"); f.engine.setCursor({ line: 0, col: 3 }); f.service.italic(f.target());
@@ -49,7 +47,7 @@ describe("writing formatting", () => {
   it("supports nested bold/italic without double wrapping, rejecting partial emphasis", () => {
     const f = fixture("*word*", range(1, 5)); f.service.bold(f.target());
     expect(f.engine.getText()).toBe("***word***");
-    expect(f.service.inspect(f.paneId)).toMatchObject({ bold: true, italic: true });
+    expect(f.service.inspect(f.tabId)).toMatchObject({ bold: true, italic: true });
     f.service.bold(f.target()); expect(f.engine.getText()).toBe("*word*");
     const g = fixture("**word**", range(3, 5)); expect(() => g.service.bold(g.target())).toThrow(/complete/); expect(g.engine.getText()).toBe("**word**");
     const h = fixture("a **word** b", range(0, 7)); expect(() => h.service.italic(h.target())).toThrow(/overlapping/);
@@ -63,7 +61,7 @@ describe("writing formatting", () => {
   });
   it("changes selected headings, excludes the end-at-column-zero line, and removes closing heading syntax", () => {
     const f = fixture("# one ###\n## two\nlast", range(0, 0, 0, 2));
-    expect(f.service.inspect(f.paneId).heading).toBe("mixed");
+    expect(f.service.inspect(f.tabId).heading).toBe("mixed");
     f.service.heading(f.target(), 3); expect(f.engine.getText()).toBe("### one\n### two\nlast");
     f.service.heading(f.target(), 0); expect(f.engine.getText()).toBe("one\ntwo\nlast");
     const g = fixture(""); g.service.heading(g.target(), 6); expect(g.engine.getText()).toBe("###### "); expect(g.engine.cursor().col).toBe(7);
@@ -97,10 +95,10 @@ describe("writing formatting", () => {
     const f = fixture("~~~\ncode\n~~~\nprose", range(0, 5, 3)); f.service.bold(f.target()); expect(f.engine.getLine(3)).toBe("**prose**");
   });
   it("guards stable document, selection and revision while allowing focus to move elsewhere", () => {
-    const f = fixture("hello", range(0, 5)), target = f.target(); f.focusElsewhere(); f.service.bold(target); expect(f.engine.getText()).toBe("**hello**");
-    for (const change of ["edit", "selection", "pane"]) {
+    const f = fixture("hello", range(0, 5)), target = f.target(); f.service.bold(target); expect(f.engine.getText()).toBe("**hello**");
+    for (const change of ["edit", "selection", "closed tab"]) {
       const g = fixture("hello", range(0, 5)), captured = g.target();
-      if (change === "edit") g.engine.insert("different"); else if (change === "selection") g.engine.clearSelection(); else g.swap();
+      if (change === "edit") g.engine.insert("different"); else if (change === "selection") g.engine.clearSelection(); else g.closeSource();
       const before = g.engine.getText(); expect(() => g.service.bold(captured)).toThrow(); expect(g.engine.getText()).toBe(before);
     }
   });
@@ -113,8 +111,8 @@ describe("writing formatting", () => {
     expect(await f.commands.dispatch({ command: "format heading", args: { target: f.target(), level: 7 }, requestId: "heading" }, "ai")).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENTS" } });
   });
   it("reports mixed selection state and refuses multi-cursor editing", () => {
-    const g = fixture("plain **bold** tail", range(0, 19)); expect(g.service.inspect(g.paneId).bold).toBe("mixed");
-    const f = fixture("**one**\ntwo", range(0, 3, 0, 1)); expect(f.service.inspect(f.paneId).bold).toBe("mixed");
+    const g = fixture("plain **bold** tail", range(0, 19)); expect(g.service.inspect(g.tabId).bold).toBe("mixed");
+    const f = fixture("**one**\ntwo", range(0, 3, 0, 1)); expect(f.service.inspect(f.tabId).bold).toBe("mixed");
     const target = f.target(); f.engine.addCursor({ line: 0, col: 0 }); expect(() => f.service.bold(target)).toThrow(/one cursor/);
   });
   it("keeps heading and list structure outside emphasis for complete selected lines", () => {
@@ -125,7 +123,7 @@ describe("writing formatting", () => {
   it("toggles newly inserted empty markers while protecting indistinguishable literal rules", () => {
     for (const style of ["bold", "italic"] as const) {
       const f = fixture("");
-      f.service[style](f.target()); expect(f.service.inspect(f.paneId)[style]).toBe(true);
+      f.service[style](f.target()); expect(f.service.inspect(f.tabId)[style]).toBe(true);
       f.service[style](f.target()); expect(f.engine.getText()).toBe(""); expect(f.engine.cursor().col).toBe(0);
       f.engine.undo(); expect(f.engine.getText()).toBe(style === "bold" ? "****" : "**");
       f.engine.undo(); expect(f.engine.getText()).toBe("");

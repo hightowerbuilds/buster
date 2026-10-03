@@ -1,0 +1,38 @@
+/* WGSL background behind notes; notes drop their own fill while one is shown. */
+.shader-background { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleY(-1); pointer-events: none; z-index: 0; }
+.writing-workspace.has-shader-background .tab-content { z-index: 1; }
+.writing-workspace.has-shader-background .block-editor { background: transparent; }
+/* The text container turns translucent, and the letters slightly so, letting the pattern show through both. */
+.writing-workspace.has-shader-background .block-prose.blog-preview {
+  background: color-mix(in srgb, var(--blog-bg) var(--bg-text-panel, 50%), transparent);
+  opacity: var(--bg-text-opacity, 0.9);
+}
+
+/* Settings → Appearances gallery */
+.bg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 10px 0 14px; }
+.bg-card { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-mantle); }
+.bg-card-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.bg-card-pick { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 0 0 8px; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.bg-card-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bg-thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: var(--bg-crust); color: var(--text-muted); font-size: 11px; }
+.bg-thumb-none { background: repeating-linear-gradient(45deg, var(--bg-crust) 0 8px, var(--bg-mantle) 8px 16px); }
+.bg-card-name { padding: 0 10px; font-size: 12.5px; }
+.bg-card-prompt { padding: 0 10px; color: var(--text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bg-card-delete { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: color-mix(in srgb, var(--bg-crust) 80%, transparent); color: var(--text); cursor: pointer; opacity: 0; }
+.bg-card:hover .bg-card-delete, .bg-card-delete:focus-visible { opacity: 1; }
+.bg-card-confirm { position: absolute; inset: 0 0 auto 0; display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--bg-crust); font-size: 11.5px; }
+.bg-card-confirm button { padding: 2px 8px; border: 1px solid var(--bg-surface1); border-radius: 4px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.bg-card-confirm button:first-of-type { border-color: var(--red); color: var(--red); }
+.bg-strength { display: flex; align-items: center; gap: 10px; }
+.bg-strength input { width: 160px; accent-color: var(--accent); }
+.bg-animate { width: 16px; height: 16px; accent-color: var(--accent); }
+.bg-error { color: var(--red); font-size: 12px; }
+.bg-empty { margin: -6px 0 10px; }
+.bg-card-rename { margin: 0 10px 8px; }
+.bg-card-rename, .bg-card-rename-form button { padding: 3px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-crust); color: var(--text); font: inherit; cursor: pointer; }
+.bg-card-rename-form { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; }
+.bg-card-rename-form input { width: 100%; min-width: 0; padding: 5px; background: var(--bg-crust); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+
+/* Live preview in the Assistant's approval card; flipped like the note background. */
+.shader-preview { margin-top: 8px; }
+.shader-preview canvas { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; transform: scaleY(-1); background: var(--bg-crust); }

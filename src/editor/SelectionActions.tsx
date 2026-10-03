@@ -12,12 +12,13 @@ interface Props {
 }
 export default function SelectionActions(props: Props) {
   const { store, commands } = useBuster();
+  const macNative = navigator.platform.startsWith("Mac");
+  const selectionShortcut = macNative ? "⌘⇧Space" : "Ctrl+Shift+Space";
   const [target, setTarget] = createSignal<SelectionTarget | null>(null);
   const [dismissed, setDismissed] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   let toolbar: HTMLDivElement | undefined;
-  const pane = () => store.paneWorkspace.panes.find(p => p.tabId === props.tabId);
-  const snapshot = () => pane() ? captureSelection(pane()!.id, props.tabId, props.engine) : null;
+  const snapshot = () => store.tabs.some(tab => tab.id === props.tabId) ? captureSelection(props.tabId, props.engine) : null;
   const key = (value: SelectionTarget | null) => value ? JSON.stringify(value) : "";
   const position = () => {
     const selected = target();
@@ -70,7 +71,7 @@ export default function SelectionActions(props: Props) {
         dismiss();
         requestAnimationFrame(() => document.querySelector<HTMLElement>("[data-speech-focus]:not(:disabled)")?.focus());
       }
-      if ((action === "copy" || action === "paste") && props.active && pane()?.id === captured.paneId) props.focusEditor();
+      if ((action === "copy" || action === "paste") && props.active && props.tabId === captured.tabId) props.focusEditor();
     } finally { setBusy(false); }
   }
   return <Show when={target() && position()}>{_position => <div ref={toolbar} class="selection-actions" role="toolbar"
@@ -85,7 +86,7 @@ export default function SelectionActions(props: Props) {
     }}>
     <div><button disabled={busy()} onClick={() => void run("copy")}>Copy</button><button disabled={busy()} onClick={() => void run("paste")}>Paste</button>
       <button aria-label="Dismiss selection actions" title="Escape — keep selection" onClick={() => dismiss(true)}>×</button></div>
-    <div><button disabled={busy()} title="Choose a macOS voice and read this selection aloud" onClick={() => void run("voice")}>Voice</button><button disabled={busy()} title="Look up in local macOS dictionaries" onClick={() => void run("lookup")}>Look up</button><button disabled={busy()} title="Review AI suggestions beside this selection" onClick={() => void run("ai")}>AI</button>
-      <span title="⌘⇧Space: focus or reopen actions" aria-label="Command Shift Space opens selection actions">⌘⇧Space</span></div>
+    <div><button disabled={busy() || !macNative} title={macNative ? "Read this selection aloud" : "Speech is unavailable in this Linux release"} onClick={() => void run("voice")}>Voice</button><button disabled={busy() || !macNative} title={macNative ? "Look up in local dictionaries" : "Offline dictionary lookup is unavailable in this Linux release"} onClick={() => void run("lookup")}>Look up</button><button disabled={busy()} title="Review AI suggestions beside this selection" onClick={() => void run("ai")}>AI</button>
+      <span title={`${selectionShortcut}: focus or reopen actions`} aria-label={`${selectionShortcut} opens selection actions`}>{selectionShortcut}</span></div>
   </div>}</Show>;
 }

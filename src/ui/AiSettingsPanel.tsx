@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { WebSearchSettings } from "./WebSearchSettings";
 import { Component, For, Show, createSignal, onMount } from "solid-js";
 import type { AppSettings } from "../lib/ipc";
 import {
@@ -26,6 +28,21 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
 
   function update(patch: Partial<AppSettings>) {
     props.onChange({ ...props.settings, ...patch });
+  }
+
+  async function selectProvider(provider: string) {
+    if (props.settings.ai_provider === provider) return;
+    update({ ai_provider: provider, ai_api_key: "", ai_model: "" });
+    setValidationStatus("idle"); setValidationMessage("");
+    if (provider === "ollama") return;
+    try {
+      const key = await invoke<string>("load_saved_ai_key", { provider });
+      if (props.settings.ai_provider === provider) update({ ai_api_key: key });
+    } catch (error) {
+      if (props.settings.ai_provider === provider) {
+        setValidationStatus("error"); setValidationMessage(String(error));
+      }
+    }
   }
 
   async function refreshOllamaModels() {
@@ -79,6 +96,8 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
         <p class="ai-settings-subtitle">Configure the connection used by writing review and optional inline suggestions. Writing review sends a selection only when you choose Generate.</p>
       </div>
 
+      <WebSearchSettings />
+
       <div class="ai-settings-section">
         <div class="ai-settings-row">
           <div class="ai-settings-label">
@@ -100,9 +119,7 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
             {PROVIDERS.map(p => (
               <button
                 class={`ai-provider-btn ${props.settings.ai_provider === p.id ? "ai-provider-active" : ""}`}
-                onClick={() => {
-                  if (props.settings.ai_provider !== p.id) update({ ai_provider: p.id, ai_api_key: "", ai_model: "" });
-                }}
+                onClick={() => void selectProvider(p.id)}
               >
                 {p.label}
               </button>
@@ -180,13 +197,13 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
             <div class="ai-settings-row">
               <div class="ai-settings-label">
                 <span class="ai-settings-title">API Key</span>
-                <span class="ai-settings-desc">Enter to replace your Anthropic key. Saved keys remain in macOS Keychain.</span>
+                <span class="ai-settings-desc">Enter to replace your Anthropic key. Keys are saved in your desktop keyring. Linux requires libsecret and an unlocked Secret Service.</span>
               </div>
               <input
                 class="ai-input ai-input-key"
                 type="password"
                 value={props.settings.ai_api_key}
-                onInput={(e) => update({ ai_api_key: e.currentTarget.value })}
+                onChange={(e) => update({ ai_api_key: e.currentTarget.value })}
                 placeholder="sk-ant-..."
               />
             </div>
@@ -213,13 +230,13 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
             <div class="ai-settings-row">
               <div class="ai-settings-label">
                 <span class="ai-settings-title">API Key</span>
-                <span class="ai-settings-desc">Enter to replace your OpenAI key. Saved keys remain in macOS Keychain.</span>
+                <span class="ai-settings-desc">Enter to replace your OpenAI key. Keys are saved in your desktop keyring. Linux requires libsecret and an unlocked Secret Service.</span>
               </div>
               <input
                 class="ai-input ai-input-key"
                 type="password"
                 value={props.settings.ai_api_key}
-                onInput={(e) => update({ ai_api_key: e.currentTarget.value })}
+                onChange={(e) => update({ ai_api_key: e.currentTarget.value })}
                 placeholder="sk-..."
               />
             </div>
@@ -402,7 +419,7 @@ const AiSettingsPanel: Component<AiSettingsPanelProps> = (props) => {
           <p>
             <strong>Ollama models</strong> run at your configured server address. Use a local address to keep requests on your machine.
             <br />
-            <strong>Cloud models</strong> send code context to the provider's API. On macOS, your API key is stored in Keychain.
+            <strong>Cloud models</strong> send code context to the provider's API. API keys use macOS Keychain or the Linux desktop Secret Service; saving reports an error if secure storage is unavailable.
           </p>
         </div>
       </Show>

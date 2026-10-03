@@ -1,0 +1,103 @@
+{
+  "repository": "https://github.com/hightowerbuilds/bustermark-linux",
+  "commit": "b1897d458c81ee04f460535e66466bbc74b4bf2a",
+  "ported_on": "2026-09-30",
+  "platform": "macOS",
+  "shared_source": [
+    "src",
+    "src-tauri/src",
+    "src-tauri/crates",
+    "src-tauri/resources"
+  ],
+  "macos_adaptations": [
+    "Command-W closes a tab; Command-Q saves and quits",
+    "Native Close Tab menu emits menu-close-tab",
+    "Language Model shortcut labels use Cmd on macOS",
+    "Bundle app and dmg instead of Linux AppImage",
+    "Bun v1-compatible lockfile header",
+    "Surface Keychain read failures instead of treating them as a missing key",
+    "Canonical temporary paths in native watcher acceptance test"
+  ],
+  "shared_fixes": [
+    "Correct workspace-relative breadcrumb argument order",
+    "Update inherited Rust test assertions and initializers for strict Clippy"
+  ],
+  "modified_shared_files": [
+    "src-tauri/src/commands/mod.rs",
+    "src-tauri/src/commands/session.rs",
+    "src-tauri/src/commands/settings.rs",
+    "src-tauri/src/lib.rs",
+    "src-tauri/src/watcher.rs",
+    "src/App.tsx",
+    "src/editor/CanvasEditor.tsx",
+    "src/editor/block-editor.test.ts",
+    "src/lib/BusterProvider.tsx",
+    "src/lib/a11y.ts",
+    "src/lib/actions-session.ts",
+    "src/lib/actions-tabs.test.ts",
+    "src/lib/actions-tabs.ts",
+    "src/lib/app-commands.test.ts",
+    "src/lib/app-commands.ts",
+    "src/lib/app-lifecycle.test.ts",
+    "src/lib/app-lifecycle.ts",
+    "src/lib/assistant.ts",
+    "src/lib/buster-actions.ts",
+    "src/lib/buster-context.ts",
+    "src/lib/feature-commands.ts",
+    "src/lib/ipc.ts",
+    "src/lib/menu-handlers.ts",
+    "src/lib/session-restore.test.ts",
+    "src/lib/session-restore.ts",
+    "src/lib/session.test.ts",
+    "src/lib/session.ts",
+    "src/lib/store-types.ts",
+    "src/styles/tab-workspace.css",
+    "src/ui/AssistantSidebar.tsx",
+    "src/ui/CanvasTabBar.tsx",
+    "src/ui/PanelLayout.test.ts",
+    "src/ui/PanelLayout.tsx",
+    "src/ui/PanelRenderer.test.ts",
+    "src/ui/PanelRenderer.tsx",
+    "src/ui/SettingsPanel.tsx"
+  ],
+  "validation": {
+    "platform": "macOS 26.6.2, x86_64",
+    "rust": "1.97.1",
+    "bun": "1.3.10",
+    "frontend_tests": 636,
+    "path_tests": 54,
+    "native_tests": 208,
+    "typescript": "passed",
+    "clippy": "workspace, all targets, deny warnings passed",
+    "bundle": "optimized Intel macOS app and DMG built and verified on 2026-10-02; debug app also verified",
+    "native_wkwebview": "animation, editing, last-tab close, shader pixels, autosave, saved chats, restart, clean quit passed",
+    "paid_live_requests": false,
+    "native_split_view": "two live editors, focused formatting and undo, independent autosave, note and Settings, pane selector, Open Alongside, resize, collapse, restored pair and width, final-tab welcome, clean quit passed",
+    "native_printing": "toolbar, menu, Command-P, modal cancellation, validation, live draft, model wait/cancel/confirmed success/Stop, editor preservation passed; PDFKit verified Letter portrait 8 pages, exact page-two range, A4 landscape 11 pages, Unicode and complete draft; physical printer output untested",
+    "release_dmg": {
+      "name": "BusterMark_0.1.0_x64.dmg",
+      "bytes": 15506255,
+      "sha256": "d2f9c7f5cd7e660a373e51f324d404ad1ea14b8a627bbb7a83776b7d7b62910e",
+      "image_verified": true,
+      "embedded_app_verified": true,
+      "signing": "unsigned, not notarized",
+      "date": "2026-10-02",
+      "target": "x86_64-apple-darwin"
+    }
+  },
+  "macos_enhancements": [
+    "Optional two-pane split view for notes and Settings, pane selectors, resizing, and saved layout",
+    "Native Mac printing and Save as PDF with a themed confirmation dialog shared by human and model commands"
+  ],
+  "added_shared_files": [
+    "src-tauri/src/commands/printing.rs",
+    "src-tauri/src/print_bridge.m",
+    "src/lib/print-document.ts",
+    "src/lib/printing.test.ts",
+    "src/lib/printing.ts",
+    "src/lib/split-view.ts",
+    "src/styles/print.css",
+    "src/ui/PrintDialog.test.ts",
+    "src/ui/PrintDialog.tsx"
+  ]
+}

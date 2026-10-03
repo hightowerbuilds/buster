@@ -1,0 +1,10 @@
+[package]
+name = "buster-syntax"
+version = "0.1.0"
+edition = "2021"
+description = "Incremental syntax highlighting service for the Buster IDE — persistent Tree-sitter trees, viewport-scoped highlighting"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+log = "0.4"

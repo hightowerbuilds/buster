@@ -4,9 +4,13 @@ import type { EngineMap } from "./buster-context";
 import type { Tab } from "./tab-types";
 import type { EditorEngine } from "../editor/engine";
 import { basename } from "buster-path";
-import { writeFile } from "./ipc";
+import { writeFile, watchFile, unwatchFile, lspDidChange, lspDidSave, lspFormatDocument } from "./ipc";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { showError, showSuccess } from "./notify";
+import { setRefreshDir } from "../ui/SidebarTree";
+import { resolveEditorSettings } from "./editor-settings";
+import { applyTextEdits } from "../editor/apply-text-edits";
+import { formatJsonEngine } from "../editor/json-format";
 import { isNotesPath } from "./notes-storage";
 
 export function createSaveActions(
@@ -15,9 +19,22 @@ export function createSaveActions(
   engines: EngineMap,
   activeTab: () => Tab | undefined,
   addRecentFile: (path: string, name: string) => void,
+  fetchDiffHunks: (tabId: string, filePath: string) => Promise<void>,
+  loadFileContent: (path: string) => Promise<{ content: string; fileName: string; filePath: string }>,
+  refreshGitBranch: (root: string) => Promise<void>,
   pendingNotes: Map<string, Promise<void>> = new Map(),
+  canSave: (tabId: string) => boolean = () => true,
 ) {
-  const savingTabs = new Set<string>();
+  const savingTabs = new Map<string, Promise<void>>();
+
+  function queueSave(tabId: string, save: () => Promise<void>): Promise<void> {
+    // Every caller waits for its own save, including edits made during an earlier write.
+    const pending = (savingTabs.get(tabId) ?? Promise.resolve()).catch(() => {}).then(save);
+    savingTabs.set(tabId, pending);
+    const cleanup = () => { if (savingTabs.get(tabId) === pending) savingTabs.delete(tabId); };
+    void pending.then(cleanup, cleanup);
+    return pending;
+  }
 
   async function writeFileSmart(path: string, content: string, mustExist = false): Promise<void> {
     const root = store.workspaceRoot;
@@ -28,9 +45,46 @@ export function createSaveActions(
     }
   }
 
+  async function syncLspDocument(savePath: string, engine: EditorEngine) {
+    try {
+      await lspDidChange(savePath, engine.getText(), engine.editSeq());
+      engine.takeEditDeltas();
+    } catch {
+      // Some file types have no running LSP server. Saving should still proceed.
+    }
+  }
+
+  async function formatBeforeSave(tab: Tab, engine: EditorEngine, savePath: string) {
+    // Block editing owns Markdown formatting, including deliberate whitespace.
+    if (/\.(md|markdown)$/i.test(savePath)) return;
+    const editorSettings = resolveEditorSettings(store.settings, savePath);
+    if (!editorSettings.format_on_save) return;
+
+    try {
+      if (editorSettings.languageId === "json") {
+        const indent = editorSettings.use_spaces ? " ".repeat(editorSettings.tab_size) : "\t";
+        formatJsonEngine(engine, indent);
+        await syncLspDocument(savePath, engine);
+        return;
+      }
+
+      await syncLspDocument(savePath, engine);
+      const edits = await lspFormatDocument(savePath, editorSettings.tab_size, editorSettings.use_spaces);
+      const fileEdits = edits.filter(edit => edit.file_path === savePath);
+      if (applyTextEdits(engine, fileEdits)) {
+        await syncLspDocument(savePath, engine);
+      }
+    } catch (error) {
+      console.warn(`Format on save failed for ${tab.name}:`, error);
+    }
+  }
+
   async function doSave(tab: Tab, engine: EditorEngine, savePath: string, options: { silent?: boolean } = {}): Promise<void> {
     const originalPath = tab.path;
+    await formatBeforeSave(tab, engine, savePath);
 
+    await syncLspDocument(savePath, engine);
+    if (!canSave(tab.id)) throw new Error("Resolve the external file change before saving.");
     const text = engine.getText();
     const savedRevision = engine.editSeq();
     await writeFileSmart(savePath, text, savePath === tab.path && isNotesPath(savePath, store.notesRoot));
@@ -44,37 +98,43 @@ export function createSaveActions(
       t.id === tab.id ? { ...t, path: savePath, name: fileName, dirty: engine.dirty() } : t
     ));
 
+    if (savePath !== originalPath) {
+      if (originalPath && !store.tabs.some(t => t.id !== tab.id && t.type === "file" && t.path === originalPath)) {
+        unwatchFile(originalPath).catch(() => {});
+      }
+      watchFile(savePath).catch(() => showError("File watcher failed — external changes may be missed"));
+    }
+
+    lspDidSave(savePath).catch(e => console.warn("LSP didSave failed:", e));
     addRecentFile(savePath, fileName);
+    fetchDiffHunks(tab.id, savePath);
     if (!options.silent) showSuccess("Saved");
   }
 
-  async function saveTab(tabId: string, options: { silent?: boolean; requirePath?: boolean } = {}) {
-    await pendingNotes.get(tabId);
-    if (savingTabs.has(tabId)) return;
+  function saveTab(tabId: string, options: { silent?: boolean; requirePath?: boolean } = {}) {
+    return queueSave(tabId, async () => {
+      await pendingNotes.get(tabId);
+      if (!canSave(tabId)) throw new Error("Resolve the external file change before saving.");
 
-    const tab = store.tabs.find(t => t.id === tabId);
-    if (!tab || tab.type !== "file") return;
-    const engine = engines.get(tab.id);
-    if (!engine) return;
+      const tab = store.tabs.find(t => t.id === tabId);
+      if (!tab || tab.type !== "file") return;
+      const engine = engines.get(tab.id);
+      if (!engine) return;
 
-    let savePath = tab.path;
-    if (!savePath) {
-      if (options.requirePath) return;
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const chosen = await save({
-        title: "Save File",
-        defaultPath: tab.name.startsWith("Untitled") ? undefined : tab.name,
-      });
-      if (!chosen) return;
-      savePath = chosen;
-    }
+      let savePath = tab.path;
+      if (!savePath) {
+        if (options.requirePath) return;
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const chosen = await save({
+          title: "Save File",
+          defaultPath: tab.name.startsWith("Untitled") ? undefined : tab.name,
+        });
+        if (!chosen) return;
+        savePath = chosen;
+      }
 
-    savingTabs.add(tabId);
-    try {
       await doSave(tab, engine, savePath, options);
-    } finally {
-      savingTabs.delete(tabId);
-    }
+    });
   }
 
   async function handleSave() {
@@ -90,23 +150,47 @@ export function createSaveActions(
 
   async function handleSaveAs() {
     const tabId = store.activeTabId;
-    if (tabId) await pendingNotes.get(tabId)?.catch(() => {});
-    const tab = store.tabs.find(t => t.id === tabId);
-    if (!tab || tab.type !== "file") return;
-    const engine = engines.get(tab.id);
-    if (!engine) return;
-
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const chosen = await save({
-      title: "Save As",
-      defaultPath: tab.path || tab.name,
-    });
-    if (!chosen) return;
-
+    if (!tabId) return;
     try {
-      await doSave(tab, engine, chosen);
+      await queueSave(tabId, async () => {
+        await pendingNotes.get(tabId)?.catch(() => {});
+        const tab = store.tabs.find(t => t.id === tabId);
+        if (!tab || tab.type !== "file") return;
+        const engine = engines.get(tab.id);
+        if (!engine) return;
+
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const chosen = await save({ title: "Save As", defaultPath: tab.path || tab.name });
+        if (!chosen) return;
+        await doSave(tab, engine, chosen);
+      });
     } catch { showError("Failed to save"); }
   }
 
-  return { writeFileSmart, handleSave, handleSaveAs, saveTab };
+  async function handleSync() {
+    if (store.syncing) return;
+    setStore("syncing", true);
+    try {
+      const root = store.workspaceRoot;
+      if (root) await refreshGitBranch(root);
+      if (root) setRefreshDir(root);
+
+      for (const tab of store.tabs) {
+        if (tab.type !== "file" || !tab.path) continue;
+        const engine = engines.get(tab.id);
+        if (!engine || engine.dirty()) continue;
+        try {
+          const { content } = await loadFileContent(tab.path);
+          if (content !== engine.getText()) engine.loadText(content);
+        } catch {
+          showError(`Failed to sync ${tab.name}`);
+        }
+        fetchDiffHunks(tab.id, tab.path);
+      }
+      showSuccess("Synced");
+    } catch { showError("Sync failed"); }
+    finally { setStore("syncing", false); }
+  }
+
+  return { writeFileSmart, handleSave, handleSaveAs, handleSync, saveTab, queueSave };
 }

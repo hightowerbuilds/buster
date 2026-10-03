@@ -11,15 +11,13 @@ interface FileWatcherDeps {
 }
 
 export async function setupFileWatcher(deps: FileWatcherDeps): Promise<() => void> {
+  const revisions = new Map<string, number>();
+  let disposed = false;
   const unlisten = await listen<{ path: string }>("file-changed-externally", async (event) => {
     const changedPath = event.payload.path;
-
-    // Find the tab for this path
-    const tab = deps.getTabs().find(t => t.type === "file" && t.path === changedPath);
-    if (!tab) return;
-
-    const engine = deps.getEngine(tab.id);
-    if (!engine) return;
+    const revision = (revisions.get(changedPath) ?? 0) + 1;
+    revisions.set(changedPath, revision);
+    if (!deps.getTabs().some(t => t.type === "file" && t.path === changedPath)) return;
 
     // Read updated content from disk
     let diskContent: string;
@@ -30,18 +28,20 @@ export async function setupFileWatcher(deps: FileWatcherDeps): Promise<() => voi
       return; // File may have been deleted
     }
 
-    // Skip if content is identical (e.g. touch, or save with same content)
-    if (diskContent === engine.getText()) return;
-
-    if (engine.dirty()) {
-      // Dirty buffer — show conflict dialog
-      deps.showConflictDialog(tab.id, tab.name, diskContent);
-    } else {
-      // Clean buffer — silently reload
-      engine.loadText(diskContent);
-      showToast(`Reloaded: ${tab.name}`, "info");
+    if (disposed || revisions.get(changedPath) !== revision) return;
+    // Resolve current targets after the read: tabs may close, Save As, or change
+    // while IPC is pending. Every view of the same file needs the notification.
+    for (const tab of deps.getTabs().filter(t => t.type === "file" && t.path === changedPath)) {
+      const engine = deps.getEngine(tab.id);
+      if (!engine || diskContent === engine.getText()) continue;
+      if (engine.dirty()) {
+        deps.showConflictDialog(tab.id, tab.name, diskContent);
+      } else {
+        engine.loadText(diskContent);
+        showToast(`Reloaded: ${tab.name}`, "info");
+      }
     }
   });
 
-  return unlisten;
+  return () => { disposed = true; revisions.clear(); unlisten(); };
 }

@@ -19,11 +19,13 @@ interface MenuHandlerDeps {
   activeEngine: () => EditorEngine | null;
   changeDirectory: () => void;
   closeDirectory: () => void;
+  openExtensions: () => void;
   openSettings: () => void;
   closeActiveTab: () => void;
   createNewFile: () => void;
   handleSave: () => void;
   handleSaveAs: () => void;
+  handlePrint?: () => void;
 }
 
 /**
@@ -36,11 +38,13 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
   handles.push(
     listen("menu-change-directory", () => deps.changeDirectory()) as unknown as Promise<() => void>,
     listen("menu-close-directory", () => deps.closeDirectory()) as unknown as Promise<() => void>,
+    listen("menu-open-extensions", () => deps.openExtensions()) as unknown as Promise<() => void>,
     listen("menu-open-settings", () => deps.openSettings()) as unknown as Promise<() => void>,
     listen("menu-close-tab", () => deps.closeActiveTab()) as unknown as Promise<() => void>,
     listen("menu-new-file", () => deps.createNewFile()) as unknown as Promise<() => void>,
     listen("menu-save", () => deps.handleSave()) as unknown as Promise<() => void>,
     listen("menu-save-as", () => deps.handleSaveAs()) as unknown as Promise<() => void>,
+    listen("menu-print", () => deps.handlePrint?.()) as unknown as Promise<() => void>,
   );
 
   // Undo / Redo
@@ -149,9 +153,7 @@ export function setupMenuHandlers(deps: MenuHandlerDeps): Promise<Array<() => vo
     listen("menu-select-all", () => {
       const target = document.activeElement;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-        if (target.matches('textarea[aria-roledescription="terminal"]')) {
-          target.dispatchEvent(new KeyboardEvent("keydown", { key: "a", metaKey: true, bubbles: true }));
-        } else if (target.closest(".canvas-editor")) {
+        if (target.closest(".canvas-editor")) {
           deps.activeEngine()?.selectAll();
         } else {
           target.select();

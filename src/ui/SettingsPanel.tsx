@@ -1,4 +1,5 @@
-import { Component, For, Show, onCleanup, createSignal } from "solid-js";
+import BackgroundGallery from "./BackgroundGallery";
+import { Component, For, Show, createSignal, createUniqueId } from "solid-js";
 import type { AppSettings } from "../lib/ipc";
 import { useBuster } from "../lib/buster-context";
 import { DEFAULT_KEYBINDINGS } from "../lib/app-commands";
@@ -6,7 +7,6 @@ import { findKeybindingConflicts, normalizeHotkey } from "../lib/keybinding-conf
 import { importVSCodeTheme, type ThemeEffects } from "../lib/theme";
 import { showError, showSuccess } from "../lib/notify";
 import { BLOG_THEMES } from "../lib/blog-themes";
-import { DEFAULT_FONT_FAMILY } from "../editor/text-measure";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -16,115 +16,56 @@ interface SettingsPanelProps {
 // --- Unified setting item ---
 
 type SettingsItem =
-  | { id: string; type: "toggle"; key: keyof AppSettings; label: string; description: string }
   | { id: string; type: "number"; key: keyof AppSettings; label: string; description: string; min: number; max: number; step: number }
-  | { id: string; type: "theme" }
-  | { id: string; type: "font_family" }
-  | { id: string; type: "terminal_font_family" }
-  | { id: string; type: "terminal_shell" }
-  | { id: string; type: "effect"; key: keyof AppSettings; label: string; description: string }
-  | { id: string; type: "blog_theme" }
-  | { id: string; type: "terminal_bell" }
-;
+  | { id: string; type: "theme" | "blog_theme" };
 
-// Color/visual settings first, then text/editor settings, then agent settings
-const SETTINGS_ITEMS: SettingsItem[] = [
-  // Color & Visual
-  { id: "theme", type: "theme" },
-  { id: "effect_cursor_glow", type: "effect", key: "effect_cursor_glow", label: "Cursor Glow", description: "Soft bloom around the text cursor" },
-  { id: "effect_vignette", type: "effect", key: "effect_vignette", label: "Vignette", description: "Darken the edges of the editor" },
-  { id: "effect_grain", type: "effect", key: "effect_grain", label: "Film Grain", description: "Subtle noise texture overlay" },
-  { id: "minimap", type: "toggle", key: "minimap", label: "Minimap", description: "Show a minimap preview of the file" },
-  { id: "blog_theme", type: "blog_theme" },
-  // Text & Editor
-  { id: "font_size", type: "number", key: "font_size", label: "Editor Font Size", description: "Font size for the code editor and terminal", min: 10, max: 32, step: 1 },
-  { id: "font_family", type: "font_family" },
-  { id: "tab_size", type: "number", key: "tab_size", label: "Tab Size", description: "Number of spaces per tab stop", min: 1, max: 8, step: 1 },
-  { id: "use_spaces", type: "toggle", key: "use_spaces", label: "Insert Spaces", description: "Indent with spaces instead of tab characters" },
-  { id: "word_wrap", type: "toggle", key: "word_wrap", label: "Word Wrap", description: "Wrap long lines to fit the editor width" },
-  { id: "auto_save", type: "toggle", key: "auto_save", label: "Auto Save", description: "Automatically save dirty files after editing pauses" },
-  { id: "auto_save_delay_ms", type: "number", key: "auto_save_delay_ms", label: "Auto Save Delay", description: "Milliseconds to wait after the last edit before saving", min: 500, max: 10000, step: 500 },
-  { id: "line_numbers", type: "toggle", key: "line_numbers", label: "Line Numbers", description: "Show line numbers in the gutter" },
-  { id: "autocomplete", type: "toggle", key: "autocomplete", label: "Autocomplete", description: "Suggest words as you type (Ctrl+Space to trigger)" },
-  { id: "terminal_font_family", type: "terminal_font_family" },
-  { id: "terminal_shell", type: "terminal_shell" },
-  { id: "terminal_scrollback_rows", type: "number", key: "terminal_scrollback_rows", label: "Terminal Scrollback", description: "Rows retained in terminal history", min: 1000, max: 100000, step: 1000 },
-  { id: "terminal_bell", type: "terminal_bell" },
-  { id: "ui_zoom", type: "number", key: "ui_zoom", label: "UI Zoom", description: "Scale the entire interface (Cmd+/Cmd-)", min: 50, max: 200, step: 10 },
+const SETTINGS_TABS = ["Appearances", "Hotkeys"] as const;
+type SettingsTab = typeof SETTINGS_TABS[number];
+
+const SETTINGS_SECTIONS: { title: string; description?: string; items: SettingsItem[] }[] = [
+  { title: "Appearance", items: [
+    { id: "theme", type: "theme" },
+    { id: "ui_zoom", type: "number", key: "ui_zoom", label: "Interface Size", description: "Make the whole app larger or smaller", min: 50, max: 200, step: 10 },
+  ] },
+  { title: "Writing", description: "Markdown notes save automatically after you pause typing, wherever they are stored.", items: [
+    { id: "blog_theme", type: "blog_theme" },
+    { id: "font_size", type: "number", key: "font_size", label: "Text Size", description: "Default text size for notes and shells; note appearance overrides can change it", min: 10, max: 32, step: 1 },
+  ] },
 ];
 
-const FONT_PRESETS = [
-  DEFAULT_FONT_FAMILY,
-  "Menlo, Monaco, Consolas, monospace",
-  "SF Mono, Menlo, Monaco, Consolas, monospace",
-  "Fira Code, JetBrains Mono, monospace",
-  "Cascadia Code, JetBrains Mono, monospace",
-];
-
-const TERMINAL_FONT_PRESETS = [
-  "",
-  DEFAULT_FONT_FAMILY,
-  "Menlo, Monaco, Consolas, monospace",
-  "SF Mono, Menlo, Monaco, Consolas, monospace",
-  "Berkeley Mono, JetBrains Mono, monospace",
-];
-
-// --- Canvas checkbox component ---
-function mountCanvasCheckbox(canvas: HTMLCanvasElement, checked: boolean) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const dpr = window.devicePixelRatio || 1;
-  const size = 20;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  ctx.scale(dpr, dpr);
-  drawCheckbox(ctx, size, checked);
-}
-
-function drawCheckbox(ctx: CanvasRenderingContext2D, size: number, checked: boolean) {
-  ctx.clearRect(0, 0, size, size);
-  const style = getComputedStyle(document.documentElement);
-  const border = style.getPropertyValue("--border").trim() || "#45475a";
-  const accent = style.getPropertyValue("--accent").trim() || "#89b4fa";
-  const text = style.getPropertyValue("--text").trim() || "#cdd6f4";
-  const surface = style.getPropertyValue("--bg-surface1").trim() || "#313244";
-
-  ctx.fillStyle = checked ? accent : surface;
-  ctx.fillRect(1, 1, size - 2, size - 2);
-  ctx.strokeStyle = checked ? accent : border;
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(1, 1, size - 2, size - 2);
-
-  if (checked) {
-    ctx.strokeStyle = text;
-    ctx.lineWidth = 2.2;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(5, 10);
-    ctx.lineTo(8.5, 14);
-    ctx.lineTo(15, 6);
-    ctx.stroke();
-  }
-}
-
-// --- Screen shake ---
-function triggerQuake(canvas: HTMLCanvasElement) {
-  const row = canvas.closest(".settings-row") as HTMLElement | null;
-  if (!row) return;
-  row.classList.remove("quake");
-  void row.offsetWidth;
-  row.classList.add("quake");
-  row.addEventListener("animationend", () => row.classList.remove("quake"), { once: true });
-}
+const WRITING_SHORTCUT_LABELS: Record<string, string> = {
+  "file.newFile": "New Note", "file.save": "Save", "file.saveAs": "Save As", "file.closeTab": "Close Tab",
+  "file.openFolder": "Open Folder", "file.print": "Print",
+  "view.commandPalette": "Find a Command or Document", "view.showCommands": "Show Commands",
+  "view.settings": "Settings", "view.keybindings": "Keyboard Shortcuts", "view.toggleSidebar": "Show / Hide File Explorer",
+  "editor.find": "Find in Note", "editor.zoomIn": "Increase Interface Size", "editor.zoomOut": "Decrease Interface Size",
+  "editor.zoomReset": "Reset Interface Size", "view.focusNextRegion": "Focus Next Area", "view.focusPrevRegion": "Focus Previous Area",
+};
+const writingShortcut = (id: string) => id in WRITING_SHORTCUT_LABELS || id.startsWith("tabs.");
 
 // --- Component ---
 
 const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const { store } = useBuster();
   const palette = () => store.palette;
+  const [activeTab, setActiveTab] = createSignal<SettingsTab>("Appearances");
+  const tabId = createUniqueId();
+  let body!: HTMLDivElement;
+  function selectTab(tab: SettingsTab, focus = false) {
+    setEditingKey(null);
+    setActiveTab(tab);
+    if (body) body.scrollTop = 0;
+    if (focus) document.getElementById(`${tabId}-${tab}`)?.focus();
+  }
+  function moveTab(event: KeyboardEvent) {
+    const index = SETTINGS_TABS.indexOf(activeTab());
+    const next = event.key === "ArrowRight" ? (index + 1) % SETTINGS_TABS.length
+      : event.key === "ArrowLeft" ? (index + SETTINGS_TABS.length - 1) % SETTINGS_TABS.length
+      : event.key === "Home" ? 0 : event.key === "End" ? SETTINGS_TABS.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault(); event.stopPropagation();
+    selectTab(SETTINGS_TABS[next], true);
+  }
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     props.onChange({ ...props.settings, [key]: value });
   }
@@ -132,44 +73,8 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const themeHue = () => props.settings.theme_hue ?? -1;
   const themeMode = () => props.settings.theme_mode || "dark";
 
-  // Reusable checkbox renderer
-  function Checkbox(p: { checked: boolean; onToggle: () => void }) {
-    return (
-      <canvas
-        class="settings-checkbox"
-        width="20"
-        height="20"
-        ref={(el) => {
-          requestAnimationFrame(() => mountCanvasCheckbox(el, p.checked));
-          let prev = p.checked;
-          const interval = setInterval(() => {
-            if (p.checked !== prev) { prev = p.checked; mountCanvasCheckbox(el, p.checked); }
-          }, 60);
-          onCleanup(() => clearInterval(interval));
-        }}
-        onClick={(e) => {
-          p.onToggle();
-          triggerQuake(e.currentTarget as HTMLCanvasElement);
-        }}
-      />
-    );
-  }
-
   function renderItem(item: SettingsItem) {
     switch (item.type) {
-      case "toggle":
-        return (
-          <div class="settings-row-content">
-            <div class="settings-info">
-              <span class="settings-label">{item.label}</span>
-              <span class="settings-desc">{item.description}</span>
-            </div>
-            <Checkbox
-              checked={!!props.settings[item.key]}
-              onToggle={() => update(item.key, !props.settings[item.key])}
-            />
-          </div>
-        );
       case "number":
         return (
           <div class="settings-row-content">
@@ -264,7 +169,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     palette().accent,
                     palette().accent2,
                     palette().cursor,
-                    ...Object.values(palette().syntax).filter((_, i) => i % 3 === 0),
                   ].slice(0, 14)}>
                     {(color) => (
                       <div class="settings-swatch" style={{ background: color }} />
@@ -287,132 +191,13 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </Show>
           </div>
         );
-      case "font_family": {
-        const current = () => props.settings.font_family || DEFAULT_FONT_FAMILY;
-        return (
-          <div class="settings-row-content settings-font-content">
-            <div class="settings-info">
-              <span class="settings-label">Font Family</span>
-              <span class="settings-desc">Monospace stack used by editor and terminal canvases</span>
-            </div>
-            <div class="settings-font-controls">
-              <input
-                class="settings-font-input"
-                value={current()}
-                spellcheck={false}
-                onChange={(e) => update("font_family", e.currentTarget.value || DEFAULT_FONT_FAMILY)}
-              />
-              <div class="settings-font-presets">
-                <For each={FONT_PRESETS}>
-                  {(font) => (
-                    <button
-                      class={`settings-theme-btn ${current() === font ? "settings-theme-btn-active" : ""}`}
-                      onClick={() => update("font_family", font)}
-                    >
-                      {font.split(",")[0]}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </div>
-        );
-      }
-      case "terminal_font_family": {
-        const current = () => props.settings.terminal_font_family ?? "";
-        const effective = () => current().trim() || props.settings.font_family || DEFAULT_FONT_FAMILY;
-        return (
-          <div class="settings-row-content settings-font-content">
-            <div class="settings-info">
-              <span class="settings-label">Terminal Font Family</span>
-              <span class="settings-desc">Optional monospace stack for terminal canvases</span>
-            </div>
-            <div class="settings-font-controls">
-              <input
-                class="settings-font-input"
-                value={current()}
-                placeholder={effective()}
-                spellcheck={false}
-                onChange={(e) => update("terminal_font_family", e.currentTarget.value)}
-              />
-              <div class="settings-font-presets">
-                <For each={TERMINAL_FONT_PRESETS}>
-                  {(font) => (
-                    <button
-                      class={`settings-theme-btn ${current() === font ? "settings-theme-btn-active" : ""}`}
-                      onClick={() => update("terminal_font_family", font)}
-                    >
-                      {font ? font.split(",")[0] : "Editor Font"}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </div>
-        );
-      }
-      case "terminal_shell": {
-        const current = () => props.settings.terminal_shell ?? "";
-        return (
-          <div class="settings-row-content settings-font-content">
-            <div class="settings-info">
-              <span class="settings-label">Terminal Shell</span>
-              <span class="settings-desc">Optional shell path for new terminal sessions</span>
-            </div>
-            <div class="settings-font-controls">
-              <input
-                class="settings-font-input"
-                value={current()}
-                placeholder="Auto"
-                spellcheck={false}
-                onChange={(e) => update("terminal_shell", e.currentTarget.value.trim())}
-              />
-              <div class="settings-font-presets">
-                <For each={["", "/bin/zsh", "/bin/bash", "/bin/sh"]}>
-                  {(shell) => (
-                    <button
-                      class={`settings-theme-btn ${current() === shell ? "settings-theme-btn-active" : ""}`}
-                      onClick={() => update("terminal_shell", shell)}
-                    >
-                      {shell || "Auto"}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-          </div>
-        );
-      }
-      case "effect": {
-        const val = () => (props.settings[item.key] as number) ?? 0;
-        return (
-          <div class="settings-row-content">
-            <div class="settings-info">
-              <span class="settings-label">{item.label}</span>
-              <span class="settings-desc">{item.description}</span>
-            </div>
-            <div class="settings-hue-controls">
-              <input
-                type="range"
-                class="settings-effect-slider"
-                min="0"
-                max="100"
-                step="5"
-                value={val()}
-                onInput={(e) => update(item.key, parseInt(e.currentTarget.value))}
-              />
-              <span class="settings-hue-value">{val() > 0 ? `${val()}%` : "off"}</span>
-            </div>
-          </div>
-        );
-      }
       case "blog_theme": {
         const current = () => props.settings.blog_theme || "normal";
         return (
           <div class="settings-row-content">
             <div class="settings-info">
-              <span class="settings-label">Blog Mode Theme</span>
-              <span class="settings-desc">Visual style when previewing markdown files</span>
+              <span class="settings-label">Writing Style</span>
+              <span class="settings-desc">Typography and styling for your notes</span>
             </div>
             <div class="settings-theme-btns">
               <For each={[...BLOG_THEMES]}>
@@ -427,27 +212,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </div>
         );
       }
-      case "terminal_bell": {
-        const current = () => props.settings.terminal_bell_mode || "visual";
-        return (
-          <div class="settings-row-content">
-            <div class="settings-info">
-              <span class="settings-label">Terminal Bell</span>
-              <span class="settings-desc">How terminal BEL events are handled</span>
-            </div>
-            <div class="settings-theme-btns">
-              {(["visual", "audible", "off"] as const).map((mode) => (
-                <button
-                  class={`settings-theme-btn ${current() === mode ? "settings-theme-btn-active" : ""}`}
-                  onClick={() => update("terminal_bell_mode", mode)}
-                >
-                  {mode === "visual" ? "Visual" : mode === "audible" ? "Audible" : "Off"}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      }
+
     }
   }
 
@@ -464,6 +229,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   }
 
   function formatCommandLabel(commandId: string): string {
+    if (WRITING_SHORTCUT_LABELS[commandId]) return WRITING_SHORTCUT_LABELS[commandId];
     const tabMatch = commandId.match(/^tabs\.(\d+)$/);
     if (tabMatch) return `Go to Tab ${tabMatch[1]}`;
     if (commandId === "tabs.prev") return "Go to Previous Tab";
@@ -539,19 +305,22 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
   return (
     <div class="settings-tab">
-      <div class="settings-header">
-        <h1 class="settings-title">Settings</h1>
+      <div class="settings-subtabs" role="tablist" aria-label="Settings categories">
+        <For each={SETTINGS_TABS}>{tab => <button type="button" role="tab"
+          id={`${tabId}-${tab}`} aria-controls={`${tabId}-panel`} aria-selected={activeTab() === tab}
+          tabIndex={activeTab() === tab ? 0 : -1} onClick={() => selectTab(tab)} onKeyDown={moveTab}>
+          {tab}
+        </button>}</For>
       </div>
-      <div class="settings-body">
-        <For each={SETTINGS_ITEMS}>
-          {(item) => (
-            <div class="settings-row">
-              {renderItem(item)}
-            </div>
-          )}
-        </For>
-
-        <div class="settings-section-divider" />
+      <div ref={body} class="settings-body" role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${activeTab()}`} tabindex="0">
+        <For each={activeTab() === "Appearances" ? SETTINGS_SECTIONS : []}>{section => <section aria-label={section.title}>
+          <h2 class="settings-section-title">{section.title}</h2>
+          <Show when={section.description}><p class="settings-section-description">{section.description}</p></Show>
+          <For each={section.items}>{item => <div class="settings-row">{renderItem(item)}</div>}</For>
+          <div class="settings-section-divider" />
+        </section>}</For>
+        <Show when={activeTab() === "Appearances"}><BackgroundGallery /></Show>
+        <Show when={activeTab() === "Hotkeys"}>
         <h2 class="settings-section-title">Keyboard Shortcuts</h2>
         <Show when={keybindingConflicts().length > 0}>
           <div class="keybinding-conflict-summary">
@@ -559,7 +328,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </div>
         </Show>
 
-        <For each={keybindingEntries()}>
+        <For each={keybindingEntries().filter(entry => writingShortcut(entry.id))}>
           {(entry) => {
             const conflict = () => conflictMessage(entry.id);
             return (
@@ -603,6 +372,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </div>
           )}}
         </For>
+        </Show>
       </div>
     </div>
   );

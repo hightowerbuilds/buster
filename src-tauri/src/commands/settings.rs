@@ -16,17 +16,21 @@ fn default_auto_save_delay_ms() -> u32 {
 fn default_font_family() -> String {
     "JetBrains Mono, Menlo, Monaco, Consolas, monospace".to_string()
 }
-fn default_terminal_font_family() -> String {
-    String::new()
-}
-fn default_terminal_shell() -> String {
-    String::new()
-}
-fn default_terminal_bell_mode() -> String {
-    "visual".to_string()
-}
-fn default_terminal_scrollback_rows() -> u32 {
-    10_000
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EditorLanguageSettings {
+    #[serde(default)]
+    pub tab_size: Option<u32>,
+    #[serde(default)]
+    pub use_spaces: Option<bool>,
+    #[serde(default)]
+    pub word_wrap: Option<bool>,
+    #[serde(default)]
+    pub format_on_save: Option<bool>,
+    #[serde(default)]
+    pub auto_save: Option<bool>,
+    #[serde(default)]
+    pub auto_save_delay_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,23 +77,21 @@ pub struct AppSettings {
     #[serde(default)]
     pub keybindings: HashMap<String, String>,
     #[serde(default)]
+    pub syntax_colors: HashMap<String, String>,
+    #[serde(default)]
+    pub format_on_save: bool,
+    #[serde(default)]
     pub auto_save: bool,
     #[serde(default = "default_auto_save_delay_ms")]
     pub auto_save_delay_ms: u32,
+    #[serde(default)]
+    pub language_settings: HashMap<String, EditorLanguageSettings>,
     #[serde(default = "default_blog_theme")]
     pub blog_theme: String,
     #[serde(default = "default_true")]
     pub show_indent_guides: bool,
     #[serde(default)]
     pub show_whitespace: bool,
-    #[serde(default = "default_terminal_font_family")]
-    pub terminal_font_family: String,
-    #[serde(default = "default_terminal_shell")]
-    pub terminal_shell: String,
-    #[serde(default = "default_terminal_bell_mode")]
-    pub terminal_bell_mode: String,
-    #[serde(default = "default_terminal_scrollback_rows")]
-    pub terminal_scrollback_rows: u32,
     // AI Completion
     #[serde(default)]
     pub ai_completion_enabled: bool,
@@ -97,6 +99,8 @@ pub struct AppSettings {
     pub ai_provider: String,
     #[serde(default)]
     pub ai_api_key: String,
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub ai_credential_error: Option<String>,
     #[serde(default = "default_ai_model")]
     pub ai_model: String,
     #[serde(default = "default_ollama_model")]
@@ -126,7 +130,7 @@ fn default_ai_provider() -> String {
     "ollama".to_string()
 }
 fn default_ai_model() -> String {
-    "claude-haiku-4-5-20251001".to_string()
+    "claude-haiku-4-5-20250514".to_string()
 }
 fn default_ollama_model() -> String {
     "gemma3:4b".to_string()
@@ -197,19 +201,19 @@ impl Default for AppSettings {
             agent_max_commands: 5,
             agent_timeout_secs: 300,
             keybindings: HashMap::new(),
+            syntax_colors: HashMap::new(),
+            format_on_save: false,
             auto_save: false,
             auto_save_delay_ms: 1500,
+            language_settings: HashMap::new(),
             blog_theme: "normal".to_string(),
             show_indent_guides: true,
             show_whitespace: false,
-            terminal_font_family: default_terminal_font_family(),
-            terminal_shell: default_terminal_shell(),
-            terminal_bell_mode: default_terminal_bell_mode(),
-            terminal_scrollback_rows: default_terminal_scrollback_rows(),
             ai_completion_enabled: false,
             ai_provider: "ollama".to_string(),
             ai_api_key: String::new(),
-            ai_model: "claude-haiku-4-5-20251001".to_string(),
+            ai_credential_error: None,
+            ai_model: "claude-haiku-4-5-20250514".to_string(),
             ai_local_model: "gemma3:4b".to_string(),
             ai_ollama_url: "http://localhost:11434".to_string(),
             ai_stop_on_newline: true,
@@ -236,7 +240,7 @@ fn settings_path(app: &AppHandle) -> PathBuf {
 }
 
 #[cfg(target_os = "macos")]
-fn save_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
+async fn save_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
     if provider != "anthropic" && provider != "openai" {
         return Ok(());
     }
@@ -251,37 +255,54 @@ fn save_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
-fn save_ai_api_key(_provider: &str, _api_key: &str) -> Result<(), String> {
-    Ok(())
+#[cfg(target_os = "linux")]
+async fn save_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
+    if !matches!(provider, "anthropic" | "openai") || api_key.trim().is_empty() { return Ok(()); }
+    crate::credentials::store(AI_KEYCHAIN_SERVICE, provider, api_key).await
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+async fn save_ai_api_key(_provider: &str, api_key: &str) -> Result<(), String> {
+    if api_key.is_empty() { Ok(()) } else { Err("Secure credential storage is unavailable on this platform".into()) }
 }
 
 #[cfg(target_os = "macos")]
-fn load_ai_api_key(provider: &str) -> String {
+async fn load_ai_api_key(provider: &str) -> Result<String, String> {
     if provider != "anthropic" && provider != "openai" {
-        return String::new();
+        return Ok(String::new());
     }
-    security_framework::passwords::get_generic_password(AI_KEYCHAIN_SERVICE, provider)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .unwrap_or_default()
+    match security_framework::passwords::get_generic_password(AI_KEYCHAIN_SERVICE, provider) {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|_| "The saved AI key is invalid.".into()),
+        Err(error) if error.code() == -25300 => Ok(String::new()),
+        Err(_) => Err("Could not read the AI key from Keychain. Unlock your login keychain and retry.".into()),
+    }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn load_ai_api_key(_provider: &str) -> String {
-    String::new()
+#[cfg(target_os = "linux")]
+async fn load_ai_api_key(provider: &str) -> Result<String, String> {
+    if !matches!(provider, "anthropic" | "openai") { return Ok(String::new()); }
+    crate::credentials::lookup(AI_KEYCHAIN_SERVICE, provider).await
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+async fn load_ai_api_key(_provider: &str) -> Result<String, String> { Ok(String::new()) }
+
+#[command]
+pub async fn load_saved_ai_key(provider: String) -> Result<String, String> {
+    load_ai_api_key(&provider).await
 }
 
 #[command]
-pub fn load_settings(app: AppHandle) -> AppSettings {
+pub async fn load_settings(app: AppHandle) -> AppSettings {
     let path = settings_path(&app);
     if path.exists() {
         match fs::read_to_string(&path) {
             Ok(content) => {
                 let mut settings: AppSettings = serde_json::from_str(&content).unwrap_or_default();
-                let key = load_ai_api_key(&settings.ai_provider);
-                if !key.is_empty() {
-                    settings.ai_api_key = key;
+                match load_ai_api_key(&settings.ai_provider).await {
+                    Ok(key) if !key.is_empty() => settings.ai_api_key = key,
+                    Err(error) => settings.ai_credential_error = Some(error),
+                    _ => {}
                 }
                 settings
             }
@@ -293,27 +314,28 @@ pub fn load_settings(app: AppHandle) -> AppSettings {
 }
 
 #[command]
-pub fn add_recent_folder(app: AppHandle, folder: String) -> Result<AppSettings, String> {
-    let mut settings = load_settings(app.clone());
+pub async fn add_recent_folder(app: AppHandle, folder: String) -> Result<AppSettings, String> {
+    let mut settings = load_settings(app.clone()).await;
     // Remove if already present, then push to front
     settings.recent_folders.retain(|f| f != &folder);
     settings.recent_folders.insert(0, folder);
     settings.recent_folders.truncate(MAX_RECENT_FOLDERS);
-    save_settings(app, settings.clone())?;
+    save_settings(app, settings.clone()).await?;
     Ok(settings)
 }
 
 #[command]
-pub fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
+pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
     let path = settings_path(&app);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    save_ai_api_key(&settings.ai_provider, &settings.ai_api_key)?;
+    save_ai_api_key(&settings.ai_provider, &settings.ai_api_key).await?;
     let mut persisted = settings;
     persisted.ai_api_key.clear();
+    persisted.ai_credential_error = None;
     let json = serde_json::to_string_pretty(&persisted).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())?;
+    crate::storage::write(&path, json.as_bytes(), false).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -354,6 +376,59 @@ mod tests {
     }
 
     #[test]
+    fn settings_language_overrides_round_trip() {
+        let mut settings = AppSettings {
+            format_on_save: true,
+            auto_save: true,
+            auto_save_delay_ms: 2000,
+            ..AppSettings::default()
+        };
+        settings.language_settings.insert(
+            "rust".to_string(),
+            super::EditorLanguageSettings {
+                tab_size: Some(2),
+                use_spaces: Some(false),
+                word_wrap: None,
+                format_on_save: Some(false),
+                auto_save: None,
+                auto_save_delay_ms: Some(1000),
+            },
+        );
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+        let rust = decoded.language_settings.get("rust").unwrap();
+
+        assert!(decoded.format_on_save);
+        assert!(decoded.auto_save);
+        assert_eq!(decoded.auto_save_delay_ms, 2000);
+        assert_eq!(rust.tab_size, Some(2));
+        assert_eq!(rust.use_spaces, Some(false));
+        assert_eq!(rust.format_on_save, Some(false));
+        assert_eq!(rust.auto_save_delay_ms, Some(1000));
+    }
+
+    #[test]
+    fn settings_font_and_syntax_colors_round_trip() {
+        let mut settings = AppSettings {
+            font_family: "Fira Code, monospace".to_string(),
+            ..AppSettings::default()
+        };
+        settings
+            .syntax_colors
+            .insert("keyword".to_string(), "#ff00aa".to_string());
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.font_family, "Fira Code, monospace");
+        assert_eq!(
+            decoded.syntax_colors.get("keyword"),
+            Some(&"#ff00aa".to_string())
+        );
+    }
+
+    #[test]
     fn settings_missing_format_and_auto_save_defaults() {
         let json = r#"{
             "word_wrap": true,
@@ -366,63 +441,41 @@ mod tests {
 
         let decoded: AppSettings = serde_json::from_str(json).unwrap();
 
-        assert_eq!(decoded.auto_save, false);
+        assert!(!decoded.format_on_save);
+        assert!(!decoded.auto_save);
         assert_eq!(decoded.auto_save_delay_ms, 1500);
+        assert!(decoded.language_settings.is_empty());
     }
 
     #[test]
-    fn settings_terminal_fields_round_trip() {
-        let mut settings = AppSettings::default();
-        settings.terminal_font_family = "Berkeley Mono, monospace".to_string();
-        settings.terminal_shell = "/bin/zsh".to_string();
-        settings.terminal_bell_mode = "audible".to_string();
-        settings.terminal_scrollback_rows = 25_000;
-
-        let json = serde_json::to_string(&settings).unwrap();
-        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(decoded.terminal_font_family, "Berkeley Mono, monospace");
-        assert_eq!(decoded.terminal_shell, "/bin/zsh");
-        assert_eq!(decoded.terminal_bell_mode, "audible");
-        assert_eq!(decoded.terminal_scrollback_rows, 25_000);
-    }
-
-    #[test]
-    fn settings_missing_terminal_fields_use_defaults() {
-        let json = r#"{
-            "word_wrap": true,
-            "font_size": 14,
-            "tab_size": 4,
-            "minimap": false,
-            "line_numbers": true,
-            "cursor_blink": true
-        }"#;
-
-        let decoded: AppSettings = serde_json::from_str(json).unwrap();
-
-        assert_eq!(decoded.terminal_font_family, "");
-        assert_eq!(decoded.terminal_shell, "");
-        assert_eq!(decoded.terminal_bell_mode, "visual");
-        assert_eq!(decoded.terminal_scrollback_rows, 10_000);
+    fn settings_saved_with_the_removed_shell_fields_still_load() {
+        let mut saved = serde_json::to_value(AppSettings { font_size: 15, ..AppSettings::default() }).unwrap();
+        saved["terminal_font_family"] = "Berkeley Mono".into();
+        saved["terminal_shell"] = "/bin/zsh".into();
+        saved["terminal_scrollback_rows"] = 25_000.into();
+        let decoded: AppSettings = serde_json::from_value(saved).unwrap();
+        assert_eq!(decoded.font_size, 15);
     }
 
     #[test]
     fn settings_ai_completion_round_trip() {
-        let mut settings = AppSettings::default();
-        settings.ai_completion_enabled = true;
-        settings.ai_provider = "openai".to_string();
-        settings.ai_api_key = "sk-test".to_string();
-        settings.ai_model = "gpt-4o-mini".to_string();
-        settings.ai_local_model = "qwen2.5-coder:7b".to_string();
-        settings.ai_ollama_url = "http://127.0.0.1:11434".to_string();
-        settings.ai_stop_on_newline = false;
-        settings.ai_debounce_local_ms = 1200;
-        settings.ai_debounce_cloud_ms = 300;
-        settings.ai_min_prefix_chars = 5;
-        settings.ai_cache_enabled = false;
-        settings.ai_cache_size = 8;
-        settings.ai_disabled_languages = vec!["markdown".to_string(), "plaintext".to_string()];
-        settings.ai_token_budget_monthly = 250_000;
+        let settings = AppSettings {
+            ai_completion_enabled: true,
+            ai_provider: "openai".to_string(),
+            ai_api_key: "sk-test".to_string(),
+            ai_model: "gpt-4o-mini".to_string(),
+            ai_local_model: "qwen2.5-coder:7b".to_string(),
+            ai_ollama_url: "http://127.0.0.1:11434".to_string(),
+            ai_stop_on_newline: false,
+            ai_debounce_local_ms: 1200,
+            ai_debounce_cloud_ms: 300,
+            ai_min_prefix_chars: 5,
+            ai_cache_enabled: false,
+            ai_cache_size: 8,
+            ai_disabled_languages: vec!["markdown".to_string(), "plaintext".to_string()],
+            ai_token_budget_monthly: 250_000,
+            ..AppSettings::default()
+        };
 
         let json = serde_json::to_string(&settings).unwrap();
         let decoded: AppSettings = serde_json::from_str(&json).unwrap();
@@ -458,7 +511,7 @@ mod tests {
 
         assert!(!decoded.ai_completion_enabled);
         assert_eq!(decoded.ai_provider, "ollama");
-        assert_eq!(decoded.ai_model, "claude-haiku-4-5-20251001");
+        assert_eq!(decoded.ai_model, "claude-haiku-4-5-20250514");
         assert_eq!(decoded.ai_local_model, "gemma3:4b");
         assert_eq!(decoded.ai_ollama_url, "http://localhost:11434");
         assert!(decoded.ai_stop_on_newline);

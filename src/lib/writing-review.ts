@@ -3,7 +3,6 @@ import type { EditorEngine } from "../editor/engine";
 import { orderPositions } from "../editor/engine";
 import { captureSelection, snapshotSchema, type SelectionTarget } from "./selection-commands";
 import { CommandFailure, type FeatureCommands, type CommandSchema } from "./feature-commands";
-import type { PaneWorkspace } from "./writing-panes";
 
 export type WritingProvider = "ollama" | "anthropic" | "openai";
 export interface WritingRequest { requestId: string; provider: WritingProvider; model: string; instruction: string; text: string }
@@ -13,10 +12,9 @@ export interface WritingReview {
   output: string; error: string; source: string; provider: string; model: string; instruction: string; resultTabId: string;
 }
 export interface WritingReviewDeps {
-  workspace: () => PaneWorkspace;
   engine: (tabId: string) => EditorEngine | undefined;
   hasTab: (tabId: string) => boolean;
-  openPanel: (id: string, kind: "lookup" | "ai", sourcePaneId: string) => string;
+  openPanel: (id: string, kind: "lookup" | "ai", sourceTabId: string) => string;
   createNote: (text: string, reviewTabId: string) => string;
   focusSource: (target: SelectionTarget) => void;
   closePanel: (tabId: string) => void;
@@ -42,8 +40,8 @@ export function createWritingReview(deps: WritingReviewDeps) {
   function start(target: SelectionTarget, kind: "lookup" | "ai") {
     const engine = sourceEngine(target);
     if (engine.hasMultiCursors()) fail("UNAVAILABLE", "Use a single selection for this action.");
-    const current = captureSelection(target.paneId, target.tabId, engine);
-    if (!deps.workspace().panes.some(p => p.id === target.paneId && p.tabId === target.tabId) || !current ||
+    const current = captureSelection(target.tabId, engine);
+    if (!current ||
       current.revision !== target.revision || current.text !== target.text ||
       current.range.anchor.line !== target.range.anchor.line || current.range.anchor.col !== target.range.anchor.col ||
       current.range.head.line !== target.range.head.line || current.range.head.col !== target.range.head.col)
@@ -54,7 +52,7 @@ export function createWritingReview(deps: WritingReviewDeps) {
     const id = crypto.randomUUID();
     const captured = JSON.parse(JSON.stringify(target)) as SelectionTarget;
     setReviews(id, { id, tabId: "", kind, target: captured, status: "ready", output: "", error: "", source: "", provider: "", model: "", instruction: "", resultTabId: "" });
-    try { setReviews(id, "tabId", deps.openPanel(id, kind, target.paneId)); }
+    try { setReviews(id, "tabId", deps.openPanel(id, kind, target.tabId)); }
     catch (error) { setReviews(id, undefined!); throw error; }
     if (kind === "lookup") {
       const controller = new AbortController(); pending.set(id, controller); setReviews(id, "status", "running");
@@ -130,8 +128,14 @@ export function createWritingReview(deps: WritingReviewDeps) {
     return { tabId: review.target.tabId };
   }
   function reconcile() {
-    for (const id of Object.keys(reviews)) if (reviews[id].tabId && !deps.hasTab(reviews[id].tabId)) {
-      cancel(id); setReviews(id, undefined!);
+    for (const id of Object.keys(reviews)) {
+      const review = reviews[id];
+      if (review.tabId && !deps.hasTab(review.tabId)) {
+        cancel(id); setReviews(id, undefined!);
+      } else if (!deps.hasTab(review.target.tabId)) {
+        // Keep completed output available as a new note, but stop orphaned work.
+        cancel(id);
+      }
     }
   }
   function discard(id: string) {
@@ -144,15 +148,15 @@ export function createWritingReview(deps: WritingReviewDeps) {
 }
 export type WritingReviewService = ReturnType<typeof createWritingReview>;
 
-export function registerWritingReviewCommands(service: FeatureCommands, review: WritingReviewService) {
+export function registerWritingReviewCommands(service: FeatureCommands, review: WritingReviewService, dictionaryAvailable = true) {
   const string: CommandSchema = { type: "string", minLength: 1 };
   const obj = (properties: Record<string, CommandSchema>): CommandSchema => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
   const id = obj({ reviewId: string });
   const result: CommandSchema = { type: "object", additionalProperties: true };
   const add = (name: string, description: string, inputSchema: CommandSchema, run: (args: any) => unknown, effect: "read" | "write" = "write") =>
-    service.register({ name, description, inputSchema, outputSchema: result, run, effect, version: 1, examples: [name] });
-  add("selection lookup", "Look up a captured word or phrase in local macOS dictionaries, beside the source note.", snapshotSchema, target => review.start(target, "lookup"));
-  add("selection ai", "Open an AI review beside a captured selection. Does not send text until review generate is invoked.", snapshotSchema, target => review.start(target, "ai"));
+    service.register({ name, description: name === "selection lookup" && !dictionaryAvailable ? "Unavailable on Linux: offline dictionary lookup is deferred from this release." : description, inputSchema, outputSchema: result, run, effect, version: 1, examples: [name], available: () => name !== "selection lookup" || dictionaryAvailable });
+  add("selection lookup", "Look up a captured word or phrase in local macOS dictionaries in a review tab.", snapshotSchema, target => review.start(target, "lookup"));
+  add("selection ai", "Open an AI review tab for a captured selection. Does not send text until review generate is invoked.", snapshotSchema, target => review.start(target, "ai"));
   add("review generate", "Send only the captured passage and instruction to the explicitly chosen configured provider/model. Returns immediately; inspect review read for progress.",
     obj({ reviewId: string, provider: { type: "string", enum: ["ollama", "anthropic", "openai"] }, model: string, instruction: string }),
     args => review.generate(args.reviewId, args.provider, args.model, args.instruction));

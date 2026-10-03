@@ -19,13 +19,13 @@ export const DEFAULT_WRITING_APPEARANCE: WritingAppearanceValues = {
   cursorGlow: -1, vignette: -1, grain: -1, typingPulse: 0, motion: true, effectDuration: 240,
 };
 export const WRITING_APPEARANCE_KEY = "bustermark-writing-layout-v1";
-export type AppearanceScope = "app" | "workspace" | "pane";
-export interface AppearanceTarget { scope: AppearanceScope; paneId?: string; workspaceId?: string; revision: number }
+export type AppearanceScope = "app" | "workspace" | "tab";
+export interface AppearanceTarget { scope: AppearanceScope; tabId?: string; workspaceId?: string; revision: number }
 type Patch = Partial<WritingAppearanceValues>;
 interface Preset { name: string; values: WritingAppearanceValues }
-interface Snapshot { app: WritingAppearanceValues; workspaces: Record<string, Patch>; panes: Record<string, Patch>; presets: Preset[] }
-interface Preview { id: string; scope: AppearanceScope; paneId?: string; workspaceId?: string; changes: Patch }
-interface Deps { paneIds(): string[]; workspaceId?(): string | null; load(): string | null; save(value: string): void }
+interface Snapshot { app: WritingAppearanceValues; workspaces: Record<string, Patch>; tabs: Record<string, Patch>; presets: Preset[] }
+interface Preview { id: string; scope: AppearanceScope; tabId?: string; workspaceId?: string; changes: Patch }
+interface Deps { tabIds(): string[]; workspaceId?(): string | null; load(): string | null; save(value: string): void }
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const fail = (code: string, message: string): never => { throw new CommandFailure(code, message); };
 const numeric: Record<string, { min: number; max: number; special?: number; unit?: string }> = {
@@ -64,7 +64,7 @@ function validatePatch(value: unknown): asserts value is Patch {
 function safeKey(key: string) { return key && !["__proto__", "constructor", "prototype"].includes(key); }
 
 export function createWritingAppearance(deps: Deps) {
-  let initial: Snapshot = { app: { ...DEFAULT_WRITING_APPEARANCE }, workspaces: {}, panes: {}, presets: [] }, warning = "";
+  let initial: Snapshot = { app: { ...DEFAULT_WRITING_APPEARANCE }, workspaces: {}, tabs: {}, presets: [] }, warning = "";
   try {
     const raw = deps.load();
     if (raw !== null) {
@@ -83,66 +83,66 @@ export function createWritingAppearance(deps: Deps) {
         if (typeof preset.name !== "string" || !preset.name.trim() || preset.name.length > 48 || names.has(preset.name)) throw new Error("Invalid preset name");
         names.add(preset.name); validatePatch(preset.values); preset.values = { ...DEFAULT_WRITING_APPEARANCE, ...preset.values };
       }
-      initial = { app: { ...DEFAULT_WRITING_APPEARANCE, ...saved.app }, workspaces, panes: {}, presets };
+      initial = { app: { ...DEFAULT_WRITING_APPEARANCE, ...saved.app }, workspaces, tabs: {}, presets };
     }
   } catch { warning = "Saved writing appearance could not be loaded. Defaults are in use; saved data stays intact until you save appearance preferences."; }
   const [state, setState] = createStore<Snapshot & { revision: number; warning: string; historyLength: number; preview: Preview | null }>({ ...initial, revision: 0, warning, historyLength: 0, preview: null });
   const history: Snapshot[] = [];
   const workspaceId = () => deps.workspaceId?.() || null;
-  const snapshot = (): Snapshot => clone({ app: state.app, workspaces: state.workspaces, panes: state.panes, presets: state.presets });
-  function requirePane(id: string | undefined) { if (!id || !safeKey(id) || !deps.paneIds().includes(id)) fail("NOT_FOUND", "This writing pane no longer exists."); return id!; }
+  const snapshot = (): Snapshot => clone({ app: state.app, workspaces: state.workspaces, tabs: state.tabs, presets: state.presets });
+  function requireTab(id: string | undefined) { if (!id || !safeKey(id) || !deps.tabIds().includes(id)) fail("NOT_FOUND", "This writing tab no longer exists."); return id!; }
   function requireWorkspace(id: string | undefined) { if (!id || !safeKey(id) || id !== workspaceId()) fail("NOT_FOUND", "The targeted workspace is no longer open."); return id!; }
-  function forPane(paneId?: string): WritingAppearanceValues {
+  function forTab(tabId?: string): WritingAppearanceValues {
     const id = workspaceId(), p = state.preview;
     return { ...state.app, ...(p?.scope === "app" ? p.changes : {}),
       ...(id ? state.workspaces[id] : {}), ...(p?.scope === "workspace" && p.workspaceId === id ? p.changes : {}),
-      ...(paneId && deps.paneIds().includes(paneId) ? state.panes[paneId] : {}),
-      ...(p?.scope === "pane" && p.paneId === paneId && deps.paneIds().includes(paneId!) ? p.changes : {}) };
+      ...(tabId && deps.tabIds().includes(tabId) ? state.tabs[tabId] : {}),
+      ...(p?.scope === "tab" && p.tabId === tabId && deps.tabIds().includes(tabId!) ? p.changes : {}) };
   }
-  function inspect(paneId?: string, workspace?: string) {
-    if (paneId !== undefined) requirePane(paneId);
+  function inspect(tabId?: string, workspace?: string) {
+    if (tabId !== undefined) requireTab(tabId);
     if (workspace !== undefined) requireWorkspace(workspace);
-    if (paneId && workspace) fail("INVALID_ARGUMENTS", "Inspect a pane or a workspace, not both.");
-    const scope: AppearanceScope = paneId ? "pane" : workspace ? "workspace" : "app";
-    const committed = { ...state.app, ...(scope !== "app" && workspaceId() ? state.workspaces[workspaceId()!] : {}), ...(paneId ? state.panes[paneId] : {}) };
+    if (tabId && workspace) fail("INVALID_ARGUMENTS", "Inspect a tab or a workspace, not both.");
+    const scope: AppearanceScope = tabId ? "tab" : workspace ? "workspace" : "app";
+    const committed = { ...state.app, ...(scope !== "app" && workspaceId() ? state.workspaces[workspaceId()!] : {}), ...(tabId ? state.tabs[tabId] : {}) };
     const p = state.preview;
-    const effective = scope === "pane" ? forPane(paneId) : { ...state.app, ...(p?.scope === "app" ? p.changes : {}), ...(workspace ? state.workspaces[workspace] : {}), ...(workspace && p?.scope === "workspace" && p.workspaceId === workspace ? p.changes : {}) };
-    return { revision: state.revision, scope, paneId: paneId ?? null, workspaceId: workspace ?? (paneId ? workspaceId() : null),
-      effective: clone(effective), committed: clone(committed), overrides: clone(paneId ? state.panes[paneId] ?? {} : workspace ? state.workspaces[workspace] ?? {} : {}),
-      app: clone(state.app), persistence: paneId ? "session" : "local", warning: state.warning, preview: p ? clone(p) : null, canRevert: state.historyLength > 0 };
+    const effective = scope === "tab" ? forTab(tabId) : { ...state.app, ...(p?.scope === "app" ? p.changes : {}), ...(workspace ? state.workspaces[workspace] : {}), ...(workspace && p?.scope === "workspace" && p.workspaceId === workspace ? p.changes : {}) };
+    return { revision: state.revision, scope, tabId: tabId ?? null, workspaceId: workspace ?? (tabId ? workspaceId() : null),
+      effective: clone(effective), committed: clone(committed), overrides: clone(tabId ? state.tabs[tabId] ?? {} : workspace ? state.workspaces[workspace] ?? {} : {}),
+      app: clone(state.app), persistence: tabId ? "session" : "local", warning: state.warning, preview: p ? clone(p) : null, canRevert: state.historyLength > 0 };
   }
   function checkRevision(revision: number) { if (!Number.isInteger(revision) || revision !== state.revision) fail("STALE_APPEARANCE", "Writing appearance changed. Reload its current values before applying your change."); }
   function validateTarget(target: AppearanceTarget) {
     checkRevision(target.revision);
-    if (target.scope === "pane" && target.workspaceId === undefined) requirePane(target.paneId);
-    else if (target.scope === "workspace" && target.paneId === undefined) requireWorkspace(target.workspaceId);
-    else if (target.scope !== "app" || target.paneId !== undefined || target.workspaceId !== undefined) fail("INVALID_ARGUMENTS", "Choose app, workspace with its ID, or pane with its ID.");
+    if (target.scope === "tab" && target.workspaceId === undefined) requireTab(target.tabId);
+    else if (target.scope === "workspace" && target.tabId === undefined) requireWorkspace(target.workspaceId);
+    else if (target.scope !== "app" || target.tabId !== undefined || target.workspaceId !== undefined) fail("INVALID_ARGUMENTS", "Choose app, workspace with its ID, or tab with its ID.");
   }
   const persistent = (next: Snapshot) => JSON.stringify({ version: 1, app: next.app, workspaces: next.workspaces, presets: next.presets });
   function publish(next: Snapshot, persist: boolean) {
     if (persist) { try { deps.save(persistent(next)); } catch { fail("PERSISTENCE_UNAVAILABLE", "Writing appearance could not be saved. Your current appearance was kept."); } }
-    for (const id of Object.keys(next.panes)) if (!deps.paneIds().includes(id)) delete next.panes[id];
-    setState("app", reconcile(next.app)); setState("workspaces", reconcile(next.workspaces)); setState("panes", reconcile(next.panes)); setState("presets", reconcile(next.presets));
+    for (const id of Object.keys(next.tabs)) if (!deps.tabIds().includes(id)) delete next.tabs[id];
+    setState("app", reconcile(next.app)); setState("workspaces", reconcile(next.workspaces)); setState("tabs", reconcile(next.tabs)); setState("presets", reconcile(next.presets));
     setState({ preview: null, revision: state.revision + 1, warning: persist ? "" : state.warning });
   }
   function commit(next: Snapshot, persist: boolean) {
     const previous = snapshot();
     batch(() => { publish(next, persist); history.push(previous); if (history.length > 20) history.shift(); setState("historyLength", history.length); });
   }
-  const result = (target: AppearanceTarget) => inspect(target.scope === "pane" ? target.paneId : undefined, target.scope === "workspace" ? target.workspaceId : undefined);
+  const result = (target: AppearanceTarget) => inspect(target.scope === "tab" ? target.tabId : undefined, target.scope === "workspace" ? target.workspaceId : undefined);
   function apply(target: AppearanceTarget & { changes: Patch }) {
     validateTarget(target); validatePatch(target.changes); const next = snapshot();
     if (target.scope === "app") next.app = { ...next.app, ...target.changes };
     else if (target.scope === "workspace") next.workspaces[target.workspaceId!] = { ...next.workspaces[target.workspaceId!], ...target.changes };
-    else next.panes[target.paneId!] = { ...next.panes[target.paneId!], ...target.changes };
-    commit(next, target.scope !== "pane"); return result(target);
+    else next.tabs[target.tabId!] = { ...next.tabs[target.tabId!], ...target.changes };
+    commit(next, target.scope !== "tab"); return result(target);
   }
   function reset(target: AppearanceTarget) {
     validateTarget(target); const next = snapshot();
     if (target.scope === "app") next.app = { ...DEFAULT_WRITING_APPEARANCE };
     else if (target.scope === "workspace") delete next.workspaces[target.workspaceId!];
-    else delete next.panes[target.paneId!];
-    commit(next, target.scope !== "pane"); return result(target);
+    else delete next.tabs[target.tabId!];
+    commit(next, target.scope !== "tab"); return result(target);
   }
   function revert(revision: number) {
     checkRevision(revision); const previous = history[history.length - 1];
@@ -155,7 +155,7 @@ export function createWritingAppearance(deps: Deps) {
     validateTarget(target); validatePatch(target.changes);
     if (state.preview && target.previewId !== state.preview.id) fail("BUSY", "An appearance preview is already open. Apply or cancel it first.");
     if (target.previewId && target.previewId !== state.preview?.id) fail("NOT_FOUND", "This preview is no longer active.");
-    const p: Preview = { id: state.preview?.id ?? crypto.randomUUID(), scope: target.scope, paneId: target.paneId, workspaceId: target.workspaceId, changes: clone(target.changes) };
+    const p: Preview = { id: state.preview?.id ?? crypto.randomUUID(), scope: target.scope, tabId: target.tabId, workspaceId: target.workspaceId, changes: clone(target.changes) };
     batch(() => { setState("preview", reconcile(p)); setState("revision", state.revision + 1); }); return result(target);
   }
   function cancelPreview(previewId: string, revision: number) {
@@ -181,7 +181,7 @@ export function createWritingAppearance(deps: Deps) {
   function stopEffects(revision: number) {
     checkRevision(revision); const next = snapshot(); next.app = { ...next.app, ...stopped };
     for (const id of Object.keys(next.workspaces)) next.workspaces[id] = { ...next.workspaces[id], ...stopped };
-    for (const id of Object.keys(next.panes)) next.panes[id] = { ...next.panes[id], ...stopped };
+    for (const id of Object.keys(next.tabs)) next.tabs[id] = { ...next.tabs[id], ...stopped };
     commit(next, true); return inspect();
   }
   function effects() { return { effects: effectKeys.map(name => ({ name, ...(numeric[name] ?? { type: "boolean" }) })), reducedMotion: "OS reduced motion always suppresses animated typing feedback; motion=false also suppresses it.", inherits: "cursorGlow, vignette, grain use -1 to inherit existing theme settings" }; }
@@ -189,13 +189,13 @@ export function createWritingAppearance(deps: Deps) {
     if (Object.keys(target.changes).some(key => !(effectKeys as readonly string[]).includes(key))) fail("INVALID_ARGUMENTS", "effects set accepts only properties reported by effects list.");
     return apply(target);
   }
-  function capabilities() { return { version: 1, appliesTo: "Markdown writing viewports", scopes: ["app", "workspace", "pane"], workspaceId: workspaceId(), precedence: ["app", "workspace", "pane"],
-    persistence: { app: "local preferences", workspace: "local preferences keyed by workspace path", pane: "current session only", preview: "temporary; explicit apply/cancel" },
+  function capabilities() { return { version: 1, appliesTo: "Markdown writing viewports", scopes: ["app", "workspace", "tab"], workspaceId: workspaceId(), precedence: ["app", "workspace", "tab"],
+    persistence: { app: "local preferences", workspace: "local preferences keyed by workspace path", tab: "current session only", preview: "temporary; explicit apply/cancel" },
     properties: { ...numeric, columnWidth: { ...numeric.columnWidth, fill: 0, includes: "editor gutter" }, alignment: { values: enums.alignment }, background: { values: enums.background }, motion: { type: "boolean" } },
-    defaults: { ...DEFAULT_WRITING_APPEARANCE }, responsive: "Insets shrink in narrow panes; inspect reports requested values, not measured geometry.",
+    defaults: { ...DEFAULT_WRITING_APPEARANCE }, responsive: "Insets shrink in narrow tabs; inspect reports requested values, not measured geometry.",
     undo: "appearance revert restores the last appearance change; text undo is unaffected", effects: effects().effects,
-    fontFamily: "Use existing global editor font settings; independent pane font family is not supported.", unavailable: ["paragraph spacing", "per-heading fonts", "arbitrary CSS", "caret trails", "character entrance effects"] }; }
-  return { state, workspaceId, forPane, inspect, apply, reset, revert, preview, cancelPreview, presets, savePreset, applyPreset, deletePreset, effects, setEffects, stopEffects, capabilities };
+    fontFamily: "Use existing global editor font settings; independent tab font family is not supported.", unavailable: ["paragraph spacing", "per-heading fonts", "arbitrary CSS", "caret trails", "character entrance effects"] }; }
+  return { state, workspaceId, forTab, inspect, apply, reset, revert, preview, cancelPreview, presets, savePreset, applyPreset, deletePreset, effects, setEffects, stopEffects, capabilities };
 }
 export type WritingAppearance = ReturnType<typeof createWritingAppearance>;
 
@@ -203,7 +203,7 @@ export function registerWritingAppearanceCommands(commands: FeatureCommands, app
   const num: CommandSchema = { type: "number" }, str: CommandSchema = { type: "string", minLength: 1 };
   const fields: Record<string, CommandSchema> = Object.fromEntries(Object.keys(numeric).map(key => [key, num]));
   for (const [key, values] of Object.entries(enums)) fields[key] = { type: "string", enum: values }; fields.motion = { type: "boolean" };
-  const target: Record<string, CommandSchema> = { scope: { type: "string", enum: ["app", "workspace", "pane"] }, paneId: str, workspaceId: str, revision: num };
+  const target: Record<string, CommandSchema> = { scope: { type: "string", enum: ["app", "workspace", "tab"] }, tabId: str, workspaceId: str, revision: num };
   const obj = (properties: Record<string, CommandSchema>, required: string[] = []): CommandSchema => ({ type: "object", properties, required, additionalProperties: false });
   const examples: Record<string, object> = {
     "appearance preview cancel": { previewId: "<preview ID>", revision: 1 },
@@ -214,9 +214,9 @@ export function registerWritingAppearanceCommands(commands: FeatureCommands, app
   };
   const add = (name: string, description: string, inputSchema: CommandSchema, run: (args: any) => unknown, effect: "read" | "write" = "write", example = examples[name] ? `${name} ${JSON.stringify(examples[name])}` : name) => commands.register({ name, description, inputSchema, outputSchema: objectResult, run, effect, version: 1, examples: [example] });
   add("appearance capabilities", "Discover supported writing appearance properties, bounds, scopes and renderer limitations.", emptyArgs, () => appearance.capabilities(), "read");
-  add("appearance inspect", "Inspect inherited appearance, committed values, preview and revision.", obj({ paneId: str, workspaceId: str }), args => appearance.inspect(args.paneId, args.workspaceId), "read");
+  add("appearance inspect", "Inspect inherited appearance, committed values, preview and revision.", obj({ tabId: str, workspaceId: str }), args => appearance.inspect(args.tabId, args.workspaceId), "read");
   add("appearance apply", "Apply a validated patch, commit preferences, and end any preview; never edit note text.", obj({ ...target, changes: obj(fields) }, ["scope", "revision", "changes"]), args => appearance.apply(args), "write", 'appearance apply {"scope":"app","revision":0,"changes":{"columnWidth":760,"alignment":"center"}}');
-  add("appearance reset", "Reset app defaults or remove workspace/pane overrides; other scopes are retained.", obj(target, ["scope", "revision"]), args => appearance.reset(args), "write", 'appearance reset {"scope":"app","revision":0}');
+  add("appearance reset", "Reset app defaults or remove workspace/tab overrides; other scopes are retained.", obj(target, ["scope", "revision"]), args => appearance.reset(args), "write", 'appearance reset {"scope":"app","revision":0}');
   add("appearance revert", "Restore the last committed appearance change, separate from document undo.", obj({ revision: num }, ["revision"]), args => appearance.revert(args.revision), "write", 'appearance revert {"revision":1}');
   add("appearance preview", "Preview without saving; use returned preview ID to update or cancel.", obj({ ...target, changes: obj(fields), previewId: str }, ["scope", "revision", "changes"]), args => appearance.preview(args), "write", 'appearance preview {"scope":"app","revision":0,"changes":{"background":"paper"}}');
   add("appearance preview cancel", "Discard the identified preview without changing committed appearance.", obj({ previewId: str, revision: num }, ["previewId", "revision"]), args => appearance.cancelPreview(args.previewId, args.revision));
@@ -225,7 +225,7 @@ export function registerWritingAppearanceCommands(commands: FeatureCommands, app
   add("appearance presets apply", "Apply a named preset to an explicit scope.", obj({ ...target, name: str }, ["scope", "revision", "name"]), args => appearance.applyPreset(args));
   add("appearance presets delete", "Delete a custom appearance; built-in appearances are retained.", obj({ name: str, revision: num }, ["name", "revision"]), args => appearance.deletePreset(args.name, args.revision));
   add("effects list", "List effect controls and reduced-motion behavior.", emptyArgs, () => appearance.effects(), "read");
-  add("effects inspect", "Inspect effective effects and appearance revision.", obj({ paneId: str, workspaceId: str }), args => appearance.inspect(args.paneId, args.workspaceId), "read");
+  add("effects inspect", "Inspect effective effects and appearance revision.", obj({ tabId: str, workspaceId: str }), args => appearance.inspect(args.tabId, args.workspaceId), "read");
   add("effects set", "Set supported effect controls at an explicit scope.", obj({ ...target, changes: obj(Object.fromEntries(effectKeys.map(key => [key, fields[key]]))) }, ["scope", "revision", "changes"]), args => appearance.setEffects(args));
   add("effects stop", "Disable effects and motion across all scopes, ending any preview.", obj({ revision: num }, ["revision"]), args => appearance.stopEffects(args.revision));
 }

@@ -80,7 +80,7 @@ pub async fn ai_completion_request(
     state: State<'_, AiCompletionState>,
     request: CompletionRequest,
 ) -> Result<(), String> {
-    let settings = super::settings::load_settings(app.clone());
+    let settings = super::settings::load_settings(app.clone()).await;
     if !settings.ai_completion_enabled {
         return Ok(());
     }
@@ -149,15 +149,15 @@ pub async fn ai_completion_validate_provider(
 }
 
 #[command]
-pub fn ai_completion_usage(
+pub async fn ai_completion_usage(
     app: AppHandle,
     state: State<'_, AiCompletionState>,
-) -> AiCompletionUsage {
-    let settings = super::settings::load_settings(app);
-    AiCompletionUsage {
+) -> Result<AiCompletionUsage, String> {
+    let settings = super::settings::load_settings(app).await;
+    Ok(AiCompletionUsage {
         estimated_tokens: state.estimated_tokens_used.load(Ordering::Relaxed),
         monthly_budget: settings.ai_token_budget_monthly,
-    }
+    })
 }
 
 // ── Prompt Building ────────────────────────────────────────────

@@ -2,8 +2,8 @@
  * Action orchestrator — composes domain-specific action modules into
  * the unified BusterActions interface.
  *
- * Each domain (theme, settings, workspace, files, tabs, save,
- * session) lives in its own actions-*.ts module.
+ * Each domain (theme, settings, git, workspace, LSP, files, tabs, save,
+ * diagnostics, session) lives in its own actions-*.ts module.
  */
 
 import type { SetStoreFunction } from "solid-js/store";
@@ -14,11 +14,13 @@ import type { AppSettings } from "./ipc";
 
 import { createThemeActions } from "./actions-theme";
 import { createSettingsActions } from "./actions-settings";
+import { createGitActions } from "./actions-git";
 import { createWorkspaceActions } from "./actions-workspace";
+import { createLspActions } from "./actions-lsp";
 import { createFileActions } from "./actions-files";
 import { createTabActions } from "./actions-tabs";
 import { createSaveActions } from "./actions-save";
-import { createPaneActions } from "./actions-panes";
+import { createDiagnosticActions } from "./actions-diagnostics";
 import { createSessionActions } from "./actions-session";
 
 // ── Deps interface ────────────────────────────────────────────────
@@ -27,7 +29,8 @@ export interface ActionDeps {
   store: BusterStoreState;
   setStore: SetStoreFunction<BusterStoreState>;
   engines: EngineMap;
-  extChangeDiskContent: { value: string };
+  extChangeDiskContent: { value: string; resolve?: (result: import("../ui/ExternalChangeDialog").ExternalChangeResult) => void };
+  canSave?: (tabId: string) => boolean;
 }
 
 // ── Factory ───────────────────────────────────────────────────────
@@ -36,6 +39,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
   initSettings: () => Promise<void>;
   finishSessionRestore: () => void;
   rebuildPalette: (s: AppSettings) => void;
+  attemptLspStart: (filePath: string, workspaceRoot: string) => void;
   doTabClose: (tabId: string) => void;
 } {
   const { store, setStore, engines } = deps;
@@ -44,13 +48,15 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
 
   const theme = createThemeActions(setStore);
   const settings = createSettingsActions(store, setStore, theme.rebuildPalette);
-  const workspace = createWorkspaceActions(store, setStore, settings.updateSettings);
-  const files = createFileActions(store, setStore, switchToTab, settings.addRecentFile);
+  const git = createGitActions(store, setStore);
+  const workspace = createWorkspaceActions(store, setStore, git.refreshGitBranch, settings.updateSettings);
+  const lsp = createLspActions(store, setStore);
+  const files = createFileActions(store, setStore, switchToTab, settings.addRecentFile, git.fetchDiffHunks, lsp.attemptLspStart);
   const pendingNotes = new Map<string, Promise<void>>();
-  const save = createSaveActions(store, setStore, engines, activeTab, settings.addRecentFile, pendingNotes);
-  const tabs = createTabActions(store, setStore, engines, deps.extChangeDiskContent, save.writeFileSmart, pendingNotes);
+  const save = createSaveActions(store, setStore, engines, activeTab, settings.addRecentFile, git.fetchDiffHunks, files.loadFileContent, git.refreshGitBranch, pendingNotes, deps.canSave);
+  const tabs = createTabActions(store, setStore, engines, deps.extChangeDiskContent, save.writeFileSmart, pendingNotes, save.queueSave, deps.canSave);
+  const diagnostics = createDiagnosticActions(store, engines, activeEngine, files.handleFileSelect);
   const session = createSessionActions(store, engines);
-  const panes = createPaneActions(store, setStore, tabs.createNewFile, tabs.createTerminalTab);
 
   // ── Derived accessors (used by multiple modules) ────────────
 
@@ -116,29 +122,37 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
   // ── Return unified interface ────────────────────────────────
 
   return {
-    panes,
     // File operations
     createNewFile: tabs.createNewFile,
     handleFileSelect: files.handleFileSelect,
+    openFile: files.openFile,
     handleSave: save.handleSave,
     handleSaveAs: save.handleSaveAs,
     saveTab: save.saveTab,
+    handleSync: save.handleSync,
     loadFileContent: files.loadFileContent,
 
     // Tab management
     switchToTab: tabs.switchToTab,
+    openTabAlongside: tabs.openTabAlongside,
+    closeSplitView: tabs.closeSplitView,
+    setSplitRatio: tabs.setSplitRatio,
+    reorderTabs: tabs.reorderTabs,
     handleTabClose: tabs.handleTabClose,
-    createTerminalTab: tabs.createTerminalTab,
+    createGitTab: tabs.createGitTab,
     createSettingsTab: tabs.createSettingsTab,
     createKeybindingsTab: tabs.createKeybindingsTab,
+    createExtensionsTab: tabs.createExtensionsTab,
+    createProblemsTab: tabs.createProblemsTab,
+    createBrowserTab: tabs.createBrowserTab,
+    createConsoleTab: tabs.createConsoleTab,
     createAiTab: tabs.createAiTab,
-    handleTermIdReady: tabs.handleTermIdReady,
-    handleTermTitleChange: tabs.handleTermTitleChange,
 
     // Workspace
     openWorkspace: workspace.openWorkspace,
     changeDirectory: workspace.changeDirectory,
     closeDirectory: workspace.closeDirectory,
+    refreshGitBranch: git.refreshGitBranch,
 
     // Dialog results
     handleDirtyCloseResult: tabs.handleDirtyCloseResult,
@@ -153,8 +167,15 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
     updateSettings: settings.updateSettings,
     addRecentFile: settings.addRecentFile,
 
+    // LSP
+    restartLsp: lsp.restartLsp,
 
+    // Diagnostics
+    jumpToDiagnostic: diagnostics.jumpToDiagnostic,
+    diagnosticCounts: diagnostics.diagnosticCounts,
 
+    // Git
+    fetchDiffHunks: git.fetchDiffHunks,
 
     // Navigation history
     pushNavHistory,
@@ -169,6 +190,7 @@ export function createBusterActions(deps: ActionDeps): BusterActions & {
     initSettings: settings.initSettings,
     finishSessionRestore: session.finishSessionRestore,
     rebuildPalette: theme.rebuildPalette,
+    attemptLspStart: lsp.attemptLspStart,
     doTabClose: tabs.doTabClose,
   };
 }

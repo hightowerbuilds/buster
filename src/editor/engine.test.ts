@@ -640,6 +640,20 @@ describe("undo groups", () => {
 // ── 10. Load and reset ───────────────────────────────────────────────
 
 describe("loadText", () => {
+  it("invalidates captured revisions on every reload and requests full syntax synchronization", () => {
+    const e = createEditorEngine("original");
+    const captured = e.editSeq();
+    e.loadText("external\r\nwriting\r\n");
+    expect(e.editSeq()).toBeGreaterThan(captured);
+    expect(e.lines()).toEqual(["external", "writing", ""]);
+    expect(e.lineEnding()).toBe("CRLF");
+    expect(e.takeEditDeltas()).toBeNull();
+    const reloaded = e.editSeq();
+    e.loadText("second change");
+    expect(e.editSeq()).toBeGreaterThan(reloaded);
+    expect(e.lineEnding()).toBe("LF");
+    e.dispose();
+  });
   it("replaces entire document and resets cursor", () => {
     const e = createEditorEngine("old content");
     e.setCursor({ line: 0, col: 5 });

@@ -51,10 +51,8 @@ pub fn write_file(
 ) -> Result<(), String> {
     check_path(&path, &state)?;
     watcher.suppress_then_clear(&path);
-    use std::io::Write;
-    let mut file = fs::OpenOptions::new().write(true).truncate(true)
-        .create(!must_exist.unwrap_or(false)).open(&path).map_err(|e| e.to_string())?;
-    file.write_all(content.as_bytes()).map_err(|e| e.to_string())
+    crate::storage::write(Path::new(&path), content.as_bytes(), must_exist.unwrap_or(false))
+        .map_err(|e| format!("Could not save file: {e}"))
 }
 
 #[command]
@@ -155,7 +153,10 @@ pub fn create_file(path: String, state: tauri::State<WorkspaceState>) -> Result<
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::OpenOptions::new().write(true).create_new(true).open(&path)
-        .map(|_| ()).map_err(|e| e.to_string())
+        .map(|_| ()).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists { "File already exists".into() }
+            else { e.to_string() }
+        })
 }
 
 #[command]
@@ -199,6 +200,56 @@ pub fn delete_entry(path: String, state: tauri::State<WorkspaceState>) -> Result
     } else {
         fs::remove_file(&path).map_err(|e| e.to_string())
     }
+}
+
+#[derive(serde::Serialize)]
+pub struct BinaryFileContent {
+    pub path: String,
+    pub data_url: String,
+    pub file_name: String,
+    pub size: u64,
+}
+
+#[command]
+pub fn read_binary_file(path: String, state: tauri::State<WorkspaceState>) -> Result<BinaryFileContent, String> {
+    use std::io::Read;
+    check_path(&path, &state)?;
+
+    let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
+    let size = metadata.len();
+
+    let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+
+    // Detect MIME type from magic bytes
+    let mime = match bytes.get(0..8) {
+        Some([0x89, 0x50, 0x4E, 0x47, ..]) => "image/png",
+        Some([0xFF, 0xD8, 0xFF, ..]) => "image/jpeg",
+        Some([71, 73, 70, 56, ..]) => "image/gif",
+        Some([82, 73, 70, 70, ..]) => {
+            // Check for WEBP after RIFF header
+            if bytes.get(8..12) == Some(b"WEBP") { "image/webp" } else { "application/octet-stream" }
+        }
+        Some([66, 77, ..]) => "image/bmp",
+        Some([0x00, 0x00, 0x01, 0x00, ..]) => "image/x-icon",
+        _ => {
+            // Check for SVG (text-based)
+            let text_start = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]);
+            if text_start.contains("<svg") { "image/svg+xml" } else { "application/octet-stream" }
+        }
+    };
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let data_url = format!("data:{};base64,{}", mime, b64);
+
+    let file_name = Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.clone());
+
+    Ok(BinaryFileContent { path, data_url, file_name, size })
 }
 
 #[derive(serde::Serialize)]

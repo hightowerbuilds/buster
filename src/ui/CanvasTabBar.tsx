@@ -8,25 +8,24 @@
 
 import { UI_FONT_FAMILY } from "../lib/fonts";
 
-import { Component, createSignal, Show } from "solid-js";
+import { Component, createSignal, Show, For, createEffect, onCleanup } from "solid-js";
 import CanvasChrome, { CHROME_FONT, CHROME_MONO, type HitRegion, type PaintFn } from "./canvas-chrome";
 import { useBuster } from "../lib/buster-context";
 import type { Tab } from "../lib/tab-types";
-import type { ThemePalette } from "../lib/theme";
 import ContextMenu, { type ContextMenuState } from "./ContextMenu";
+import { retainTabListFocus } from "../lib/focus-service";
 
 // ── Props ──────────────────────────────────��─────────────────────────
 
 interface CanvasTabBarProps {
   tabs: Tab[];
   activeTab: string | null;
-  groupedTabIds?: Set<string>;
   onSelect: (id: string) => void;
   onActivate?: (id: string) => void;
   onClose: (id: string) => void;
   onRename?: (id: string, name: string) => void;
-  onNewTerminal: () => void;
   onReorder?: (fromIdx: number, toIdx: number) => void;
+  onOpenAlongside?: (id: string) => void;
 }
 
 // ── Constants ──────────────────────────���─────────────────────────────
@@ -35,7 +34,6 @@ const BAR_H = 36;
 const PAD = 12;
 const ICON_GAP = 6;
 const CLOSE_W = 16;
-const PLUS_W = 36;
 const DRAG_THRESHOLD = 5;
 
 const ICON_FONT = `11px ${CHROME_MONO}`;
@@ -43,9 +41,9 @@ const NAME_FONT = `13px ${CHROME_FONT}`;
 
 function tabIcon(type: string): string {
   switch (type) {
-    case "terminal": return ">";
     case "settings": return "~";
     case "git":      return "&";
+    case "surface":  return "^";
     default:         return "#";
   }
 }
@@ -66,6 +64,22 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
   let tabRects: Array<{ x: number; w: number; nameX: number; nameW: number }> = [];
   let totalTabsWidth = 0;
   let canvasWidth = 0;
+  let revealFrame = 0;
+  let endDrag: (() => void) | undefined;
+  createEffect(() => {
+    const active = props.activeTab;
+    props.tabs.map(tab => tab.id);
+    cancelAnimationFrame(revealFrame);
+    revealFrame = requestAnimationFrame(() => {
+      const rect = tabRects[props.tabs.findIndex(tab => tab.id === active)];
+      if (!rect || !canvasWidth) return;
+      const current = scrollX();
+      if (rect.x < current) setScrollX(rect.x);
+      else if (rect.x + rect.w > current + canvasWidth) setScrollX(Math.max(0, rect.x + rect.w - canvasWidth));
+      else setScrollX(Math.min(current, Math.max(0, totalTabsWidth - canvasWidth)));
+    });
+  });
+  onCleanup(() => { cancelAnimationFrame(revealFrame); endDrag?.(); });
 
   // ── Paint ──────────────────────────────────────────────────────────
 
@@ -73,7 +87,6 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
     const palette = store.palette;
     const tabs = props.tabs;
     const activeTab = props.activeTab;
-    const grouped = props.groupedTabIds;
     const scroll = scrollX();
     const dragFrom = dragFromIdx();
 
@@ -85,8 +98,8 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
     ctx.fillStyle = palette.cssCrust;
     ctx.fillRect(0, 0, w, h);
 
-    // Clip scrollable area (leave room for + button)
-    const scrollAreaW = w - PLUS_W;
+    // Clip scrollable area
+    const scrollAreaW = w;
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, scrollAreaW, h);
@@ -97,8 +110,6 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
     for (let i = 0; i < tabs.length; i++) {
       const tab = tabs[i];
       const isActive = tab.id === activeTab;
-      const isGrouped = grouped?.has(tab.id) ?? false;
-      const isTerminal = tab.type === "terminal";
       const tabHovered = hovered === `tab-${i}` || hovered === `close-${i}`;
       const isDrag = dragFrom === i;
       const isDrop = dropIdx() === i && dragFrom !== null && dragFrom !== i;
@@ -143,15 +154,9 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
         ctx.fillRect(x, 0, 2, h);
       }
 
-      // Grouped indicator (top border)
-      if (isGrouped) {
-        ctx.fillStyle = palette.accent;
-        ctx.fillRect(x, 0, tabW, 2);
-      }
-
       // Active underline
       if (isActive) {
-        ctx.fillStyle = isTerminal ? terminalGreen(palette) : palette.accent;
+        ctx.fillStyle = palette.accent;
         ctx.fillRect(x, h - 2, tabW, 2);
       }
 
@@ -161,7 +166,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
 
       // Icon
       ctx.font = ICON_FONT;
-      ctx.fillStyle = isTerminal ? terminalGreen(palette) : palette.textMuted;
+      ctx.fillStyle = palette.textMuted;
       ctx.textBaseline = "middle";
       ctx.textAlign = "left";
       ctx.fillText(icon, x + PAD, h / 2);
@@ -194,7 +199,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
       regions.push({
         id: `tab-${i}`,
         x: Math.max(0, x), y: 0,
-        w: Math.min(tabW, scrollAreaW - Math.max(0, x)),
+        w: Math.max(0, Math.min(x + tabW, scrollAreaW) - Math.max(0, x)),
         h,
         cursor: "pointer",
         onClick: () => (props.onActivate ?? props.onSelect)(tab.id),
@@ -215,28 +220,6 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
 
     totalTabsWidth = x + scroll;
     ctx.restore(); // Remove clip
-
-    // ── "+" button ───────────���───────────────────────────────────────
-    const plusX = w - PLUS_W;
-    ctx.fillStyle = palette.cssCrust;
-    ctx.fillRect(plusX, 0, PLUS_W, h);
-    // Left edge separator
-    ctx.fillStyle = palette.surface0;
-    ctx.fillRect(plusX, 4, 1, h - 8);
-
-    ctx.font = `16px ${CHROME_MONO}`;
-    ctx.fillStyle = hovered === "new-terminal" ? palette.text : palette.textMuted;
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "center";
-    ctx.fillText("+", plusX + PLUS_W / 2, h / 2);
-    ctx.textAlign = "left";
-
-    regions.push({
-      id: "new-terminal",
-      x: plusX, y: 0, w: PLUS_W, h,
-      cursor: "pointer",
-      onClick: () => props.onNewTerminal(),
-    });
 
     return regions;
   };
@@ -274,7 +257,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    const scrollAreaW = canvasWidth - PLUS_W;
+    const scrollAreaW = canvasWidth;
     const maxScroll = Math.max(0, totalTabsWidth - scrollAreaW);
     setScrollX((x) => Math.max(0, Math.min(maxScroll, x + (e.deltaX || e.deltaY))));
   }
@@ -282,7 +265,9 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
   // ── Drag and drop ──────────────────────────────────────────────────
 
   function startDrag(idx: number, e: PointerEvent) {
+    endDrag?.();
     const startX = e.clientX;
+    const left = (e.currentTarget as HTMLElement).getBoundingClientRect().left;
     let dragging = false;
 
     const onMove = (ev: PointerEvent) => {
@@ -300,7 +285,7 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
         for (let i = 0; i < tabRects.length; i++) {
           const r = tabRects[i];
           const screenX = r.x - scroll;
-          if (ev.clientX >= screenX && ev.clientX <= screenX + r.w) {
+          if (ev.clientX - left >= screenX && ev.clientX - left <= screenX + r.w) {
             setDropIdx(i);
             break;
           }
@@ -309,10 +294,8 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
     };
 
     const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
+      endDrag?.();
+      endDrag = undefined;
 
       if (dragging && dragFromIdx() !== null && dropIdx() !== null && dragFromIdx() !== dropIdx()) {
         props.onReorder?.(dragFromIdx()!, dropIdx()!);
@@ -323,6 +306,12 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
       setGhostStyle(null);
     };
 
+    endDrag = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
   }
@@ -335,21 +324,28 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
     if (count === 0) return;
 
     const activeIdx = tabs.findIndex((t) => t.id === props.activeTab);
+    const select = (id: string) => {
+      props.onSelect(id);
+      retainTabListFocus(e.currentTarget as HTMLElement);
+    };
 
     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
       const next = (activeIdx + 1) % count;
-      props.onSelect(tabs[next].id);
+      select(tabs[next].id);
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
       const prev = (activeIdx - 1 + count) % count;
-      props.onSelect(tabs[prev].id);
+      select(tabs[prev].id);
     } else if (e.key === "Home") {
       e.preventDefault();
-      props.onSelect(tabs[0].id);
+      select(tabs[0].id);
     } else if (e.key === "End") {
       e.preventDefault();
-      props.onSelect(tabs[count - 1].id);
+      select(tabs[count - 1].id);
+    } else if ((e.key === "Enter" || e.key === " ") && activeIdx >= 0) {
+      e.preventDefault();
+      (props.onActivate ?? props.onSelect)(tabs[activeIdx].id);
     }
   }
 
@@ -371,6 +367,8 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
           x: e.clientX,
           y: e.clientY,
           items: [
+            ...(props.onOpenAlongside ? [{ label: "Open Alongside", disabled: props.tabs.length < 2,
+              action: () => props.onOpenAlongside?.(tab.id) }, { separator: true as const }] : []),
             { label: "Close", action: () => props.onClose(tab.id) },
             { label: "Close Others", action: () => {
               props.tabs.forEach(t => { if (t.id !== tab.id) props.onClose(t.id); });
@@ -406,6 +404,14 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
         role="tablist"
         aria-label="Open tabs"
       >
+        <div class="tab-accessible-controls">
+          <For each={props.tabs}>{tab => <button role="tab" id={`tab-${tab.id}`}
+            aria-selected={props.activeTab === tab.id} aria-controls={`content-${tab.id}`}
+            tabIndex={-1} onPointerDown={event => event.stopPropagation()}
+            onClick={event => { event.stopPropagation(); props.onSelect(tab.id); }}>
+            {tab.name}{tab.dirty ? " (unsaved)" : ""}
+          </button>}</For>
+        </div>
         <Show when={editingTab()}>
           {(editing) => {
             const tab = props.tabs.find(t => t.id === editing().id);
@@ -467,10 +473,6 @@ const CanvasTabBar: Component<CanvasTabBarProps> = (props) => {
 export default CanvasTabBar;
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-function terminalGreen(p: ThemePalette): string {
-  return p.syntax?.string || "#a6e3a1";
-}
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();

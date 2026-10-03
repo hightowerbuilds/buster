@@ -1,27 +1,33 @@
-import { Component, Show, onCleanup } from "solid-js";
+import { Component, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import Sidebar from "./ui/Sidebar";
 import CanvasTabBar from "./ui/CanvasTabBar";
 import CanvasStatusBar from "./ui/CanvasStatusBar";
 import FindReplace from "./ui/FindReplace";
 import CommandPalette from "./ui/CommandPalette";
+import CommandLineSwitchboard from "./ui/CommandLineSwitchboard";
 import PanelLayout from "./ui/PanelLayout";
 import SpeechDock from "./ui/SpeechDock";
 import FooterNav from "./ui/FooterNav";
 import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
+import PrintDialog from "./ui/PrintDialog";
+import BranchPicker from "./ui/BranchPicker";
 import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHotkeyDefinitions, resolveHotkey, type CommandDeps } from "./lib/app-commands";
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { normalizeHotkey } from "./lib/keybinding-conflicts";
 import { useBuster } from "./lib/buster-context";
 import { createPanelRenderer } from "./ui/PanelRenderer";
+import AssistantSidebar from "./ui/AssistantSidebar";
+import { MAX_COUNTED_CHARS, countWords, wordCountLabel } from "./lib/word-count";
 
 import { focusTabPanel, focusSidebarPrimary, restorePrimaryWorkspaceFocus, sidebarHasFocus } from "./lib/focus-service";
 import "./styles/ide.css";
 
 const App: Component = () => {
-  const { store, setStore, engines, actions } = useBuster();
+  const { store, setStore, engines, actions, assistant, printing } = useBuster();
   let ideRootRef: HTMLDivElement | undefined;
+  const [commandLineVisible, setCommandLineVisible] = createSignal(false);
 
   function activateTab(tabId: string) {
     actions.switchToTab(tabId);
@@ -49,7 +55,64 @@ const App: Component = () => {
     }
   }
 
-  function closeSplit() { actions.panes.closePane(); }
+
+  function toggleCommandLine() {
+    if (commandLineVisible()) closeCommandLine();
+    else setCommandLineVisible(true);
+  }
+
+  function closeCommandLine() {
+    setCommandLineVisible(false);
+    restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
+  }
+
+  function handleCommandLineExtensions() {
+    actions.createExtensionsTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineGit() {
+    actions.createGitTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineBrowser() {
+    actions.createBrowserTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineConsole() {
+    actions.createConsoleTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineSettings() {
+    actions.createSettingsTab();
+    closeCommandLine();
+  }
+
+  function handleCommandLineAi() {
+    actions.createAiTab();
+    closeCommandLine();
+  }
+
+  // Opening focuses the composer; toggling from elsewhere moves focus in, toggling from inside closes.
+  const assistantInput = () => document.querySelector<HTMLElement>(".assistant-sidebar [data-assistant-input]");
+  function openAssistant() {
+    assistant.setOpen(true);
+    requestAnimationFrame(() => assistantInput()?.focus({ preventScroll: true }));
+  }
+
+  function toggleAssistant() {
+    if (!assistant.state.open) openAssistant();
+    else if (!document.querySelector(".assistant-sidebar")?.contains(document.activeElement)) assistantInput()?.focus({ preventScroll: true });
+    else closeAssistant();
+  }
+
+  function closeAssistant() {
+    assistant.setOpen(false);
+    restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
+  }
 
   // ── Command registry + keyboard handler ─────────────────
 
@@ -57,6 +120,7 @@ const App: Component = () => {
     handleSave: actions.handleSave,
     createNewFile: actions.createNewFile,
     handleSaveAs: actions.handleSaveAs,
+    handlePrint: () => printing.open(store.activeTabId),
     changeDirectory: actions.changeDirectory,
     handleTabClose: actions.handleTabClose,
     activeTabId: () => store.activeTabId,
@@ -69,19 +133,21 @@ const App: Component = () => {
       setStore("paletteVisible", typeof v === "function" ? v(store.paletteVisible) : v),
     setPaletteInitialQuery: (v: string | ((prev: string) => string)) =>
       setStore("paletteInitialQuery", typeof v === "function" ? v(store.paletteInitialQuery) : v),
-    createTerminalTab: actions.createTerminalTab,
     createSettingsTab: actions.createSettingsTab,
     createKeybindingsTab: actions.createKeybindingsTab,
+    createGitTab: actions.createGitTab,
+    createBrowserTab: actions.createBrowserTab,
+    toggleAssistant,
     setSidebarVisible: (v: boolean | ((prev: boolean) => boolean)) =>
       updateSidebarVisible(v),
+    jumpToDiagnostic: actions.jumpToDiagnostic,
     findVisible: () => store.findVisible,
     paletteVisible: () => store.paletteVisible,
     settings: () => store.settings,
     updateSettings: actions.updateSettings,
     tabTrapping: () => store.tabTrapping,
     setTabTrapping: (v: boolean) => setStore("tabTrapping", v),
-    closeSplit,
-    closeTabOrSplit: () => {
+    closeActiveTab: () => {
       const id = store.activeTabId;
       if (id) actions.handleTabClose(id);
     },
@@ -93,14 +159,27 @@ const App: Component = () => {
   registerAppCommands(appCommands);
   onCleanup(() => unregisterAppCommands(appCommands));
 
-  // Listen for close-split events from the native Cmd+W menu handler
-  const handleCloseSplitEvent = () => closeSplit();
-  window.addEventListener("buster-close-split", handleCloseSplitEvent);
-  onCleanup(() => window.removeEventListener("buster-close-split", handleCloseSplitEvent));
-
   // TanStack Hotkeys — user overrides from settings.keybindings
   createHotkeys(
-    () => buildHotkeyDefinitions(commandDeps, store.settings.keybindings),
+    () => printing.state.document ? [] : buildHotkeyDefinitions(commandDeps, store.settings.keybindings),
+    () => ({
+      target: ideRootRef ?? document,
+    }),
+  );
+
+  createHotkeys(
+    () => [
+      {
+        hotkey: { key: "`", ctrl: true },
+        callback: () => toggleCommandLine(),
+        options: { ignoreInputs: false },
+      },
+      {
+        hotkey: "Escape",
+        callback: () => closeCommandLine(),
+        options: { enabled: commandLineVisible(), ignoreInputs: false },
+      },
+    ],
     () => ({
       target: ideRootRef ?? document,
     }),
@@ -176,11 +255,17 @@ const App: Component = () => {
     tabs: () => store.tabs,
     activeTabId: () => store.activeTabId,
     switchToTab: actions.switchToTab,
+    activateTab: id => actions.switchToTab(id, { focus: false }),
     searchMatches: () => store.searchMatches,
     currentSearchIdx: () => store.currentSearchIdx,
+    diagnosticsMap: () => {
+      // Convert Record to Map for PanelRenderer compatibility
+      const m = new Map<string, any[]>();
+      for (const [k, v] of Object.entries(store.diagnosticsMap)) m.set(k, v);
+      return m;
+    },
+    diffHunksMap: () => store.diffHunksMap,
     handleFileSelect: actions.handleFileSelect,
-    handleTermIdReady: actions.handleTermIdReady,
-    handleTermTitleChange: actions.handleTermTitleChange,
     handleTabClose: actions.handleTabClose,
     openWorkspace: actions.openWorkspace,
     changeDirectory: actions.changeDirectory,
@@ -196,6 +281,19 @@ const App: Component = () => {
     onScrollChange: (id, top) => setStore("scrollPositions", id, top),
   });
 
+  // Word count for the active document, plus the selection's count when text is selected.
+  const wordCount = createMemo(() => {
+    // The engine map is not reactive; its revision changes when a restored note's editor registers.
+    engines.revision();
+    const engine = actions.activeEngine();
+    if (!engine) return null;
+    const text = engine.getText();
+    if (text.length > MAX_COUNTED_CHARS) return null;
+    const range = engine.sel();
+    const selected = range ? engine.getTextRange(range.anchor, range.head) : "";
+    return wordCountLabel(countWords(text), selected ? countWords(selected) : null);
+  });
+
   // ── Helpers ─────────────────────────────────────────────
 
   function handleGoToLine(line: number, col: number) {
@@ -203,9 +301,7 @@ const App: Component = () => {
     if (engine) engine.setCursor({ line, col });
   }
 
-  function groupedTabIds() {
-    return new Set(store.paneWorkspace.panes.flatMap(p => p.tabId ? [p.tabId] : []));
-  }
+
 
   // ── JSX ─────────────────────────────────────────────────
 
@@ -213,7 +309,7 @@ const App: Component = () => {
     <div ref={(el) => { ideRootRef = el; }} class="ide-container" tabindex={-1}>
       <a class="skip-link" href="#" onClick={(e) => {
         e.preventDefault();
-        const el = document.querySelector<HTMLTextAreaElement>(".canvas-editor textarea");
+        const el = document.querySelector<HTMLElement>(".tab-content.is-active .block-prose, .tab-content.is-active .canvas-editor textarea");
         if (el) el.focus({ preventScroll: true });
       }}>Skip to Editor</a>
       <Show when={store.sidebarVisible}>
@@ -223,11 +319,6 @@ const App: Component = () => {
           if (el) el.focus({ preventScroll: true });
         }}>Skip to Sidebar</a>
       </Show>
-      <a class="skip-link" href="#" onClick={(e) => {
-        e.preventDefault();
-        const el = document.querySelector<HTMLTextAreaElement>(".canvas-terminal textarea");
-        if (el) el.focus({ preventScroll: true });
-      }}>Skip to Terminal</a>
       <div class="ide-main">
         <div
           id="file-explorer-sidebar"
@@ -283,7 +374,6 @@ const App: Component = () => {
             <CanvasTabBar
               tabs={store.tabs}
               activeTab={store.activeTabId}
-              groupedTabIds={groupedTabIds()}
               onSelect={actions.switchToTab}
               onActivate={activateTab}
               onClose={actions.handleTabClose}
@@ -293,14 +383,21 @@ const App: Component = () => {
                 // Re-focus the editor after rename so the user can type immediately
                 requestAnimationFrame(() => focusTabPanel(tabId));
               }}
-              onNewTerminal={actions.createTerminalTab}
-              onReorder={(fromIdx, toIdx) => {
-                const t = [...store.tabs];
-                const [moved] = t.splice(fromIdx, 1);
-                t.splice(toIdx, 0, moved);
-                setStore("tabs", t);
-              }}
+              onReorder={actions.reorderTabs}
+              onOpenAlongside={actions.openTabAlongside}
             />
+            <button class="split-view-toggle print-action" aria-label="Print current document"
+              title="Print current document (Cmd/Ctrl+P)" aria-keyshortcuts="Meta+P Control+P"
+              disabled={actions.activeTab()?.type !== "file" || !!printing.state.document}
+              onClick={() => printing.open(store.activeTabId)}>Print</button>
+            <button class="split-view-toggle" disabled={store.tabs.length < 2}
+              aria-label={store.splitView ? "Return to single view" : "Split view"}
+              aria-pressed={!!store.splitView}
+              title={store.splitView ? "Return to single view" : "Show two tabs side by side"}
+              onClick={() => store.splitView ? actions.closeSplitView() : actions.openTabAlongside()}>
+              <span aria-hidden="true">{store.splitView ? "▣" : "◫"}</span>
+              {store.splitView ? "Single View" : "Split View"}
+            </button>
           </div>
           <FindReplace
             visible={store.findVisible}
@@ -322,12 +419,39 @@ const App: Component = () => {
               col={store.cursorCol}
               totalLines={actions.activeEngine()?.lineCount() ?? 0}
               fileName={actions.activeTab()?.name ?? null}
+              gitBranch={store.gitBranchName}
+              onBranchClick={() => { if (store.workspaceRoot) setStore("branchPickerVisible", true); }}
+              errorCount={actions.diagnosticCounts().errors}
+              warningCount={actions.diagnosticCounts().warnings}
+              onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
               fileLoading={store.fileLoading}
               lineEnding={actions.activeEngine()?.lineEnding() ?? null}
+              wordCount={wordCount()}
             />
         </div>
+        <button
+          class="assistant-bumper"
+          title={`${assistant.state.open ? "Hide" : "Show"} Language Model (${navigator.platform.startsWith("Mac") ? "Cmd" : "Ctrl"}+Shift+A)`}
+          aria-label={`${assistant.state.open ? "Hide" : "Show"} Language Model`}
+          aria-expanded={assistant.state.open}
+          aria-keyshortcuts="Control+Shift+A"
+          onClick={() => assistant.state.open ? closeAssistant() : openAssistant()}
+        ><span aria-hidden="true">{assistant.state.open ? "›" : "‹"}</span></button>
+        <Show when={assistant.state.open}>
+          <AssistantSidebar onClose={closeAssistant} />
+        </Show>
       </div>
       <FooterNav />
+      <CommandLineSwitchboard
+        visible={commandLineVisible()}
+        onClose={closeCommandLine}
+        onOpenExtensions={handleCommandLineExtensions}
+        onOpenGit={handleCommandLineGit}
+        onOpenBrowser={handleCommandLineBrowser}
+        onOpenConsole={handleCommandLineConsole}
+        onOpenSettings={handleCommandLineSettings}
+        onOpenAi={handleCommandLineAi}
+      />
       <CommandPalette
         visible={store.paletteVisible}
         workspaceRoot={store.workspaceRoot}
@@ -340,6 +464,7 @@ const App: Component = () => {
         activeEngine={actions.activeEngine()}
       />
       <CanvasToasts />
+      <PrintDialog printing={printing} />
       <DirtyCloseDialog
         visible={store.dirtyCloseTabId !== null}
         fileName={store.dirtyCloseFileName}
@@ -350,6 +475,13 @@ const App: Component = () => {
         fileName={store.extChangeFileName}
         onResult={actions.handleExternalChangeResult}
       />
+      <Show when={store.branchPickerVisible && store.workspaceRoot}>
+        <BranchPicker
+          workspaceRoot={store.workspaceRoot!}
+          onClose={() => setStore("branchPickerVisible", false)}
+          onBranchChanged={() => actions.refreshGitBranch(store.workspaceRoot!)}
+        />
+      </Show>
     </div>
   );
 };

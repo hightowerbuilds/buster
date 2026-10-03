@@ -17,11 +17,15 @@ export interface FeatureCommand {
   description: string;
   version: 1;
   effect: "read" | "write";
+  /** Whether an AI caller needs the person's approval. Defaults to true for write commands. */
+  confirm?: boolean;
   inputSchema: CommandSchema;
   outputSchema: CommandSchema;
   examples: string[];
   available?: () => boolean;
-  run: (args: Record<string, unknown>, caller: CommandCaller) => unknown | Promise<unknown>;
+  /** Optional dry run: throws the CommandFailure that run would, without changing anything. */
+  check?: (args: Record<string, unknown>) => void | Promise<void>;
+  run: (args: Record<string, unknown>, caller: CommandCaller, signal?: AbortSignal) => unknown | Promise<unknown>;
 }
 
 export interface CommandRequest {
@@ -93,13 +97,28 @@ export class FeatureCommands {
 
   describe(name?: string) {
     const commands = name ? [this.catalog.get(name)].filter((c): c is FeatureCommand => !!c) : [...this.catalog.values()];
-    return commands.map(({ run: _run, available, ...command }) => ({ ...command, available: available?.() ?? true }));
+    return commands.map(({ run: _run, check: _check, available, confirm, ...command }) =>
+      ({ ...command, confirm: confirm ?? command.effect === "write", available: available?.() ?? true }));
+  }
+
+  /** Report whether a request would be rejected, so callers can skip asking a person to approve it. */
+  async check(command: string, args: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const entry = this.catalog.get(command);
+      if (!entry) throw new CommandFailure("UNKNOWN_COMMAND", "Unknown command. Use commands list.");
+      validateCommandValue(args, entry.inputSchema);
+      if (entry.available && !entry.available()) throw new CommandFailure("UNAVAILABLE", "Command is currently unavailable.");
+      await entry.check?.(args);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof CommandFailure ? { code: e.code, message: e.message } : { code: "INTERNAL_ERROR", message: "The command could not be checked." } };
+    }
   }
 
   history() { return this.journal.map(entry => ({ ...entry })); }
 
   /** Serialize operations; retain the most recent 128 completed request IDs per app session. */
-  dispatch(request: CommandRequest, caller: CommandCaller): Promise<CommandResult> {
+  dispatch(request: CommandRequest, caller: CommandCaller, signal?: AbortSignal): Promise<CommandResult> {
     const base = { version: 1 as const, requestId: request?.requestId ?? "", command: request?.command ?? "" };
     const error = (code: string, message: string): CommandResult => ({ ...base, ok: false, error: { code, message } });
     if (!request || typeof request.requestId !== "string" || !request.requestId.trim() || request.requestId.length > 128 || typeof request.command !== "string") {
@@ -125,11 +144,12 @@ export class FeatureCommands {
     const commandName = request.command;
     const result = this.queue.then(async (): Promise<CommandResult> => {
       try {
+        if (signal?.aborted) throw new CommandFailure("CANCELLED", "Cancelled before this action ran.");
         const command = this.catalog.get(commandName);
         if (!command) throw new CommandFailure("UNKNOWN_COMMAND", "Unknown command. Use commands list.");
         validateCommandValue(args, command.inputSchema);
         if (command.available && !command.available()) throw new CommandFailure("UNAVAILABLE", "Command is currently unavailable.");
-        const data = await command.run(args, caller);
+        const data = await command.run(args, caller, signal);
         try { validateCommandValue(data, command.outputSchema, "result"); }
         catch { throw new CommandFailure("INVALID_RESULT", "The command returned an invalid result."); }
         return { ...base, ok: true, data };

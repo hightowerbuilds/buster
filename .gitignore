@@ -21,11 +21,9 @@ Thumbs.db
 *.pem
 credentials.json
 
-# Bun
-bun.lock
+# Bun lockfile is committed for desktop parity.
 
-# Rust
-Cargo.lock
+# Rust lockfile is committed for desktop parity.
 
 # Logs
 *.log

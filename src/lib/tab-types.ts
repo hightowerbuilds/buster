@@ -1,14 +1,30 @@
+import { extname } from "buster-path";
 
 export type TabType =
   | "file"
-  | "terminal"
+  | "image"
   | "settings"
   | "keybindings"
   | "git"
+  | "extensions"
+  | "problems"
   | "search-results"
+  | "surface"
+  | "browser"
+  | "console"
   | "ai"
   | "search-portal"
   | "writing-review";
+
+const IMAGE_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "avif", "tiff", "tif",
+]);
+
+export function isImageFile(path: string): boolean {
+  const ext = extname(path);
+  if (!ext) return false;
+  return IMAGE_EXTENSIONS.has(ext.slice(1).toLowerCase());
+}
 
 export interface Tab {
   id: string;

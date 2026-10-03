@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { persistSession, type SessionSnapshot } from "./session";
 import { saveBackupBuffer, saveSession } from "./ipc";
-import { newPaneWorkspace, splitWritingPane } from "./writing-panes";
 
 vi.mock("./ipc", () => ({ saveSession: vi.fn(async () => {}), saveBackupBuffer: vi.fn(async () => "abc"),
   loadSession: vi.fn(), confirmAppClose: vi.fn() }));
 
 function snapshot(): SessionSnapshot {
-  return { workspaceRoot: null, activeTabId: "file_1", panelCount: 1, sidebarVisible: true,
+  return { workspaceRoot: null, activeTabId: "file_1", sidebarVisible: true,
     sidebarWidth: 240, engines: new Map(), scrollPositions: new Map(),
     tabs: [1, 2].map(n => ({ id: `file_${n}`, type: "file", name: `Untitled ${n}`, path: "", dirty: true })),
     fileTexts: { file_1: "draft one", file_2: "draft two" } };
@@ -26,14 +25,17 @@ describe("session persistence", () => {
     ]) }));
   });
 
-  it("captures the pane arrangement before a later layout mutation", async () => {
+  it("writes only tab state in version 2 and captures order before later mutations", async () => {
     const snap = snapshot();
-    snap.paneWorkspace = splitWritingPane(newPaneWorkspace("file_1"), "right");
-    const captured = JSON.parse(JSON.stringify(snap.paneWorkspace));
     const pending = persistSession(snap);
-    snap.paneWorkspace.panes[0].tabId = "file_2";
+    snap.tabs.reverse(); snap.activeTabId = "file_2";
     await pending;
-    expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ pane_workspace: captured }));
+    const saved = vi.mocked(saveSession).mock.calls[0][0];
+    expect(saved.version).toBe(2);
+    expect(saved.active_tab_id).toBe("file_1");
+    expect(saved.tabs.map(tab => tab.id)).toEqual(["file_1", "file_2"]);
+    expect(saved).not.toHaveProperty("pane_workspace");
+    expect(saved).not.toHaveProperty("layout_mode");
   });
 
   it("normalizes fractional sidebar widths for the native integer field", async () => {
@@ -88,5 +90,16 @@ describe("session persistence", () => {
     snap.fileTexts = {};
     await expect(persistSession(snap)).rejects.toThrow("Missing unsaved buffer");
     expect(saveSession).not.toHaveBeenCalled();
+  });
+
+  it("captures both pane IDs and their width before later layout changes", async () => {
+    const snap = snapshot();
+    snap.splitView = { leftTabId: "file_1", rightTabId: "file_2", ratio: 0.6 };
+    const pending = persistSession(snap);
+    snap.splitView.ratio = 0.3; snap.splitView.rightTabId = "settings_tab";
+    await pending;
+    expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({
+      split_view: { leftTabId: "file_1", rightTabId: "file_2", ratio: 0.6 },
+    }));
   });
 });

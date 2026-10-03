@@ -43,18 +43,10 @@
   border-bottom: 2px solid var(--accent);
 }
 
-.tab-terminal.tab-active {
-  border-bottom-color: var(--green);
-}
-
 .tab-icon {
   font-size: 11px;
   color: var(--text-muted);
   font-family: "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
-}
-
-.tab-terminal .tab-icon {
-  color: var(--green);
 }
 
 .tab-name {
@@ -83,31 +75,6 @@
 .tab-close:hover {
   background: var(--bg-surface1);
   color: var(--text);
-}
-
-.tab-new-terminal {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 10px;
-  height: 100%;
-  flex-shrink: 0;
-}
-
-.tab-new-terminal:hover {
-  color: var(--text);
-  background: var(--bg-surface0);
-}
-
-/* Grouped tabs (part of a multi-panel layout) */
-.tab-grouped {
-  border-top: 2px solid var(--accent);
-}
-
-.tab-grouped.tab-active {
-  border-top: 2px solid var(--accent);
 }
 
 /* Tab drag states */
