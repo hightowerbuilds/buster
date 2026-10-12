@@ -155,7 +155,8 @@ writer oriented in the source note.
 
 This automatic menu applies to writing panes. Terminal selection and mouse
 reporting retain their terminal behavior. Lookup uses active macOS dictionaries
-offline. AI supports explicit Ollama, Anthropic, and OpenAI requests, with Rewrite,
+offline. AI runs through the writer's Claude Code, Codex, or OpenCode subscription
+(no API keys or local models), with Rewrite,
 Explain, Summarize, Expand, or custom instructions. Opening review does not send
 text. Cancellation and tab closure ignore late output. Reviews are temporary;
 apply or keep as a note to retain results after restart. Live cloud-provider

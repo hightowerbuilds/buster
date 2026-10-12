@@ -65,9 +65,10 @@ connections belong to the BusterMark app being built here.
 - [ ] Complete live end-to-end tests with each supported connection. Clearly
   separate verified flows from mocks and unavailable providers.
 
-No Claude/Codex agent adapter or connection UI is claimed by this roadmap. The
-existing Ollama/Anthropic/OpenAI text-generation settings remain the current
-writing-review transport until this milestone replaces or extends that workflow.
+Writing actions (Rephrase, writing review) no longer use API keys or local
+models: they run one-shot through the writer's Claude Code, Codex, or OpenCode
+subscription (`src-tauri/src/commands/ai_cli.rs`). The Assistant sidebar still
+runs on Claude Code only; Codex and OpenCode there are the next pass.
 
 The remaining work is the conversation surface and the acceptance workflows. Claude
 Code's headless runs cannot answer a permission prompt, so its spawn passes

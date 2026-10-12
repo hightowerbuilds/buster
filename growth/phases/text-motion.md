@@ -1,8 +1,9 @@
 # Text motion — Pretext-driven editing UI
 
-Status: **IN PROGRESS.** The feasibility spike (§1) and Define (§4) are complete; the Spread menu
-opens with Copy, Paste, Define, Bold, and Italic in a two-row grid of square Courier buttons.
-Spelling & Grammar is next (§5).
+Status: **IN PROGRESS.** The feasibility spike (§1), Define (§4), and the phrase spread (§4b) are
+complete. A word opens Copy · Paste · Define over Bold · Italic · Spelling; a phrase opens Copy ·
+Bold · Italic over Search · Count · Rephrase, all in square Courier buttons. Spelling & Grammar is
+next (§5).
 
 BusterMark replaces modal chrome with motion in the text itself. When the writer
 asks something of a word, the surrounding prose moves aside, opens a space, and
@@ -26,8 +27,8 @@ Bold, Spelling & Grammar**.
   break apart and reassemble into the definition's opening, and the rest of the
   definition streams in after them. The surrounding prose reflows again to make
   room.
-- **Spelling & Grammar** asks the Language Model (Claude Code or a local Ollama
-  model) about the word and its sentence, then reshapes the space to show the
+- **Spelling & Grammar** asks the Language Model (the writer's Claude Code, Codex, or
+  OpenCode subscription) about the word and its sentence, then reshapes the space to show the
   flagged text, suggestions, and any grammar explanation. Choosing a suggestion closes the
   space with the corrected word settling into the line.
 - **Copy, Paste, Bold** act immediately. Paste and Bold animate the changed
@@ -52,10 +53,11 @@ It must still return every glyph exactly to where it started.
 - Catalog commands already exist for `selection copy`, `selection paste`,
   `selection lookup` (Apple Dictionary, offline, `src-tauri/src/commands/lookup.rs`),
   and bold formatting (`src/lib/writing-format.ts`, `block-editor.ts` `format("bold")`).
-- **No spelling or grammar checker exists.** Selection-scoped AI review
-  (`src/lib/writing-review.ts`, `src-tauri/src/commands/writing_ai.rs`) already
-  sends a captured selection to Ollama, Anthropic, or OpenAI and returns a
-  result. Spelling & Grammar builds on that path.
+- **No spelling or grammar checker exists.** Rephrase and selection-scoped AI
+  review (`src/lib/rephrase.ts`, `src/lib/writing-review.ts`) already send a
+  captured selection one-shot through the writer's AI CLI
+  (`src-tauri/src/commands/ai_cli.rs`) and validate a JSON reply. Spelling &
+  Grammar builds on that path.
 - Pretext is used only for measurement (`src/editor/text-measure.ts`) and the
   welcome screen (`src/ui/welcome-ascii.ts`).
 
@@ -199,7 +201,7 @@ build).
   instead of flying letters; consider grapheme flight across runs.
 - [ ] "Keep as note" for a definition, consistent with writing review (decide).
 
-## 4b — Phrase spread — **IN PROGRESS** (2026-10-11)
+## 4b — Phrase spread — **COMPLETED** (2026-10-11)
 
 Select several words in one paragraph and right-click: the same parting, with
 phrase actions in the grid — Copy · Bold · Italic over Search · Count ·
@@ -250,13 +252,13 @@ glyph-by-glyph first frame within 1px (72/72 checks).
 ## 5 — Spelling & Grammar
 
 - [ ] Use the Language Model only (decided 2026-10-11). Send the target word and
-  its sentence through the existing writing-AI transport, and ask for structured
+  its sentence through the one-shot CLI runner Rephrase uses (`ai_cli.rs`), and ask for structured
   output: whether it is misspelled, ranked suggestions, and grammar issues with
   ranges and short explanations. Validate the response; never apply model text
   unchecked.
 - [ ] Before the first request, make clear which text is sent and to which
-  provider. Claude sends text to Anthropic; Ollama stays local. Show a clear
-  state when no model is configured.
+  provider (Claude Code, Codex, or OpenCode), reusing Rephrase's once-per-session
+  consent. Show a clear state when no CLI is installed or signed in.
 - [ ] Catalog commands `selection spelling` (read) and a revision-checked
   replacement (write), so the assistant sidebar can use them too.
 - [ ] Spread view: the flagged word, suggestions as buttons, grammar
@@ -279,8 +281,8 @@ glyph-by-glyph first frame within 1px (72/72 checks).
 1. **Define:** the target word's own letters fly apart and reassemble into the
    start of the definition. The rest streams in, and the surrounding prose parts
    wider. The writer's text is never scrambled.
-2. **Spelling & Grammar source:** the Language Model only (Claude Code or
-   Ollama). There is no native checker.
+2. **Spelling & Grammar source:** the Language Model only, through the writer's
+   subscription CLI (Claude Code, Codex, or OpenCode). There is no native checker.
 3. **Scope:** Markdown notes (ProseMirror) first; plain-text canvas files later.
 
 ## Open questions
