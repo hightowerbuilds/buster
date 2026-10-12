@@ -8,6 +8,17 @@ import "@fontsource/lato/700.css";
 import "@fontsource/lato/700-italic.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/unifrakturmaguntia/400.css";
+import "@fontsource/playfair-display/700-italic.css";
+import "@fontsource/playfair-display/700.css";
+import "@fontsource/playfair-display/800.css";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/400-italic.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-sans/700.css";
+import "@fontsource/source-sans-3/400.css";
+import "@fontsource/source-sans-3/400-italic.css";
+import "@fontsource/source-sans-3/600.css";
+import "@fontsource/source-sans-3/700.css";
 import App from "./App";
 import BusterProvider from "./lib/BusterProvider";
 

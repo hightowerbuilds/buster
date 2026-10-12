@@ -37,7 +37,7 @@ export function createWritingReview(deps: WritingReviewDeps) {
   function stale(id: string) {
     try { sourceEngine(requireReview(id).target); return false; } catch { return true; }
   }
-  function start(target: SelectionTarget, kind: "lookup" | "ai") {
+  function validateTarget(target: SelectionTarget, kind: "lookup" | "ai") {
     const engine = sourceEngine(target);
     if (engine.hasMultiCursors()) fail("UNAVAILABLE", "Use a single selection for this action.");
     const current = captureSelection(target.tabId, engine);
@@ -49,6 +49,15 @@ export function createWritingReview(deps: WritingReviewDeps) {
     if (kind === "lookup" && (Array.from(target.text.trim()).length > 256 || /[\r\n]/.test(target.text.trim())))
       fail("INVALID_ARGUMENTS", "Look up a word or short phrase on one line (up to 256 characters).");
     if (new TextEncoder().encode(target.text).length > 32_768) fail("LIMIT_REACHED", "Select a shorter passage (up to 32 KiB).");
+  }
+  /** Look a captured word up in place, without opening a review tab. */
+  async function define(target: SelectionTarget) {
+    validateTarget(target, "lookup");
+    const result = await deps.lookup(target.text);
+    return { query: target.text.trim(), definition: result.definition, source: result.source };
+  }
+  function start(target: SelectionTarget, kind: "lookup" | "ai") {
+    validateTarget(target, kind);
     const id = crypto.randomUUID();
     const captured = JSON.parse(JSON.stringify(target)) as SelectionTarget;
     setReviews(id, { id, tabId: "", kind, target: captured, status: "ready", output: "", error: "", source: "", provider: "", model: "", instruction: "", resultTabId: "" });
@@ -144,7 +153,7 @@ export function createWritingReview(deps: WritingReviewDeps) {
     return { reviewId: id, discarded: true };
   }
   function dispose() { for (const controller of pending.values()) controller.abort(); pending.clear(); }
-  return { reviews, start, generate, cancel, apply, returnToSource, stale, reconcile, discard, dispose };
+  return { reviews, start, define, generate, cancel, apply, returnToSource, stale, reconcile, discard, dispose };
 }
 export type WritingReviewService = ReturnType<typeof createWritingReview>;
 
@@ -153,9 +162,11 @@ export function registerWritingReviewCommands(service: FeatureCommands, review: 
   const obj = (properties: Record<string, CommandSchema>): CommandSchema => ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
   const id = obj({ reviewId: string });
   const result: CommandSchema = { type: "object", additionalProperties: true };
+  const dictionaryCommands = new Set(["selection lookup", "selection define"]);
   const add = (name: string, description: string, inputSchema: CommandSchema, run: (args: any) => unknown, effect: "read" | "write" = "write") =>
-    service.register({ name, description: name === "selection lookup" && !dictionaryAvailable ? "Unavailable on Linux: offline dictionary lookup is deferred from this release." : description, inputSchema, outputSchema: result, run, effect, version: 1, examples: [name], available: () => name !== "selection lookup" || dictionaryAvailable });
+    service.register({ name, description: dictionaryCommands.has(name) && !dictionaryAvailable ? "Unavailable on Linux: offline dictionary lookup is deferred from this release." : description, inputSchema, outputSchema: result, run, effect, version: 1, examples: [name], available: () => !dictionaryCommands.has(name) || dictionaryAvailable });
   add("selection lookup", "Look up a captured word or phrase in local macOS dictionaries in a review tab.", snapshotSchema, target => review.start(target, "lookup"));
+  add("selection define", "Look up a captured word or phrase in local macOS dictionaries and return the definition without opening a tab. Text never leaves the machine.", snapshotSchema, target => review.define(target), "read");
   add("selection ai", "Open an AI review tab for a captured selection. Does not send text until review generate is invoked.", snapshotSchema, target => review.start(target, "ai"));
   add("review generate", "Send only the captured passage and instruction to the explicitly chosen configured provider/model. Returns immediately; inspect review read for progress.",
     obj({ reviewId: string, provider: { type: "string", enum: ["ollama", "anthropic", "openai"] }, model: string, instruction: string }),

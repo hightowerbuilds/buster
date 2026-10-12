@@ -7,7 +7,7 @@ import tempfile
 import uuid
 
 parser = argparse.ArgumentParser()
-parser.add_argument("kind", choices=["print", "split"])
+parser.add_argument("kind", choices=["print", "split", "spread"])
 args = parser.parse_args()
 root = Path(__file__).resolve().parent.parent
 dist = Path(tempfile.mkdtemp(prefix=f"buster-mac-{args.kind}-smoke-", dir="/private/tmp"))

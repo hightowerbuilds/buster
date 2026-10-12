@@ -53,6 +53,10 @@ describe("writing settings", () => {
     const { root, settings } = mount();
     [...root.querySelectorAll("button")].find(button => button.textContent === "Newspaper")!.click();
     expect(settings.blog_theme).toBe("newspaper");
+    for (const [label, id] of [["Technical", "technical"], ["Business", "business"]]) {
+      [...root.querySelectorAll("button")].find(button => button.textContent === label)!.click();
+      expect(settings.blog_theme).toBe(id);
+    }
     expect(settings.language_settings).toEqual({ rust: { tab_size: 8 } });
     expect(settings.syntax_colors).toEqual({ keyword: "#abcdef" });
     expect(settings.auto_save_delay_ms).toBe(9000);

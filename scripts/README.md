@@ -55,11 +55,11 @@ note-plus-Settings layout, the pane selector, the tab context menu, resizing,
 collapse, saved layout on a second launch, and last-tab welcome. Its report is
 `Notes/native-macos-split-smoke-result.json`; success is `ok: true`, `phase: 2`.
 
-For the Spread menu (growth/phases/text-motion.md), use
-`native-macos-spread-smoke.js` in the same setup (the background-renderer bundle
-is unnecessary). One launch writes three paragraphs, right-clicks a word, and
+For the Spread menu (growth/phases/text-motion.md), stage
+`native-macos-spread-smoke.js` with `python3 scripts/prepare-native-macos-smoke.py spread`
+and build with its config, as for printing below. One launch writes three paragraphs, right-clicks a word, and
 checks the first frame against the page's glyph boxes, that no word overlaps the
-opening, that later paragraphs slide down, that Escape returns every word
+opening, that Define grows the opening and the word's letters spell the headword, that later paragraphs slide down, that Escape returns every word
 exactly, Copy and Bold through the catalog, undo, and that blank space keeps the
 native menu. It records frame timing. Its report is
 `Notes/native-macos-spread-smoke-result.json`; success is `ok: true`, `phase: 1`.

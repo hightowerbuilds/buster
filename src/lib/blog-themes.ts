@@ -9,7 +9,7 @@
  * colors, fonts, or spacing. Theme switching is just swapping values.
  */
 
-import { UI_FONT_FAMILY } from "./fonts";
+import { MONO_FONT_FAMILY, UI_FONT_FAMILY } from "./fonts";
 
 import type { ThemePalette } from "./theme";
 
@@ -18,6 +18,8 @@ export interface BlogTokens {
   fontFamily: string;
   h1FontFamily: string;
   headingFontFamily: string;
+  headingFontWeight: string;
+  h1FontWeight: string;
   lineHeight: string;
   textAlign: string;
 
@@ -108,6 +110,8 @@ export interface BlogTokens {
 export const BLOG_THEMES = [
   { id: "normal", label: "Normal" },
   { id: "newspaper", label: "Newspaper" },
+  { id: "technical", label: "Technical" },
+  { id: "business", label: "Business" },
 ] as const;
 
 export type BlogThemeId = (typeof BLOG_THEMES)[number]["id"];
@@ -119,6 +123,8 @@ function normalTokens(palette: ThemePalette): BlogTokens {
     fontFamily: UI_FONT_FAMILY,
     h1FontFamily: UI_FONT_FAMILY,
     headingFontFamily: UI_FONT_FAMILY,
+    headingFontWeight: "normal",
+    h1FontWeight: "normal",
     lineHeight: "1.75",
     textAlign: "left",
 
@@ -166,7 +172,7 @@ function normalTokens(palette: ThemePalette): BlogTokens {
     blockquoteFontSize: "1em",
     blockquoteTextColor: palette.textDim,
 
-    codeFontFamily: '"JetBrains Mono", monospace',
+    codeFontFamily: MONO_FONT_FAMILY,
     codeRadius: "3px",
     preRadius: "4px",
     preBorder: "none",
@@ -195,124 +201,40 @@ function normalTokens(palette: ThemePalette): BlogTokens {
 }
 
 // ── Newspaper theme ──────────────────────────────────────────
+// Georgia body under bold Playfair Display headlines, double-ruled masthead,
+// justified columns, and a drop cap after each headline.
 
-function newspaperLightTokens(palette: ThemePalette): BlogTokens {
-  const ink = "#121212";
-  const inkDim = "#333";
-  const rule = "#ccc";
-  const ruleHeavy = "#333";
-  const accent = "#567";
-  const codeBg = "#ddd8cf";
+function newspaperTokens(palette: ThemePalette, isDark: boolean): BlogTokens {
+  const ink = isDark ? "#e0ddd5" : "#121212";
+  const inkDim = isDark ? "#b8b4ab" : "#333";
+  const rule = isDark ? "#3a3835" : "#ccc";
+  const ruleHeavy = isDark ? "#9a9690" : "#333";
+  const headline = '"Playfair Display", Georgia, "Times New Roman", serif';
 
   return {
     fontFamily: 'Georgia, "Times New Roman", Times, serif',
-    h1FontFamily: '"UnifrakturMaguntia", Georgia, serif',
-    headingFontFamily: 'Georgia, "Times New Roman", Times, serif',
+    h1FontFamily: headline,
+    headingFontFamily: headline,
+    headingFontWeight: "700",
+    h1FontWeight: "800",
     lineHeight: "1.7",
     textAlign: "justify",
 
     bg: palette.editorBg,
     text: ink,
     textDim: inkDim,
-    textMuted: "#666",
-    accent,
+    textMuted: isDark ? "#8a8680" : "#666",
+    accent: isDark ? "#8eaab8" : "#567",
     surface: "transparent",
     border: rule,
-    codeBg,
+    codeBg: isDark ? "#2a2825" : "#ddd8cf",
 
-    h1FontSize: "2.8em",
-    h1LetterSpacing: "0.01em",
+    h1FontSize: "2.6em",
+    h1LetterSpacing: "-0.01em",
     h1BorderBottom: `3px double ${ruleHeavy}`,
-    h1PaddingBottom: "0.3em",
+    h1PaddingBottom: "0.25em",
     h1Color: ink,
-    h2FontSize: "1.8em",
-    h2BorderBottom: `1px solid ${rule}`,
-    h2PaddingBottom: "0.2em",
-    h2Color: ink,
-    h3FontSize: "1.4em",
-    h3FontStyle: "italic",
-    h4FontSize: "0.85em",
-    h4TextTransform: "uppercase",
-    h4LetterSpacing: "0.05em",
-    h4FontFamily: UI_FONT_FAMILY,
-
-    pTextAlign: "justify",
-    pHyphens: "auto",
-
-    dropCapFontSize: "3.2em",
-    dropCapColor: ink,
-    dropCapEnabled: "block",
-
-    linkDecoration: "underline",
-    linkDecorationThickness: "1px",
-    linkUnderlineOffset: "2px",
-
-    blockquoteBorderLeft: "none",
-    blockquoteBorderTop: `2px solid ${ruleHeavy}`,
-    blockquoteBorderBottom: `1px solid ${rule}`,
-    blockquoteBg: "transparent",
-    blockquoteFontStyle: "italic",
-    blockquoteFontSize: "1.15em",
-    blockquoteTextColor: inkDim,
-
-    codeFontFamily: '"JetBrains Mono", monospace',
-    codeRadius: "2px",
-    preRadius: "0",
-    preBorder: `1px solid ${rule}`,
-
-    hrWidth: "40%",
-    hrMargin: "2.5em auto",
-
-    imgRadius: "0",
-    imgBorder: `1px solid ${rule}`,
-
-    thBg: "transparent",
-    thColor: ink,
-    thTextTransform: "uppercase",
-    thLetterSpacing: "0.04em",
-    thFontFamily: UI_FONT_FAMILY,
-    thFontSize: "0.8em",
-    thBorderBottom: `2px solid ${ruleHeavy}`,
-    tdBorder: "none",
-    cellBorder: `none none 1px solid ${rule} none`,
-
-    strongFontStyle: "italic",
-    strongColor: ink,
-
-    containerPadding: "48px 56px",
-  };
-}
-
-function newspaperDarkTokens(palette: ThemePalette): BlogTokens {
-  const ink = "#e0ddd5";
-  const inkDim = "#b8b4ab";
-  const rule = "#3a3835";
-  const ruleHeavy = "#9a9690";
-  const accent = "#8eaab8";
-  const codeBg = "#2a2825";
-
-  return {
-    fontFamily: 'Georgia, "Times New Roman", Times, serif',
-    h1FontFamily: '"UnifrakturMaguntia", Georgia, serif',
-    headingFontFamily: 'Georgia, "Times New Roman", Times, serif',
-    lineHeight: "1.7",
-    textAlign: "justify",
-
-    bg: palette.editorBg,
-    text: ink,
-    textDim: inkDim,
-    textMuted: "#8a8680",
-    accent,
-    surface: "transparent",
-    border: rule,
-    codeBg,
-
-    h1FontSize: "2.8em",
-    h1LetterSpacing: "0.01em",
-    h1BorderBottom: `3px double ${ruleHeavy}`,
-    h1PaddingBottom: "0.3em",
-    h1Color: ink,
-    h2FontSize: "1.8em",
+    h2FontSize: "1.65em",
     h2BorderBottom: `1px solid ${rule}`,
     h2PaddingBottom: "0.2em",
     h2Color: ink,
@@ -342,7 +264,7 @@ function newspaperDarkTokens(palette: ThemePalette): BlogTokens {
     blockquoteFontSize: "1.15em",
     blockquoteTextColor: inkDim,
 
-    codeFontFamily: '"JetBrains Mono", monospace',
+    codeFontFamily: MONO_FONT_FAMILY,
     codeRadius: "2px",
     preRadius: "0",
     preBorder: `1px solid ${rule}`,
@@ -370,6 +292,183 @@ function newspaperDarkTokens(palette: ThemePalette): BlogTokens {
   };
 }
 
+// ── Technical theme ──────────────────────────────────────────
+// Documentation: IBM Plex Sans with semibold ruled headings, monospace
+// section labels and table headers, and blockquotes as callouts.
+
+function technicalTokens(palette: ThemePalette): BlogTokens {
+  const sans = '"IBM Plex Sans", "Helvetica Neue", Arial, sans-serif';
+
+  return {
+    fontFamily: sans,
+    h1FontFamily: sans,
+    headingFontFamily: sans,
+    headingFontWeight: "600",
+    h1FontWeight: "600",
+    lineHeight: "1.6",
+    textAlign: "left",
+
+    bg: palette.editorBg,
+    text: palette.text,
+    textDim: palette.textDim,
+    textMuted: palette.textMuted,
+    accent: palette.accent,
+    surface: palette.surface0,
+    border: palette.border,
+    codeBg: palette.surface1,
+
+    h1FontSize: "2em",
+    h1LetterSpacing: "-0.015em",
+    h1BorderBottom: `1px solid ${palette.border}`,
+    h1PaddingBottom: "0.3em",
+    h1Color: palette.text,
+    h2FontSize: "1.45em",
+    h2BorderBottom: `1px solid ${palette.border}`,
+    h2PaddingBottom: "0.25em",
+    h2Color: palette.text,
+    h3FontSize: "1.2em",
+    h3FontStyle: "normal",
+    h4FontSize: "0.8em",
+    h4TextTransform: "uppercase",
+    h4LetterSpacing: "0.08em",
+    h4FontFamily: MONO_FONT_FAMILY,
+
+    pTextAlign: "left",
+    pHyphens: "none",
+
+    dropCapFontSize: "1em",
+    dropCapColor: palette.text,
+    dropCapEnabled: "none",
+
+    linkDecoration: "underline",
+    linkDecorationThickness: "1px",
+    linkUnderlineOffset: "3px",
+
+    blockquoteBorderLeft: `3px solid ${palette.accent}`,
+    blockquoteBorderTop: "none",
+    blockquoteBorderBottom: "none",
+    blockquoteBg: palette.surface0,
+    blockquoteFontStyle: "normal",
+    blockquoteFontSize: "0.95em",
+    blockquoteTextColor: palette.textDim,
+
+    codeFontFamily: MONO_FONT_FAMILY,
+    codeRadius: "4px",
+    preRadius: "6px",
+    preBorder: `1px solid ${palette.border}`,
+
+    hrWidth: "100%",
+    hrMargin: "2em 0",
+
+    imgRadius: "6px",
+    imgBorder: `1px solid ${palette.border}`,
+
+    thBg: palette.surface1,
+    thColor: palette.text,
+    thTextTransform: "none",
+    thLetterSpacing: "0.02em",
+    thFontFamily: MONO_FONT_FAMILY,
+    thFontSize: "0.8em",
+    thBorderBottom: `1px solid ${palette.border}`,
+    tdBorder: `1px solid ${palette.border}`,
+    cellBorder: `1px solid ${palette.border}`,
+
+    strongFontStyle: "normal",
+    strongColor: palette.text,
+
+    containerPadding: "40px 48px",
+  };
+}
+
+// ── Business theme ───────────────────────────────────────────
+// Business professional: Source Sans 3 in navy semibold headings, a navy rule
+// under the title, navy table headers, and blockquotes as highlighted callouts.
+
+function businessTokens(palette: ThemePalette, isDark: boolean): BlogTokens {
+  const sans = '"Source Sans 3", "Helvetica Neue", Arial, sans-serif';
+  const navy = isDark ? "#9db8d9" : "#1f3a5f";
+
+  return {
+    fontFamily: sans,
+    h1FontFamily: sans,
+    headingFontFamily: sans,
+    headingFontWeight: "600",
+    h1FontWeight: "700",
+    lineHeight: "1.65",
+    textAlign: "left",
+
+    bg: palette.editorBg,
+    text: palette.text,
+    textDim: palette.textDim,
+    textMuted: palette.textMuted,
+    accent: navy,
+    surface: palette.surface0,
+    border: palette.border,
+    codeBg: palette.surface1,
+
+    h1FontSize: "2.1em",
+    h1LetterSpacing: "-0.005em",
+    h1BorderBottom: `2px solid ${navy}`,
+    h1PaddingBottom: "0.25em",
+    h1Color: navy,
+    h2FontSize: "1.4em",
+    h2BorderBottom: "none",
+    h2PaddingBottom: "0",
+    h2Color: navy,
+    h3FontSize: "1.15em",
+    h3FontStyle: "normal",
+    h4FontSize: "0.8em",
+    h4TextTransform: "uppercase",
+    h4LetterSpacing: "0.1em",
+    h4FontFamily: sans,
+
+    pTextAlign: "left",
+    pHyphens: "none",
+
+    dropCapFontSize: "1em",
+    dropCapColor: palette.text,
+    dropCapEnabled: "none",
+
+    linkDecoration: "underline",
+    linkDecorationThickness: "1px",
+    linkUnderlineOffset: "2px",
+
+    blockquoteBorderLeft: `4px solid ${navy}`,
+    blockquoteBorderTop: "none",
+    blockquoteBorderBottom: "none",
+    blockquoteBg: palette.surface0,
+    blockquoteFontStyle: "normal",
+    blockquoteFontSize: "1.05em",
+    blockquoteTextColor: palette.text,
+
+    codeFontFamily: MONO_FONT_FAMILY,
+    codeRadius: "3px",
+    preRadius: "4px",
+    preBorder: `1px solid ${palette.border}`,
+
+    hrWidth: "100%",
+    hrMargin: "2em 0",
+
+    imgRadius: "2px",
+    imgBorder: "none",
+
+    thBg: isDark ? "#24384f" : navy,
+    thColor: isDark ? "#e6edf5" : "#ffffff",
+    thTextTransform: "none",
+    thLetterSpacing: "0.01em",
+    thFontFamily: sans,
+    thFontSize: "0.9em",
+    thBorderBottom: "none",
+    tdBorder: `1px solid ${palette.border}`,
+    cellBorder: `1px solid ${palette.border}`,
+
+    strongFontStyle: "normal",
+    strongColor: palette.text,
+
+    containerPadding: "48px 56px",
+  };
+}
+
 // ── Resolver ─────────────────────────────────────────────────
 
 /**
@@ -385,12 +484,10 @@ export function resolveBlogTokens(
 
   let tokens: BlogTokens;
   switch (blogTheme) {
-    case "newspaper":
-      tokens = isDark ? newspaperDarkTokens(palette) : newspaperLightTokens(palette);
-      break;
-    default:
-      tokens = normalTokens(palette);
-      break;
+    case "newspaper": tokens = newspaperTokens(palette, isDark); break;
+    case "technical": tokens = technicalTokens(palette); break;
+    case "business": tokens = businessTokens(palette, isDark); break;
+    default: tokens = normalTokens(palette); break;
   }
 
   return tokensToVars(tokens);
@@ -402,6 +499,8 @@ function tokensToVars(t: BlogTokens): Record<string, string> {
     "--blog-font-family": t.fontFamily,
     "--blog-h1-font-family": t.h1FontFamily,
     "--blog-heading-font-family": t.headingFontFamily,
+    "--blog-heading-font-weight": t.headingFontWeight,
+    "--blog-h1-font-weight": t.h1FontWeight,
     "--blog-line-height": t.lineHeight,
     "--blog-text-align": t.textAlign,
 

@@ -1,7 +1,8 @@
 # Text motion — Pretext-driven editing UI
 
-Status: **IN PROGRESS.** The feasibility spike (§1) is complete; the Spread menu prototype opens
-with Copy, Paste, and Bold. Define and Spelling & Grammar are next (§4–§5).
+Status: **IN PROGRESS.** The feasibility spike (§1) and Define (§4) are complete; the Spread menu
+opens with Copy, Paste, Define, Bold, and Italic in a two-row grid of square Courier buttons.
+Spelling & Grammar is next (§5).
 
 BusterMark replaces modal chrome with motion in the text itself. When the writer
 asks something of a word, the surrounding prose moves aside, opens a space, and
@@ -165,17 +166,38 @@ and act as a sanity check (fall back to them beyond 1.5px disagreement).
   style's motion off) places everything at once with no traveling words.
 - [ ] Verify keyboard entry and screen-reader announcements in the native app.
 
-## 4 — Define
+## 4 — Define — **COMPLETED** (2026-10-11)
 
-- [ ] Dispatch `selection lookup` (Apple Dictionary, offline). Measure the
-  definition with Pretext at the opening's width to size the expanded space,
-  then retarget the surrounding flow.
-- [ ] The word's letters break apart and reassemble into the definition's
-  headword; the remaining definition text streams in after them.
-- [ ] Long definitions: cap the opening height and scroll inside it. Show "No
-  definition found" in place.
-- [ ] "Keep as note" or similar retention, consistent with the existing writing
-  review behavior (decide).
+Verified in the real WKWebView by `scripts/native-macos-spread-smoke.js`
+(34/34 checks): the opening grows from 69px to 254px tall, the seven letters of
+"lantern" land inside it and spell the headword, no parted word overlaps the
+grown opening, and Escape returns every word with 0px drift. Define's retarget
+and letter flight settle in 31 frames with a worst frame of 46ms (debug app
+build).
+
+- [x] **COMPLETED** — `selection define` (read, catalog): validates the captured
+  target like the other selection commands and returns `{ query, definition,
+  source }` without opening a review tab. Unavailable where offline
+  dictionaries are (Linux). The Language Model can call it too.
+- [x] **COMPLETED** — Sizing with Pretext: the definition's pronunciation and
+  senses are laid out at the opening's inner width (`prepare` + `layout`) to
+  choose the opening's rows (capped at 11; longer definitions scroll inside).
+- [x] **COMPLETED** — `reshape()` retargets the parted words mid-flight, so the
+  opening grows without restarting the motion (§2's interruptible retarget).
+- [x] **COMPLETED** — The word's letters burst out of the line, then gather and
+  scale up into the headword. Letters are matched to the headword by longest
+  common subsequence (`text-motion/letters.ts`): "Lanterns" keeps seven letters
+  and drops the "s"; headword letters the word lacks fade in. Punctuation beside
+  the word stays in the line. Closing flies the letters home.
+- [x] **COMPLETED** — The pronunciation and senses stream in word by word.
+  `text-motion/definition.ts` shapes Apple Dictionary text: headword,
+  syllabified form and pronunciation, senses split at bullets and numbers,
+  etymology and phrase sections left out.
+- [x] **COMPLETED** — No entry: the opening says so in place and points to the
+  macOS Dictionary app.
+- [ ] Phrases and words split across formatting runs show the headword as text
+  instead of flying letters; consider grapheme flight across runs.
+- [ ] "Keep as note" for a definition, consistent with writing review (decide).
 
 ## 5 — Spelling & Grammar
 

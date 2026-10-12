@@ -123,8 +123,17 @@ void (async () => {
     assert(pushed > hole.height * 0.5, `Later paragraphs slide down (${pushed.toFixed(1)}px)`);
     assert(third.getBoundingClientRect().top > second.getBoundingClientRect().top, 'Block order is preserved');
     const buttons = [...opening().querySelectorAll('button')];
-    assert(buttons.map(b => b.textContent).join(',') === 'Copy,Paste,Define,Bold,Spelling', 'The opening offers Copy, Paste, Define, Bold, Spelling');
-    assert(buttons[2].disabled && buttons[4].disabled, 'Define and Spelling are marked as coming next');
+    assert(buttons.map(b => b.textContent).join(',') === 'Copy,Paste,Define,Bold,Italic,Spelling', 'The opening offers Copy, Paste, Define, Bold, Italic, Spelling');
+    assert(!buttons[2].disabled && !buttons[4].disabled && buttons[5].disabled, 'Define and Italic are ready; Spelling is marked as coming next');
+    const boxes = buttons.map(b => b.getBoundingClientRect());
+    const sameRow = (a, b) => Math.abs(a.top - b.top) < 1;
+    assert(sameRow(boxes[0], boxes[1]) && sameRow(boxes[1], boxes[2]) && sameRow(boxes[3], boxes[4]) && sameRow(boxes[4], boxes[5]) && boxes[3].top > boxes[0].bottom,
+      'Actions sit in two rows of three');
+    const columnDrift = Math.max(...[0, 1, 2].map(i => Math.abs(boxes[i].left - boxes[i + 3].left)));
+    assert(columnDrift < 1, `The rows line up in three columns (${columnDrift.toFixed(2)}px)`);
+    assert(boxes.every(r => { const o = opening().getBoundingClientRect(); return r.top >= o.top && r.bottom <= o.bottom && r.left >= o.left && r.right <= o.right; }),
+      'Both rows fit inside the opening');
+    assert(buttons.every(b => b.scrollWidth <= b.clientWidth), 'Every action label fits its button');
 
     // ── Escape returns every word exactly ─────────────────────────────
     key(window, 'Escape', 'Escape');
@@ -144,6 +153,52 @@ void (async () => {
     await closed();
     assert(first.textContent === prose, 'Copy leaves the note unchanged');
 
+    // ── Define: the opening grows and the word's letters spell the headword ──
+    const defineWord = words(first).find(word => word.text === 'lantern');
+    await openOn(defineWord);
+    const menuHole = opening().getBoundingClientRect();
+    window.__textMotion = undefined;
+    [...opening().querySelectorAll('button')].find(b => b.textContent === 'Define').click();
+    await wait(() => document.querySelector('.text-motion-definition') && window.__textMotion, 'definition settled');
+    await delay(1600); // let the definition finish streaming in
+    metrics.define = { ...window.__textMotion };
+    const panel = document.querySelector('.text-motion-definition');
+    if (panel.querySelector('.empty')) {
+      assert(/No definition/.test(panel.textContent), 'Define reports a missing dictionary entry in place');
+    } else {
+      const grown = opening().getBoundingClientRect();
+      metrics.defineOpening = { before: { width: menuHole.width, height: menuHole.height }, after: { width: grown.width, height: grown.height } };
+      assert(grown.height > menuHole.height, `Define grows the opening (${menuHole.height} → ${grown.height}px)`);
+      const letters = [...document.querySelectorAll('.text-motion-letter')];
+      const headword = panel.querySelector('.headword').textContent;
+      metrics.headword = headword;
+      assert(letters.filter(l => !l.classList.contains('is-arriving')).length === 'lantern'.length, 'Every letter of the word takes flight');
+      const shown = letters.filter(l => !l.classList.contains('is-fading'));
+      const outside = shown.filter(l => {
+        const r = l.getBoundingClientRect();
+        return r.left < grown.left - 2 || r.right > grown.right + 2 || r.top < grown.top - 2 || r.bottom > grown.bottom + 2;
+      }).map(l => l.textContent);
+      assert(!outside.length, `Letters land inside the opening (${outside.join('')})`);
+      const spelled = shown.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left).map(l => l.textContent).join('');
+      assert(spelled.toLowerCase() === headword.toLowerCase(), `Letters spell the headword “${spelled}”`);
+      assert(headword === 'lantern' && !letters.some(l => l.classList.contains('is-arriving')), 'The word itself becomes the headword, with nothing added');
+      const crowding = [...document.querySelectorAll('.text-motion-word')].filter(span => {
+        if (span.style.visibility === 'hidden' || span.querySelector('span')) return false;
+        const r = span.getBoundingClientRect();
+        return r.right > grown.left + 1 && r.left < grown.right - 1 && r.bottom > grown.top + 1 && r.top < grown.bottom - 1;
+      }).map(span => span.textContent);
+      assert(!crowding.length, `No word overlaps the grown opening (${crowding.join(', ')})`);
+      assert(panel.querySelectorAll('.sense').length > 0 && panel.textContent.length > 20, 'The definition streams into the opening');
+    }
+    key(window, 'Escape', 'Escape');
+    await closed();
+    await frame();
+    const afterDefine = words(first);
+    let defineDrift = 0;
+    afterDefine.forEach((word, index) => { defineDrift = Math.max(defineDrift, Math.abs(word.left - before[index].left), Math.abs(word.top - before[index].top)); });
+    metrics.defineReturnDriftPx = defineDrift;
+    assert(defineDrift < 0.01 && first.textContent === prose, `Escape after Define returns the text exactly (drift ${defineDrift}px)`);
+
     // ── Bold through the catalog changes the note ─────────────────────
     const boldWord = words(first).find(word => word.text === 'lantern');
     await openOn(boldWord);
@@ -154,6 +209,16 @@ void (async () => {
     key(note, 'z', 'KeyZ', { metaKey: true });
     await wait(() => !first.querySelector('strong'), 'undo bold');
     assert(true, 'Undo removes the bold in one step');
+
+    // ── Italic through the catalog changes the note ───────────────────
+    await openOn(words(first).find(word => word.text === 'lantern'));
+    [...opening().querySelectorAll('button')].find(b => b.textContent === 'Italic').click();
+    await closed();
+    await wait(() => first.querySelector('em')?.textContent === 'lantern', 'italic applied');
+    assert(true, 'Italic wraps the word in the note');
+    key(note, 'z', 'KeyZ', { metaKey: true });
+    await wait(() => !first.querySelector('em'), 'undo italic');
+    assert(true, 'Undo removes the italic in one step');
 
     // ── Off a word the native menu is untouched ───────────────────────
     const rect = third.getBoundingClientRect();

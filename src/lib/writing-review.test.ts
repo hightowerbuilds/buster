@@ -221,3 +221,29 @@ it("marks Linux dictionary lookup unavailable without disabling AI review", asyn
  expect(f.lookup).not.toHaveBeenCalled();
  expect((await f.run("selection ai")).ok).toBe(true); f.review.dispose();
 });
+
+describe("selection define", () => {
+  it("returns the definition in place without opening a review tab", async () => {
+    const f = fixture();
+    const result = await f.run("selection define");
+    expect(result).toMatchObject({ ok: true, data: { query: "café 世界", definition: "A coffeehouse.", source: "macOS Dictionary" } });
+    expect(f.lookup).toHaveBeenCalledWith("café 世界");
+    expect(f.openPanel).not.toHaveBeenCalled();
+    expect(f.engine.getText()).toBe(original);
+  });
+
+  it("rejects a changed selection before looking anything up", async () => {
+    const f = fixture();
+    f.engine.setCursor({ line: 0, col: 0 }); f.engine.insert("Now ");
+    const result = await f.run("selection define");
+    expect(result).toMatchObject({ ok: false, error: { code: "STALE_SELECTION" } });
+    expect(f.lookup).not.toHaveBeenCalled();
+  });
+
+  it("is unavailable where offline dictionaries are", async () => {
+    const f = fixture(false);
+    expect(f.commands.describe("selection define")[0].available).toBe(false);
+    expect((await f.run("selection define")).ok).toBe(false);
+    expect(f.lookup).not.toHaveBeenCalled();
+  });
+});
