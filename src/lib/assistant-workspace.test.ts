@@ -7,14 +7,12 @@ import type { AssistantTransport, SessionEvent, ToolCall } from "./assistant-tra
 
 function transport() {
   let event = (_e: SessionEvent) => {}, call = (_c: ToolCall) => {};
-  let localHistory: unknown = [];
   const api: AssistantTransport = {
     status: vi.fn(async () => ({ installed: true, loggedIn: true, version: "1", authMethod: "claude.ai", subscription: "max", detail: null })),
-    send: vi.fn(async () => {}), reset: vi.fn(async () => { localHistory = []; }), interrupt: vi.fn(async () => {}),
+    send: vi.fn(async () => {}), reset: vi.fn(async () => {}), interrupt: vi.fn(async () => {}),
     toolResult: vi.fn(async () => {}), subscribe: vi.fn(async (e, c) => { event = e; call = c; return () => { event = () => {}; call = () => {}; }; }),
-    snapshot: () => localHistory, restore: value => { localHistory = value; },
   };
-  return { api, emit: (e: SessionEvent) => event(e), call: (c: ToolCall) => call(c), setLocal: (value: unknown) => { localHistory = value; } };
+  return { api, emit: (e: SessionEvent) => event(e), call: (c: ToolCall) => call(c) };
 }
 const sessions: Array<ReturnType<typeof createAssistantWorkspace>> = [];
 afterEach(async () => { for (const session of sessions.splice(0)) await session.dispose(); vi.restoreAllMocks(); });
@@ -44,7 +42,7 @@ describe("saved assistant conversations", () => {
     h.manager.setDraft("And tomatoes?");
     await h.manager.newChat(); const b = h.manager.state.activeId;
     expect(b).not.toBe(a); expect(h.manager.state.entries).toHaveLength(0); expect(h.manager.state.draft).toBe("");
-    h.manager.setModel("ollama:local"); h.manager.setDraft("A separate draft");
+    h.manager.setModel("claude-haiku-5-5"); h.manager.setDraft("A separate draft");
     h.manager.renameChat(b, "Other ideas");
     await h.manager.switchChat(a);
     expect(h.manager.state.draft).toBe("And tomatoes?");
@@ -85,19 +83,6 @@ describe("saved assistant conversations", () => {
     expect(archive.chats[0].entries.find(e => e.kind === "tool")).toMatchObject({ status: "cancelled" });
     expect(archive.chats[0].entries.find(e => e.kind === "assistant")).toMatchObject({ text: "Partial writing", streaming: false });
     expect(archive.chats[0].entries[archive.chats[0].entries.length - 1]).toMatchObject({ kind: "notice" });
-  });
-
-  it("restores local model context and never shares it with a new chat", async () => {
-    const h = await harness(); const a = h.manager.state.activeId;
-    h.manager.setModel("ollama:local");
-    const messages = [{ role: "user", content: "My word is violet" }, { role: "assistant", content: "Remembered" }];
-    h.transports.get(a)!.setLocal(messages);
-    await h.manager.newChat(); const b = h.manager.state.activeId;
-    expect(h.transports.get(b)!.api.snapshot!()).toEqual([]);
-    await h.manager.switchChat(a);
-    expect(h.transports.get(a)!.api.snapshot!()).toEqual(messages);
-    await h.manager.flush(); const restored = h.make(); await restored.ready;
-    expect(h.transports.get(a)!.api.snapshot!()).toEqual(messages);
   });
 
   it("keeps history in memory on save failure and saves it on retry", async () => {

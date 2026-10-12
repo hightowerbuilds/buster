@@ -7,7 +7,6 @@ import { captureWritingScroll, restoreWritingScroll, clampWritingScroll, isMarkd
 import { writingPalette, writingPulse, writingTypography } from "./writing-effects";
 import { renderEditor } from "./canvas-renderer";
 import { WebGLTextContext } from "./webgl-text";
-import { createGhostText } from "./editor-ghost-text";
 import { createEditorA11y } from "./editor-a11y";
 import { handleEditorKeyDown, type KeyboardDeps } from "./editor-keyboard";
 import { handleEditorMouseDown, handleEditorMouseMove, handleEditorMouseUp, type MouseDeps } from "./editor-mouse";
@@ -80,10 +79,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   // Expose engine to parent (for save, getText, etc.)
   props.onEngineReady?.(engine);
 
-  // Derived signals for subsystems that need separate line/col accessors
-  const cursorLine = () => engine.cursor().line;
-  const cursorCol = () => engine.cursor().col;
-
   // Notify parent of cursor changes
   createEffect(() => {
     const c = engine.cursor();
@@ -131,18 +126,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     else if (cursorY > viewBottom) smoothScrollTo(cursorY - canvasHeight() + lineHeight() * 2);
   }
 
-  // ── AI ghost text ──────────────────────────────────────────────
-
-  const ghost = createGhostText({
-    filePath: () => props.filePath ?? null,
-    cursorLine,
-    cursorCol,
-    content: () => {
-      const ls = engine.lines();
-      return { lines: ls, total_lines: ls.length, file_path: engine.filePath(), edit_seq: engine.editSeq() };
-    },
-    settings: () => store.settings,
-  });
 
   // ── Accessibility parallel DOM ─────────────────────────────────
 
@@ -175,7 +158,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   };
 
   const keyboardDeps: KeyboardDeps = {
-    engine, ghost, a11y,
+    engine, a11y,
     languagePath,
     wordWrap, charW, canvasWidth, canvasHeight,
     gutterW, lineHeight,
@@ -187,7 +170,7 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
   };
 
   const inputDeps: InputDeps = {
-    engine, ghost,
+    engine,
     languagePath,
     hiddenInput: () => hiddenInput,
     isComposing: () => isComposing,
@@ -370,7 +353,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
       searchMatches: sm,
       currentSearchIdx: props.currentSearchIdx ?? -1,
       palette: currentPalette,
-      phantomTexts: ghost.getPhantomTexts(),
       foldedLines: engine.foldedLines(),
       foldStartLines: new Set(engine.lines().map((_, i) => i).filter(i => engine.isFolded(i))),
       isFoldable: (line: number) => engine.isFoldable(line),
@@ -430,7 +412,6 @@ const CanvasEditor: Component<CanvasEditorProps> = (props) => {
     canvasHeight();
     isFocused();
     isDragging();
-    ghost.getPhantomTexts();
     palette();
     writingStyle();
     reducedMotion();

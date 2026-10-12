@@ -4,14 +4,11 @@
  */
 
 import type { EditorEngine } from "./engine";
-import type { createGhostText } from "./editor-ghost-text";
 import { getAutoClosePairMap } from "./language-registry";
 
-type GhostTextHandle = ReturnType<typeof createGhostText>;
 
 export interface KeyboardDeps {
   engine: EditorEngine;
-  ghost: GhostTextHandle;
   a11y: { announceUndo: () => void; announceRedo: () => void };
   languagePath: () => string | null;
   wordWrap: () => boolean;
@@ -22,7 +19,7 @@ export interface KeyboardDeps {
   lineHeight: () => number;
   tabTrapping: () => boolean;
   indentUnit: () => string;
-  settings: () => { tab_size: number; ai_completion_enabled?: boolean };
+  settings: () => { tab_size: number };
   ensureCursorVisible: () => void;
   scheduleRender: () => void;
   focusInput: () => void;
@@ -31,7 +28,7 @@ export interface KeyboardDeps {
 }
 
 export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
-  const { engine, ghost, a11y } = deps;
+  const { engine, a11y } = deps;
 
   // Some WebKit/IME paths end composition before the final keydown. That key
   // still belongs to native text input and must not be inserted a second time.
@@ -39,15 +36,8 @@ export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
 
   const isMod = e.metaKey || e.ctrlKey;
 
-  if (e.ctrlKey && e.key === " ") {
-    e.preventDefault();
-    if (deps.settings().ai_completion_enabled) ghost.trigger();
-    return;
-  }
-
   // Escape cascade
   if (e.key === "Escape") {
-    if (ghost.ghostText()) { e.preventDefault(); ghost.dismiss(); return; }
     if (engine.hasMultiCursors()) { e.preventDefault(); engine.clearExtras(); return; }
   }
 
@@ -231,11 +221,6 @@ export function handleEditorKeyDown(e: KeyboardEvent, deps: KeyboardDeps) {
   } else if (e.key === "Tab") {
     if (!deps.tabTrapping()) return;
     e.preventDefault();
-    const accepted = ghost.accept();
-    if (accepted) {
-      engine.insert(accepted);
-      return;
-    }
     if (e.shiftKey) {
       engine.outdentLines(deps.settings().tab_size || 4);
     } else if (engine.sel()) {

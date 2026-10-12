@@ -289,47 +289,6 @@ describe("assistant through Claude Code", () => {
     }
   });
 
-  it("shows Ollama's status for local models and sends chat-only models no tools", async () => {
-    const { commands } = catalog();
-    const cc = fakeClaudeCode();
-    const transport = { ...cc.transport, localModels: vi.fn(async () => ({ baseUrl: "http://localhost:11434/", version: "0.34.4", models: [
-      { name: "qwen3.5:4b", family: "qwen35", parameterSize: "4.7B", sizeBytes: 1, tools: true, thinking: true },
-      { name: "tiny:1b", family: "llama", parameterSize: "1B", sizeBytes: 1, tools: false, thinking: false },
-    ] })) };
-    const assistant = createAssistant({ commands, transport });
-    await assistant.refreshStatus();
-    expect(assistant.state.localModels.map(m => m.name)).toEqual(["qwen3.5:4b", "tiny:1b"]);
-    assistant.setModel("ollama:qwen3.5:4b");
-    expect(assistant.state).toMatchObject({ connection: "ready", connectionDetail: "Local model via Ollama 0.34.4" });
-    assistant.setModel("ollama:missing:7b");
-    expect(assistant.state.connection).toBe("missing");
-    expect(assistant.state.connectionDetail).toContain("ollama pull missing:7b");
-    assistant.setModel("claude-opus-5");
-    expect(assistant.state.connection).toBe("ready");
-    assistant.setModel("ollama:tiny:1b");
-    await assistant.send("Hello");
-    expect(cc.sent[0]).toMatchObject({ model: "ollama:tiny:1b", tools: [] });
-    cc.emit(done());
-    assistant.setModel("ollama:qwen3.5:4b");
-    await assistant.send("Again");
-    expect(cc.sent[1].tools.length).toBeGreaterThan(0);
-  });
-
-  it("reports when Ollama is not running and notes provider switches", async () => {
-    const { commands } = catalog();
-    const cc = fakeClaudeCode();
-    const transport = { ...cc.transport, localModels: vi.fn(async () => { throw new Error("Ollama is not running at http://localhost:11434/."); }) };
-    const assistant = createAssistant({ commands, transport });
-    await assistant.refreshStatus();
-    assistant.setModel("ollama:qwen3.5:4b");
-    expect(assistant.state).toMatchObject({ connection: "missing", connectionDetail: "Ollama is not running at http://localhost:11434/." });
-    assistant.setModel("claude-opus-5");
-    await assistant.send("Hi"); cc.emit(done());
-    assistant.setModel("ollama:qwen3.5:4b");
-    await assistant.send("Hi local");
-    expect(assistant.state.entries.some(e => e.kind === "notice" && e.text.includes("starts without the earlier conversation"))).toBe(true);
-  });
-
   it("persists model, effort, visibility and width", () => {
     const { commands } = catalog();
     const stored = new Map([["bustermark.assistant.model", "claude-sonnet-5"], ["bustermark.assistant.effort", "bogus"], ["bustermark.assistant.width", "5000"]]);

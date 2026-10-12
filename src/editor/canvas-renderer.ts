@@ -1,6 +1,6 @@
 import type { SearchMatch, CursorPos } from "../lib/ipc";
 import { type DisplayRow, PADDING_LEFT, computeDisplayRows } from "./engine";
-import { getCharWidth, FONT_FAMILY, colToPixel, stringDisplayWidth } from "./text-measure";
+import { getCharWidth, FONT_FAMILY, colToPixel } from "./text-measure";
 import { type ThemePalette, drawVignette, drawGrain } from "../lib/theme";
 import type { WebGLTextContext } from "./webgl-text";
 import { writingTextColor } from "./writing-effects";
@@ -47,12 +47,6 @@ function getDisplayRows(
 
 // ─── Types ─────────────────────────────────────────────────────────
 
-export interface PhantomText {
-  line: number;
-  col: number;
-  text: string;
-}
-
 export interface EditorRenderParams {
   width: number;
   height: number;
@@ -70,7 +64,6 @@ export interface EditorRenderParams {
   searchMatches: SearchMatch[];
   currentSearchIdx: number;
   palette: ThemePalette;
-  phantomTexts: PhantomText[];
   foldedLines: Set<number>;
   foldStartLines: Set<number>;
   isFoldable: (line: number) => boolean;
@@ -154,7 +147,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     ctx.fillRect(0, 0, gutterW, h);
   }
 
-  drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, p, params.phantomTexts, params.writingStyle);
+  drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, p, params.writingStyle);
 
   // Indent guides
   if (params.showIndentGuides) {
@@ -358,18 +351,10 @@ function drawTextRows(
   primaryCursorLine: number,
   showLineNums: boolean,
   p: ThemePalette,
-  phantomTexts: PhantomText[],
   writingStyle?: EditorRenderParams["writingStyle"],
 ) {
   const font = `${fontSize}px ${FONT_FAMILY}`;
   const baselineY = lineHeight - Math.floor(fontSize * 0.35);
-
-  const phantomByLine = new Map<number, PhantomText[]>();
-  for (const pt of phantomTexts) {
-    const arr = phantomByLine.get(pt.line) || [];
-    arr.push(pt);
-    phantomByLine.set(pt.line, arr);
-  }
 
   let lastDrawnBufferLine = -1;
   for (let r = firstVisRow; r < lastVisRow; r++) {
@@ -392,35 +377,7 @@ function drawTextRows(
       ctx.fillRect(gutterW, y, ctx.canvas.width / ((typeof globalThis !== "undefined" && globalThis.devicePixelRatio) || 1) - gutterW, lineHeight);
     }
 
-    const rowPhantoms = (phantomByLine.get(dr.bufferLine) || [])
-      .filter(pt => pt.col >= dr.startCol && pt.col <= dr.startCol + dr.text.length)
-      .sort((a, b) => a.col - b.col);
-
-    if (rowPhantoms.length === 0) {
-      monoText(ctx, dr.text, gutterW + PADDING_LEFT, y, textColor, font, charW, lineHeight, baselineY);
-    } else {
-      let xOffset = 0;
-      let realCol = 0;
-
-      for (const pt of rowPhantoms) {
-        const insertCol = pt.col - dr.startCol;
-
-        if (insertCol > realCol) {
-          const segment = dr.text.slice(realCol, insertCol);
-          monoText(ctx, segment, gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset, y, textColor, font, charW, lineHeight, baselineY);
-          realCol = insertCol;
-        }
-
-        const phantomX = gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset;
-        monoText(ctx, pt.text, phantomX, y, "rgba(137, 180, 250, 0.35)", font, charW, lineHeight, baselineY);
-        xOffset += stringDisplayWidth(pt.text) * charW;
-      }
-
-      if (realCol < dr.text.length) {
-        const segment = dr.text.slice(realCol);
-        monoText(ctx, segment, gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset, y, textColor, font, charW, lineHeight, baselineY);
-      }
-    }
+    monoText(ctx, dr.text, gutterW + PADDING_LEFT, y, textColor, font, charW, lineHeight, baselineY);
   }
 }
 

@@ -346,24 +346,7 @@ signed-in Claude Code CLI. No API key is used or stored:
   an in-band interrupt, so the process and conversation stay alive; if it is not
   confirmed within four seconds, the process ends and the next message resumes.
 
-### Local models (Ollama)
-
-The model picker's **Local (Ollama)** group lists the models installed in the
-Ollama server from AI settings (default `http://localhost:11434`), with their
-parameter size; models Ollama reports without tool support are marked "chat
-only" and receive no tools. Selecting one runs the same sidebar through
-`src/lib/local-model-transport.ts`, which runs the tool loop in the app and
-reports the same events and tool calls as Claude Code, so approvals, previews,
-Stop and the timer behave identically. `src-tauri/src/commands/local_model.rs`
-lists models (`/api/tags`, `/api/show`) and streams one `/api/chat` turn with
-tools, a 16k-token context, and cancellation. Effort maps to thinking: Low turns
-it off, higher levels leave it on. Local and Claude conversations are separate;
-switching mid-chat starts the local model without the earlier messages.
-`scripts/native-tab-smoke/assistant-local-live.js` checks a read tool and an
-approved `document edit` with `qwen3.5:4b`.
-
-The status dot in the sidebar header reflects `claude auth status`, or Ollama's
-model list when a local model is selected; click it to
+The status dot in the sidebar header reflects `claude auth status`; click it to
 check again. The sidebar explains what to do when Claude Code is missing or
 signed out. `scripts/native-tab-smoke/assistant-live.js` exercises a real read
 tool, an approved write, and an interrupt, and `assistant-edit-live.js` fixes
@@ -415,7 +398,7 @@ Unicode characters. An absent definition provides dictionary setup guidance.
 Opening AI review does not send a request. These commands operate its lifecycle:
 
 ```text
-review generate {"reviewId":"<ID>","provider":"ollama","model":"<installed model>","instruction":"Rewrite clearly. Return only the revised passage."}
+review generate {"reviewId":"<ID>","provider":"claude","instruction":"Rewrite clearly. Return only the revised passage."}
 review read {"reviewId":"<ID>"}
 review cancel {"reviewId":"<ID>"}
 review apply {"reviewId":"<ID>","mode":"replace"}
@@ -423,11 +406,12 @@ review source {"reviewId":"<ID>"}
 review discard {"reviewId":"<ID>"}
 ```
 
-Providers are `ollama`, `anthropic`, or `openai`; the provider must match the
-configured connection. The model is explicit. Only the captured text and
-instruction are sent. Generate returns immediately; Read reports running,
+Providers are `claude`, `codex`, or `opencode`: the writer's own command-line
+tool and subscription, run once per request with its default model, no tools,
+and no session history (`src-tauri/src/commands/ai_cli.rs`). Only the captured
+text and instruction are sent. Generate returns immediately; Read reports running,
 completed, failed, canceled, or applied state and includes the captured passage
-and streamed result. Request IDs protect retries from starting duplicate jobs.
+and the result. Request IDs protect retries from starting duplicate jobs.
 Cancel and Discard ignore late output. Discard also closes the review tab.
 
 Apply accepts `replace`, `insert-after`, or `new-note`. Source edits recheck the
@@ -439,9 +423,18 @@ closing its source also cancels pending work while retaining completed output. R
 and do not survive restart; apply or keep a note to retain output.
 
 Selection input is limited to 32 KiB, instructions to 4 KiB, output to 64 KiB,
-and native generation to 120 seconds with at most four concurrent requests.
-Missing connections, failed/truncated streams, and canceled output cannot be
-applied. No provider fallback or automatic external search occurs.
+and a request to 120 seconds. Missing or signed-out tools, failed requests, and
+canceled output cannot be applied. No provider fallback or automatic external search occurs.
+
+## Rephrase
+
+`selection rephrase` takes `{target, provider, rung, requestId}` and returns at
+once; `selection rephrase read {requestId}` reports `running`, `ready` (three
+validated options), `failed` (`UNUSABLE` when the reply had nothing usable, or
+`UNAVAILABLE`), or `canceled`; `selection rephrase cancel` stops it. Rungs climb
+from cheap to strong: Claude Haiku 5.5 → Sonnet 5.5 → Opus 5.5, or Codex at low →
+medium → high reasoning effort; OpenCode has one rung. Apply a chosen option with
+`selection replace {target, text}`, a revision-checked single-undo edit.
 
 ## macOS selected-text speech
 
@@ -524,8 +517,8 @@ The Language Model sidebar's **New chat** button preserves the current chat.
 Rename and confirmed Delete. Drafts, model/effort choices, transcripts and usage
 are saved per chat. Switching chats stops the outgoing reply; pending approvals
 are cancelled. Restarting restores the active chat without replaying tool actions.
-Claude uses its saved Claude Code session; Ollama receives its saved message/tool
-context. Provider contexts remain separate when changing between Claude and Ollama.
+Claude uses its saved Claude Code session. Chats saved with a local Ollama model
+open on Claude Code's default model.
 
 History is stored locally in the app data directory at `chats/history.json`.
 Writes are atomic and normal quit waits for history to save. Errors show Retry;

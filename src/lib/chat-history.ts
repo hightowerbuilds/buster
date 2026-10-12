@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { EFFORTS, type AssistantEntry, type AssistantSnapshot } from "./assistant";
-import { restoreLocalHistory } from "./local-model-transport";
 
 export interface SavedChat extends AssistantSnapshot {
   id: string;
@@ -34,7 +33,7 @@ export function readChatArchive(value: unknown): ChatArchive | null {
       || typeof chat.inFlight !== "boolean"
       || !object(chat.usage) || ![chat.usage.input, chat.usage.output, chat.usage.cacheRead].every(finite)
       || (chat.lastTurnMs !== null && !finite(chat.lastTurnMs)) || (chat.sessionId !== null && !id(chat.sessionId))
-      || ![null, "claude", "local"].includes(chat.lastProvider) || !Array.isArray(chat.entries)) return invalid();
+      || !Array.isArray(chat.entries)) return invalid();
     seen.add(chat.id);
     let interrupted = chat.inFlight;
     chat.inFlight = false;
@@ -59,7 +58,10 @@ export function readChatArchive(value: unknown): ChatArchive | null {
         default: return invalid();
       }
     }
-    chat.localHistory = restoreLocalHistory(chat.localHistory);
+    // Archives saved alongside local Ollama models carry fields that no longer apply.
+    const legacy = chat as Partial<Record<"lastProvider" | "localHistory", unknown>>;
+    delete legacy.lastProvider; delete legacy.localHistory;
+    if (chat.model.startsWith("ollama:")) chat.model = "";
     if (interrupted) chat.entries.push({ id: crypto.randomUUID(), kind: "notice", tone: "info", text: "The previous response was interrupted. Send a message to continue; pending actions were cancelled." });
   }
   if (archive.chats.length && !seen.has(archive.activeId)) return invalid();

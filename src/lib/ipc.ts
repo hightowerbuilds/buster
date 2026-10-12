@@ -103,21 +103,8 @@ export interface AppSettings {
   blog_theme: string;
   show_indent_guides: boolean;
   show_whitespace: boolean;
-  ai_completion_enabled: boolean;
-  ai_provider: string;
-  ai_api_key: string;
-  ai_credential_error?: string;
-  ai_model: string;
-  ai_local_model: string;
-  ai_ollama_url: string;
-  ai_stop_on_newline: boolean;
-  ai_debounce_local_ms: number;
-  ai_debounce_cloud_ms: number;
-  ai_min_prefix_chars: number;
-  ai_cache_enabled: boolean;
-  ai_cache_size: number;
-  ai_disabled_languages: string[];
-  ai_token_budget_monthly: number;
+  /** The AI command-line tool for writing actions. */
+  ai_provider: "claude" | "codex" | "opencode";
 }
 
 export const loadSettings = () =>
@@ -128,32 +115,6 @@ export const saveSettings = (settings: AppSettings) =>
 
 export const addRecentFolder = (folder: string) =>
   invoke<AppSettings>("add_recent_folder", { folder });
-
-export interface AiProviderValidationRequest {
-  provider: string;
-  api_key: string;
-  model: string;
-  ollama_url: string;
-}
-
-export interface AiProviderValidation {
-  ok: boolean;
-  message: string;
-}
-
-export interface AiCompletionUsage {
-  estimated_tokens: number;
-  monthly_budget: number;
-}
-
-export const aiCompletionOllamaModels = (ollamaUrl: string) =>
-  invoke<string[]>("ai_completion_ollama_models", { ollamaUrl });
-
-export const aiCompletionValidateProvider = (request: AiProviderValidationRequest) =>
-  invoke<AiProviderValidation>("ai_completion_validate_provider", { request });
-
-export const aiCompletionUsage = () =>
-  invoke<AiCompletionUsage>("ai_completion_usage");
 
 // Search
 export interface SearchMatch {

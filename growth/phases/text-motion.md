@@ -199,6 +199,40 @@ build).
   instead of flying letters; consider grapheme flight across runs.
 - [ ] "Keep as note" for a definition, consistent with writing review (decide).
 
+## 4b — Phrase spread — **IN PROGRESS** (2026-10-11)
+
+Select several words in one paragraph and right-click: the same parting, with
+phrase actions in the grid — Copy · Bold · Italic over Search · Count ·
+Rephrase. Each panel action grows the opening like Define. Verified in the real
+WKWebView by `scripts/native-macos-spread-smoke.js` with a phrase that wraps
+across a line break (66/66 checks).
+
+- [x] **COMPLETED** — A selection that wraps lines parts below its last line;
+  every word of it stays put, marked as the target.
+- [x] **COMPLETED** — Count: words (Intl.Segmenter), characters, characters
+  without spaces, sentences, reading time at 238 wpm, then each distinct word
+  of the phrase with how often it is used in the phrase and across the whole
+  note. Local.
+- [x] **COMPLETED** — Search: `notes search` across every note (open, closed,
+  unsaved). One entry per note with its first matches, the phrase marked;
+  choosing one opens the note with the match selected.
+- [x] **COMPLETED** — Rephrase runs on the writer's AI command-line tool and
+  subscription (AI settings: Claude Code, Codex, or OpenCode; no API keys, no
+  local models) through the one-shot runner `src-tauri/src/commands/ai_cli.rs`:
+  no tools, an empty folder, the passage on stdin, a JSON schema for three
+  rephrasings. It climbs a ladder — Claude Haiku 5.5 → Sonnet 5.5 → Opus 5.5, or
+  Codex low → medium → high effort — automatically when a reply is unusable,
+  and on request ("Try Sonnet 5.5"). `selection rephrase` returns at once (the
+  command queue never waits on a model) and `selection rephrase read` polls;
+  choosing an option applies it with `selection replace` as one undoable edit.
+  Each provider asks once per session before text leaves the Mac.
+- [x] **COMPLETED** — Verified end to end in the native smoke test against
+  Claude Haiku 5.5 on the writer's subscription: three rephrasings in ~3s,
+  applied, and undone in one step. Codex (~12s) and OpenCode (~7s) were checked
+  from the command line.
+- [x] **COMPLETED** — Closing the opening cancels an in-flight rephrase and
+  stops the CLI process.
+
 ## 5 — Spelling & Grammar
 
 - [ ] Use the Language Model only (decided 2026-10-11). Send the target word and

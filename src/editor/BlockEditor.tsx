@@ -7,6 +7,7 @@ import { resolveBlogTokens } from "../lib/blog-themes";
 import { writingPalette } from "./writing-effects";
 import { focusTabPanel } from "../lib/focus-service";
 import { createSpreadMenu } from "./SpreadMenu";
+import { isAiProvider } from "../lib/ai-oneshot";
 import "prosemirror-view/style/prosemirror.css";
 import "./BlockEditor.css";
 
@@ -32,6 +33,7 @@ export default function BlockEditor(props: {
   const values = createMemo(() => appearance.forTab(props.tabId));
   const spread = createSpreadMenu({
     tabId: props.tabId, engine, commands, view: () => view, scroller: () => scroller,
+    aiProvider: () => isAiProvider(store.settings.ai_provider) ? store.settings.ai_provider : "claude",
     reducedMotion: () => !values().motion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     setDecorations: decorations => {
       motionDecorations = decorations;

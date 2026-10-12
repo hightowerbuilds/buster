@@ -42,8 +42,6 @@ export interface AssistantTransport {
   reset(): Promise<void>;
   toolResult(callId: string, content: string, isError: boolean): Promise<void>;
   subscribe(onEvent: (event: SessionEvent) => void, onToolCall: (call: ToolCall) => void): Promise<() => void>;
-  snapshot?(): unknown;
-  restore?(history: unknown): void;
 }
 
 export const createClaudeCodeTransport = (conversationId = "default"): AssistantTransport => {

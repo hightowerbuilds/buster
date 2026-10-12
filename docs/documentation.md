@@ -226,7 +226,7 @@ Every character in the editor is drawn on an HTML Canvas element. The rendering 
 2. **Compute display rows.** With word wrap enabled, a single buffer line may span multiple display rows. Display rows are memoized and only recomputed when the buffer, viewport width, or wrap settings change.
 3. **Draw gutter.** Line numbers, fold indicators, breakpoint dots, and diff markers.
 4. **Draw text.** Each line is split into syntax-highlighted spans. Each span is drawn with the appropriate color from the theme palette.
-5. **Draw overlays.** Cursor, selection highlight, search match highlights, diagnostic underlines, current line highlight, inlay hints, ghost text.
+5. **Draw overlays.** Cursor, selection highlight, search match highlights, diagnostic underlines, current line highlight, inlay hints.
 6. **Draw chrome.** Scrollbar, minimap (optional).
 
 The renderer uses Canvas 2D by default. When WebGL2 is available, text rendering switches to a GPU-accelerated glyph atlas with instanced rendering. All glyphs are rasterized once into a texture atlas, then drawn as instanced quads in a single draw call per frame. This handles large files and high-DPI displays efficiently.
@@ -375,8 +375,6 @@ As you type, the LSP provides completion suggestions. A dropdown appears near th
 - **Escape** — dismiss the dropdown
 - **Arrow keys** — navigate items
 - Continue typing to filter the list
-
-Ghost text completions show a dimmed preview of the most likely completion inline with your cursor.
 
 ### Hover Documentation
 
@@ -1176,7 +1174,6 @@ src/
     editor-signature.ts       # LSP signature help
     editor-code-actions.ts    # LSP code actions
     editor-inlay-hints.ts     # LSP inlay hints
-    editor-ghost-text.ts      # AI ghost text
     editor-a11y.tsx           # Accessibility bridge
 
   ui/                    # UI components

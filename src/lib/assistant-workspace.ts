@@ -9,12 +9,12 @@ interface WorkspaceDeps extends Omit<AssistantDeps, "transport" | "initial" | "i
 }
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-/** Conversation library. Each chat owns its transcript, model process, approvals and local context. */
+/** Conversation library. Each chat owns its transcript, model process, and approvals. */
 export function createAssistantWorkspace(deps: WorkspaceDeps) {
   const seed = (model = "", effort: SavedChat["effort"] = "high"): SavedChat => ({
     id: crypto.randomUUID(), title: "New chat", titleEdited: false, createdAt: Date.now(), updatedAt: Date.now(),
     model, effort, draft: "", entries: [], usage: { input: 0, output: 0, cacheRead: 0 },
-    sessionId: null, lastProvider: null, lastTurnMs: null, localHistory: [], inFlight: false,
+    sessionId: null, lastTurnMs: null, inFlight: false,
   });
   const initial = seed();
   try {

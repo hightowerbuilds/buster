@@ -31,15 +31,17 @@ periodic-table element name. The Desktop shortcut points to that directory and
 preserves existing Desktop items. Settings contains Appearances and Hotkeys,
 including writing styles, interface zoom, and animated WGSL note backgrounds.
 
-The Language Model sidebar supports Claude through your signed-in Claude Code
-subscription and local Ollama models such as Qwen. It keeps multiple saved chats,
+The Language Model sidebar runs Claude through your signed-in Claude Code
+subscription. It keeps multiple saved chats,
 searchable history, and per-chat drafts. Proposed document edits require approval
 and support undo. It can create shader backgrounds and search the web when a
-Brave Search key is configured. Selection-scoped AI review also supports Ollama,
-Anthropic, and OpenAI. The integrated terminal has been retired, matching Linux.
+Brave Search key is configured. Writing actions (Rephrase in the right-click menu,
+and selection-scoped AI review) run on your own AI command-line tool and
+subscription: Claude Code, Codex, or OpenCode. BusterMark stores no AI API keys
+and calls no local models. The integrated terminal has been retired, matching Linux.
 
 macOS retains native speech, Apple Dictionary lookup, clipboard and dictation
-integration, and Keychain storage for API keys. Version 2 sessions preserve tab
+integration, and Keychain storage for the Brave Search key. Version 2 sessions preserve tab
 order, the active tab, split view, cursor and selection, scrolling, and unsaved writing.
 Version 1 sessions migrate while preserving their original session and backups.
 The application identifier and storage locations remain unchanged.
@@ -93,7 +95,7 @@ app, use `bun run tauri build --debug --bundles app`.
 | `src/editor/` | Block editor, canvas editor, and shared document engine |
 | `src/ui/` | Tab workspace, settings, backgrounds, and Language Model sidebar |
 | `src/lib/` | State, feature commands, persistence, model transports, and IPC |
-| `src-tauri/src/` | Native filesystem, Claude bridge, Ollama, shaders, and Mac services |
+| `src-tauri/src/` | Native filesystem, Claude/Codex/OpenCode bridges, shaders, and Mac services |
 | `packages/buster-path/` | Shared path utilities |
 
 See [internal commands](docs/internal-commands.md) for the shared human and AI

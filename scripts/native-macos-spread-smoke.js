@@ -220,6 +220,109 @@ void (async () => {
     await wait(() => !first.querySelector('em'), 'undo italic');
     assert(true, 'Undo removes the italic in one step');
 
+    // ── A phrase across a line break: its own actions and panels ─────
+    const selectWords = async (paragraph, from, to) => {
+      // Map the nth \S+ run of the paragraph's text to DOM text-node offsets.
+      const nodes = [], walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
+      const runs = [];
+      for (const node of nodes) for (const match of node.data.matchAll(/\S+/g)) runs.push({ node, start: match.index, end: match.index + match[0].length });
+      getSelection().setBaseAndExtent(runs[from].node, runs[from].start, runs[to].node, runs[to].end);
+      document.dispatchEvent(new Event('selectionchange'));
+      await delay(120);
+    };
+    const phraseWords = words(first);
+    const phraseTops = lines(phraseWords);
+    const lineOne = phraseWords.map((w, i) => i).filter(i => Math.abs(phraseWords[i].top - phraseTops[0]) < 4);
+    const phraseFrom = lineOne[lineOne.length - 2], phraseTo = lineOne[lineOne.length - 1] + 2;
+    const phraseText = phraseWords.slice(phraseFrom, phraseTo + 1).map(w => w.text).join(' ');
+    const openPhrase = async () => {
+      await selectWords(first, phraseFrom, phraseTo);
+      assert(getSelection().toString().replace(/\s+/g, ' ') === phraseText, `Selected the phrase “${phraseText}” across a line break`);
+      window.__textMotion = undefined;
+      const inside = phraseWords[phraseTo];
+      const event = rightClick(inside.left + inside.width / 2, inside.top + 4);
+      assert(event.defaultPrevented, 'Right-clicking the selected phrase replaces the native menu');
+      await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'phrase spread settled');
+    };
+    await openPhrase();
+    const phraseButtons = [...opening().querySelectorAll('button')].map(b => b.textContent).join(',');
+    assert(phraseButtons === 'Copy,Bold,Italic,Search,Count,Rephrase', `A phrase offers Copy, Bold, Italic, Search, Count, Rephrase (${phraseButtons})`);
+    const phraseSpans = [...document.querySelectorAll('.text-motion-word.is-target')];
+    assert(phraseSpans.map(span => span.textContent).join(' ') === phraseText, 'Every word of the phrase is the target');
+    assert(phraseSpans.every(span => !span.style.transform), 'The phrase stays where it was');
+    const phraseHole = opening().getBoundingClientRect();
+    assert(phraseHole.top >= phraseWords[phraseTo].top + phraseWords[phraseTo].height - 1, 'The opening sits below the phrase’s last line');
+    const phraseOverlap = [...document.querySelectorAll('.text-motion-word')].filter(span => {
+      const r = span.getBoundingClientRect();
+      return r.right > phraseHole.left + 1 && r.left < phraseHole.right - 1 && r.bottom > phraseHole.top + 1 && r.top < phraseHole.bottom - 1;
+    }).map(span => span.textContent);
+    assert(!phraseOverlap.length, `No word overlaps the phrase’s opening (${phraseOverlap.join(', ')})`);
+
+    // Count grows the opening and reports the phrase.
+    window.__textMotion = undefined;
+    [...opening().querySelectorAll('button')].find(b => b.textContent === 'Count').click();
+    await wait(() => document.querySelector('.text-motion-count') && window.__textMotion, 'count settled');
+    const counted = document.querySelector('.text-motion-count .count-words strong').textContent;
+    assert(counted === String(phraseText.split(' ').length), `Count reports ${counted} words`);
+    assert(opening().getBoundingClientRect().height > phraseHole.height, 'Count grows the opening');
+    const useRows = [...document.querySelectorAll('.text-motion-count .count-uses tbody tr')]
+      .map(row => [...row.children].map(cell => cell.textContent));
+    metrics.wordUses = useRows;
+    const theRow = useRows.find(row => row[0] === 'the');
+    assert(useRows.length === new Set(phraseText.toLowerCase().match(/[a-z]+/g)).size, `Count lists each word once (${useRows.map(r => r[0]).join(', ')})`);
+    assert(theRow && theRow[1] === '1' && Number(theRow[2]) === ([...note.querySelectorAll('p')].map(p => p.textContent).join(' ').match(/\bthe\b/gi) ?? []).length, `Count shows how often “the” is used in the note (${theRow?.[2]})`);
+    key(window, 'Escape', 'Escape');
+    await closed();
+
+    // Search finds the phrase in this note.
+    await openPhrase();
+    [...opening().querySelectorAll('button')].find(b => b.textContent === 'Search').click();
+    await wait(() => document.querySelector('.text-motion-search .search-note, .text-motion-search .empty'), 'search results');
+    const thisNote = [...document.querySelectorAll('.text-motion-search .search-note-name')].some(name => /this note/.test(name.textContent));
+    assert(thisNote, 'Search lists this note');
+    assert(document.querySelector('.text-motion-search mark')?.textContent.toLowerCase() === phraseText.toLowerCase(), 'Search marks the phrase in the match');
+    key(window, 'Escape', 'Escape');
+    await closed();
+
+    // Rephrase: the one-time notice names Claude, then Haiku answers through the subscription.
+    await openPhrase();
+    [...opening().querySelectorAll('button')].find(b => b.textContent === 'Rephrase').click();
+    await wait(() => document.querySelector('.text-motion-rephrase .source'), 'rephrase panel');
+    const rephrasePanel = () => document.querySelector('.text-motion-rephrase');
+    assert(/Claude/.test(rephrasePanel().textContent) && /subscription/.test(rephrasePanel().querySelector('.source').textContent),
+      'Rephrase says the passage goes to Claude through the subscription');
+    const send = [...rephrasePanel().querySelectorAll('button')].find(b => b.textContent === 'Send');
+    assert(!!send, 'Rephrase asks before the first passage leaves the Mac');
+    send.click();
+    for (let i = 0; i < 1200 && !rephrasePanel()?.querySelector('.rephrase-option, [role="alert"]'); i++) await delay(100);
+    const failure = rephrasePanel()?.querySelector('[role="alert"]')?.textContent;
+    metrics.rephraseSource = rephrasePanel()?.querySelector('.source')?.textContent;
+    if (failure) {
+      metrics.rephraseSkipped = failure;
+      key(window, 'Escape', 'Escape');
+      await closed();
+    } else {
+      const choices = [...rephrasePanel().querySelectorAll('.rephrase-option')].map(b => b.textContent);
+      metrics.rephrasings = choices;
+      assert(choices.length >= 1 && choices.length <= 3 && choices.every(c => c && c.toLowerCase() !== phraseText.toLowerCase()),
+        `Claude returns rephrasings (${choices.join(' | ')})`);
+      assert(/Haiku 5\.5/.test(metrics.rephraseSource), `Haiku 5.5 answers first (${metrics.rephraseSource})`);
+      assert([...rephrasePanel().querySelectorAll('button')].some(b => b.textContent === 'Try Sonnet 5.5'), 'Rephrase offers Sonnet 5.5 next');
+      const chosen = choices[0];
+      rephrasePanel().querySelector('.rephrase-option').click();
+      await closed();
+      await wait(() => first.textContent.includes(chosen), 'rephrasing applied');
+      assert(!first.textContent.includes(phraseText) || chosen.includes(phraseText), 'Choosing a rephrasing replaces the selection');
+      key(note, 'z', 'KeyZ', { metaKey: true });
+      await wait(() => first.textContent === prose, 'undo rephrase');
+      assert(true, 'Undo restores the original phrase in one step');
+    }
+    await frame();
+    let phraseDrift = 0;
+    words(first).forEach((word, index) => { phraseDrift = Math.max(phraseDrift, Math.abs(word.left - before[index].left), Math.abs(word.top - before[index].top)); });
+    assert(phraseDrift < 0.01 && first.textContent === prose, `Escape after the phrase panels returns the text exactly (drift ${phraseDrift}px)`);
+
     // ── Off a word the native menu is untouched ───────────────────────
     const rect = third.getBoundingClientRect();
     const blank = rightClick(rect.right - 2, rect.top + 4);

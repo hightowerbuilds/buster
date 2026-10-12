@@ -25,10 +25,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(workspace::WorkspaceState::new())
         .manage(watcher::FileWatcher::new())
-        .manage(commands::ai_completion::AiCompletionState::new())
-        .manage(commands::writing_ai::WritingAiState::default())
         .manage(commands::assistant::AssistantState::default())
-        .manage(commands::local_model::LocalModelState::default())
+        .manage(commands::ai_cli::AiCliState::default())
         .setup(|app| {
             // Linux uses the in-app controls and shortcuts instead of a native menu bar.
             #[cfg(not(target_os = "linux"))]
@@ -224,7 +222,6 @@ pub fn run() {
             commands::search::workspace_search,
             // Settings
             commands::settings::load_settings,
-            commands::settings::load_saved_ai_key,
             commands::settings::save_settings,
             commands::settings::add_recent_folder,
             // Session
@@ -238,14 +235,15 @@ pub fn run() {
             commands::session::set_close_handler_ready,
             commands::session::set_running_flag,
             commands::session::clear_running_flag,
-            // AI Completion
-            commands::writing_ai::writing_ai_generate,
+            // Writing tools and AI
             commands::lookup::lookup_selection_text,
             commands::speech::speech_voices,
             commands::speech::speech_start,
             commands::speech::speech_control,
-            commands::writing_ai::writing_ai_cancel,
             commands::assistant::assistant_status,
+            commands::ai_cli::ai_oneshot,
+            commands::ai_cli::ai_oneshot_cancel,
+            commands::ai_cli::ai_providers_status,
             commands::web_search::web_search,
             commands::web_search::web_search_configured,
             commands::web_search::web_search_save_key,
@@ -260,14 +258,6 @@ pub fn run() {
             commands::backgrounds::background_save,
             commands::backgrounds::background_delete,
             commands::backgrounds::backgrounds_configure,
-            commands::local_model::local_models,
-            commands::local_model::local_chat,
-            commands::local_model::local_chat_cancel,
-            commands::ai_completion::ai_completion_request,
-            commands::ai_completion::ai_completion_cancel,
-            commands::ai_completion::ai_completion_ollama_models,
-            commands::ai_completion::ai_completion_validate_provider,
-            commands::ai_completion::ai_completion_usage,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

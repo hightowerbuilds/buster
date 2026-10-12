@@ -19,7 +19,6 @@ void (async () => {
     if (command === 'plugin:dialog|save') return Promise.resolve(`${notes.root}/${outputName}.pdf`);
     if (command === 'assistant_status') return Promise.resolve({ installed: true, loggedIn: true, version: 'native-smoke', authMethod: 'claude.ai', subscription: null, detail: null });
     if (command === 'assistant_reset' || command === 'assistant_interrupt') return Promise.resolve();
-    if (command === 'local_models') return Promise.resolve({ models: [] });
     if (command === 'assistant_send') { sends.push(args.request); return Promise.resolve(); }
     if (command === 'assistant_tool_result') { replies.push(args); return Promise.resolve(); }
     if (command === 'print_document') {

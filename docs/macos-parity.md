@@ -7,7 +7,7 @@ The exact source revision and adaptations are recorded in [linux-parity.json](li
 The Mac app uses the same tab workspace, ProseMirror Markdown editor,
 canvas text editor, spinning blackletter B welcome screen, periodic-table note
 names, Appearances/Hotkeys settings, shader background gallery, and Language
-Model sidebar. The sidebar supports Claude Code and local Ollama models,
+Model sidebar. The sidebar runs on Claude Code, with
 approval before document edits, saved chat history, per-chat drafts, and web
 search through a saved Brave Search key. The integrated terminal is retired.
 
@@ -72,9 +72,10 @@ Developer ID signing, and notarization require the configured release secrets.
 | Clipboard and dictation | Native Edit menu cut/copy/paste selectors |
 | Distribution | `.app` and `.dmg` |
 
-Claude uses the installed, signed-in Claude Code CLI. Ollama must be running
-locally with a model installed. Live model requests and Brave Search require
-those services to be configured; ordinary note editing works without them.
+Claude uses the installed, signed-in Claude Code CLI. Writing actions use the
+provider chosen in AI settings: Claude Code, Codex, or OpenCode, each installed
+and signed in. Live model requests and Brave Search require those services to be
+configured; ordinary note editing works without them.
 
 ## Existing data
 

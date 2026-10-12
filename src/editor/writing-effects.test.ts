@@ -92,7 +92,7 @@ describe("writing render geometry", () => {
       width: 500, height: 300, scrollTop: 0, lines: ["first", "second", "third"], fontSize: 20, lineHeight: 40,
       lineNumbers: false, wordWrap: true, cursors: [{ line: 1, col: 2 }], cursorVisible: true,
       selStart: { line: 1, col: 0 }, selEnd: { line: 1, col: 2 }, searchMatches: [], currentSearchIdx: -1,
-      palette, phantomTexts: [], foldedLines: new Set(), foldStartLines: new Set(), isFoldable: () => false,
+      palette, foldedLines: new Set(), foldStartLines: new Set(), isFoldable: () => false,
       cursorStyle: "line", tabSize: 2, showIndentGuides: false, showWhitespace: false,
       writingStyle: { focusDim: 0.45, contrast: true, pulse: 0 },
     };

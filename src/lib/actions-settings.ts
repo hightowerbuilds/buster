@@ -25,7 +25,6 @@ export function createSettingsActions(
     try {
       const s = await loadSettingsIpc();
       setStore("settings", s);
-      if (s.ai_credential_error) showError(s.ai_credential_error);
       document.documentElement.style.fontSize = `${s.ui_zoom}%`;
       rebuildPalette(s);
     } catch (e) { console.warn("Failed to load settings:", e); }

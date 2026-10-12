@@ -81,4 +81,14 @@ export function registerSelectionCommands(service: FeatureCommands, deps: Select
       try { engine.insert(text.replace(/\r\n?/g, "\n")); } finally { engine.endUndoGroup(); }
       return { tabId: target.tabId, revision: engine.editSeq() };
     });
+  add("selection replace", "Replace a captured selection with new text as one undoable edit, e.g. to apply a chosen rephrasing. Rejects changed targets.",
+    obj({ target: snapshotSchema, text: str }), obj({ tabId: str, revision: num }), (args: { target: SelectionTarget; text: string }) => {
+      const engine = validate(args.target);
+      const text = args.text.replace(/\r\n?/g, "\n");
+      if (!text.trim()) throw new CommandFailure("INVALID_ARGUMENTS", "The replacement text is empty; the selection was kept.");
+      if (new TextEncoder().encode(text).length > 32_768) throw new CommandFailure("LIMIT_REACHED", "Keep the replacement within 32 KiB.");
+      engine.beginUndoGroup();
+      try { engine.insert(text); } finally { engine.endUndoGroup(); }
+      return { tabId: args.target.tabId, revision: engine.editSeq() };
+    });
 }

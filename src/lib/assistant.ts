@@ -2,7 +2,6 @@ import { createStore, produce } from "solid-js/store";
 import { createSignal } from "solid-js";
 import { buildAssistantTools, type AssistantTool, type ToolTarget } from "./assistant-tools";
 import type { AssistantTransport, CliStatus, SessionEvent, ToolCall } from "./assistant-transport";
-import { isLocalModel, LOCAL_PREFIX, type LocalModel, type LocalModels } from "./local-model-transport";
 import type { FeatureCommands } from "./feature-commands";
 
 /** "" leaves the choice to Claude Code, which picks the default model for the writer's plan. */
@@ -29,7 +28,7 @@ export const formatElapsed = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
 
-/** Haiku 4.5 has no effort control (Haiku 5.5 does). For local models, Low turns thinking off. */
+/** Haiku 4.5 has no effort control (Haiku 5.5 does). */
 export const supportsEffort = (model: string) => !model.startsWith("claude-haiku-4-5");
 
 export const ASSISTANT_SYSTEM_PROMPT = `You are the writing assistant inside BusterMark, a desktop app for local Markdown notes with tabs for notes and utility views.
@@ -70,15 +69,13 @@ export interface AssistantState {
   connection: ConnectionState;
   connectionDetail: string;
   usage: { input: number; output: number; cacheRead: number };
-  /** Models installed in Ollama, for the model picker. */
-  localModels: LocalModel[];
 }
 
 export interface AssistantDeps {
   id?: string;
   initial?: AssistantSnapshot;
   commands: Pick<FeatureCommands, "describe" | "dispatch" | "check">;
-  transport: AssistantTransport & { localModels?: () => Promise<LocalModels> };
+  transport: AssistantTransport;
   /** Per-viewer preferences; failures are ignored. */
   storage?: { get(key: string): string | null; set(key: string, value: string): void };
 }
@@ -92,9 +89,10 @@ export interface AssistantSnapshot {
   usage: AssistantState["usage"];
   lastTurnMs: number | null;
   sessionId: string | null;
-  lastProvider: "claude" | "local" | null;
-  localHistory: unknown;
 }
+
+/** Local Ollama models were removed; a chat or preference that named one falls back to Claude Code's default. */
+const claudeModel = (model: string | null | undefined) => model && !model.startsWith("ollama:") ? model : "";
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const newId = () => crypto.randomUUID();
@@ -122,22 +120,18 @@ export function createAssistant(deps: AssistantDeps) {
     running: false,
     turnStartedAt: null,
     lastTurnMs: null,
-    model: savedModel ?? "",
+    model: claudeModel(savedModel),
     effort: EFFORTS.includes(savedEffort as Effort) ? savedEffort as Effort : "high",
     entries: [],
     connection: "unknown",
     connectionDetail: "",
     usage: { input: 0, output: 0, cacheRead: 0 },
-    localModels: [],
-    ...(deps.initial ? { model: deps.initial.model, effort: deps.initial.effort, entries: deps.initial.entries,
+    ...(deps.initial ? { model: claudeModel(deps.initial.model), effort: deps.initial.effort, entries: deps.initial.entries,
       draft: deps.initial.draft, usage: deps.initial.usage, lastTurnMs: deps.initial.lastTurnMs } : {}),
   });
-  // Last known status of each connection; the dot reflects the one the selected model uses.
+  // Last known Claude Code status, for the connection dot.
   let claudeStatus: CliStatus | { error: string } | null = null;
-  let localStatus: LocalModels | { error: string } | null = null;
-  let lastProvider: "claude" | "local" | null = deps.initial?.lastProvider ?? null;
   const [sessionId, setSessionId] = createSignal<string | null>(deps.initial?.sessionId ?? null);
-  if (deps.initial) deps.transport.restore?.(deps.initial.localHistory);
   let lifecycle = 0;
   let resetting: Promise<void> = Promise.resolve();
   // Snapshot per conversation: Claude Code is restarted if the tool list changes.
@@ -291,13 +285,6 @@ export function createAssistant(deps: AssistantDeps) {
     const trimmed = text.trim();
     if (!trimmed || state.running) return;
     const generation = ++lifecycle;
-    const provider = isLocalModel(state.model) ? "local" : "claude";
-    if (lastProvider && provider !== lastProvider && state.entries.length) {
-      notice(provider === "local"
-        ? "Switched to a local model. It starts without the earlier conversation."
-        : "Switched back to Claude. It continues its own earlier conversation.", "info");
-    }
-    lastProvider = provider;
     add({ id: newId(), kind: "user", text: trimmed });
     toolSet ??= buildAssistantTools(deps.commands);
     turn = new AbortController();
@@ -311,7 +298,7 @@ export function createAssistant(deps: AssistantDeps) {
         model: state.model || undefined,
         effort: supportsEffort(state.model) ? state.effort : undefined,
         system: ASSISTANT_SYSTEM_PROMPT,
-        tools: chatOnly(state.model) ? [] : toolSet.tools,
+        tools: toolSet.tools,
         resume: sessionId() ?? undefined,
       });
     } catch (error) {
@@ -356,7 +343,6 @@ export function createAssistant(deps: AssistantDeps) {
   /** Stop this conversation without deleting its transcript or provider continuation. */
   async function suspend() {
     lifecycle++;
-    const localHistory = deps.transport.snapshot?.();
     if (state.running) notice("Response stopped when leaving this chat.", "info");
     turn?.abort();
     setState("entries", produce(entries => {
@@ -365,14 +351,13 @@ export function createAssistant(deps: AssistantDeps) {
       }
     }));
     endTurn();
-    resetting = deps.transport.reset().then(() => { if (localHistory !== undefined) deps.transport.restore?.(localHistory); });
+    resetting = deps.transport.reset();
     await resetting;
   }
 
   function snapshot(): AssistantSnapshot {
     return JSON.parse(JSON.stringify({ inFlight: state.running, model: state.model, effort: state.effort, entries: state.entries,
-      draft: state.draft, usage: state.usage, lastTurnMs: state.lastTurnMs, sessionId: sessionId(), lastProvider,
-      localHistory: deps.transport.snapshot?.() ?? [] }));
+      draft: state.draft, usage: state.usage, lastTurnMs: state.lastTurnMs, sessionId: sessionId() }));
   }
 
   function setModel(model: string) {
@@ -381,21 +366,8 @@ export function createAssistant(deps: AssistantDeps) {
     applyConnection();
   }
 
-  /** Local models that Ollama reports without tool support can still chat. */
-  function chatOnly(model: string) {
-    return isLocalModel(model) && state.localModels.some(m => `${LOCAL_PREFIX}${m.name}` === model && !m.tools);
-  }
-
-  /** Show the status of the connection the selected model uses. */
+  /** Show Claude Code's connection status. */
   function applyConnection() {
-    if (isLocalModel(state.model)) {
-      const name = state.model.slice(LOCAL_PREFIX.length);
-      if (!localStatus) setState({ connection: "unknown", connectionDetail: "" });
-      else if ("error" in localStatus) setState({ connection: "missing", connectionDetail: localStatus.error });
-      else if (!localStatus.models.some(m => m.name === name)) setState({ connection: "missing", connectionDetail: `${name} is not installed in Ollama. Pull it with \`ollama pull ${name}\`.` });
-      else setState({ connection: "ready", connectionDetail: `Local model via Ollama ${localStatus.version ?? ""}`.trim() });
-      return;
-    }
     const status = claudeStatus;
     if (!status) setState({ connection: "unknown", connectionDetail: "" });
     else if ("error" in status) setState({ connection: "error", connectionDetail: status.error });
@@ -422,18 +394,10 @@ export function createAssistant(deps: AssistantDeps) {
     save(STORAGE.width, String(state.width));
   }
 
-  /** Check both connections: Claude Code's sign-in and the models installed in Ollama. */
+  /** Check Claude Code's installation and sign-in. */
   async function refreshStatus() {
     setState("connection", "checking");
-    const [claude, local] = await Promise.all([
-      deps.transport.status().catch(error => ({ error: errorText(error) })),
-      deps.transport.localModels
-        ? deps.transport.localModels().catch(error => ({ error: errorText(error) }))
-        : Promise.resolve({ error: "Local models are not available." }),
-    ]);
-    claudeStatus = claude;
-    localStatus = local;
-    setState("localModels", "error" in local ? [] : local.models);
+    claudeStatus = await deps.transport.status().catch(error => ({ error: errorText(error) }));
     applyConnection();
   }
 

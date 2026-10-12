@@ -3,7 +3,6 @@ import { useBuster } from "../lib/buster-context";
 import { ASSISTANT_MODELS, EFFORTS, formatElapsed, supportsEffort, type AssistantEntry, type Effort } from "../lib/assistant";
 import { diffWordsWithSpace } from "diff";
 import ShaderPreview from "./ShaderPreview";
-import { isLocalModel, LOCAL_PREFIX } from "../lib/local-model-transport";
 import "../styles/assistant.css";
 
 const CONNECTION = {
@@ -318,21 +317,14 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
             <select class="as-select" aria-label="Model" title="Model" value={state.model} disabled={state.running || !state.ready || state.switching}
               onFocus={() => { if (!state.running) void assistant.refreshStatus(); }}
               onChange={e => assistant.setModel(e.currentTarget.value)}>
-              <optgroup label="Claude (Claude Code)">
-                <For each={ASSISTANT_MODELS}>{m => <option value={m.id}>{m.label}</option>}</For>
-              </optgroup>
-              <optgroup label="Local (Ollama)">
-                <For each={state.localModels} fallback={<option disabled value="">No local models found</option>}>{m =>
-                  <option value={`${LOCAL_PREFIX}${m.name}`}>{m.name}{m.parameterSize ? ` · ${m.parameterSize}` : ""}{m.tools ? "" : " · chat only"}</option>
-                }</For>
-              </optgroup>
-              <Show when={!ASSISTANT_MODELS.some(m => m.id === state.model) && !state.localModels.some(m => `${LOCAL_PREFIX}${m.name}` === state.model)}>
-                <option value={state.model}>{isLocalModel(state.model) ? `${state.model.slice(LOCAL_PREFIX.length)} (not installed)` : state.model}</option>
+              <For each={ASSISTANT_MODELS}>{m => <option value={m.id}>{m.label}</option>}</For>
+              <Show when={!ASSISTANT_MODELS.some(m => m.id === state.model)}>
+                <option value={state.model}>{state.model}</option>
               </Show>
             </select>
           </span>
           <span class="as-picker">
-            <select class="as-select" aria-label="Effort" title={isLocalModel(state.model) ? "Effort: Low turns the local model's thinking off; higher levels let it think first" : supportsEffort(state.model) ? "Effort: how much Claude thinks before answering" : "This model has no effort control"}
+            <select class="as-select" aria-label="Effort" title={supportsEffort(state.model) ? "Effort: how much Claude thinks before answering" : "This model has no effort control"}
               value={state.effort} disabled={state.running || !state.ready || state.switching || !supportsEffort(state.model)}
               onChange={e => assistant.setEffort(e.currentTarget.value as Effort)}>
               <For each={EFFORTS}>{effort => <option value={effort}>{EFFORT_LABEL[effort]}</option>}</For>

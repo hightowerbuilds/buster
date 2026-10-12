@@ -135,26 +135,8 @@ fn validate(request: &SendRequest) -> Result<(), String> {
     Ok(())
 }
 
-/// A GUI launch may not inherit the shell PATH that finds `claude`, so fall back to a login shell
-/// and the usual install locations.
 async fn find_claude() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).map(|dir| dir.join("claude")).find(|p| p.is_file())
-    }) {
-        return Some(path);
-    }
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    if let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(5),
-        Command::new(&shell).args(["-lc", "command -v claude"]).stdin(Stdio::null()).output()).await
-    {
-        let found = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        if output.status.success() && found.starts_with('/') {
-            return Some(PathBuf::from(found));
-        }
-    }
-    let home = dirs::home_dir()?;
-    [".local/bin/claude", ".claude/local/claude", ".local/share/mise/shims/claude", ".npm-global/bin/claude"]
-        .iter().map(|p| home.join(p)).find(|p| p.is_file())
+    super::ai_cli::find_cli("claude").await
 }
 
 #[command]

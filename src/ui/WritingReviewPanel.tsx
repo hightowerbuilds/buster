@@ -1,17 +1,16 @@
-import { Show, createEffect, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { useBuster } from "../lib/buster-context";
+import { isAiProvider, providerName as nameOf } from "../lib/ai-oneshot";
 import "../styles/writing-review.css";
 
 export default function WritingReviewPanel(props: { reviewId: string }) {
   const { store, actions, commands, writing } = useBuster();
   const review = () => writing.reviews[props.reviewId];
-  const [model, setModel] = createSignal("");
   const [instruction, setInstruction] = createSignal("Rewrite this passage for clarity while preserving its meaning and voice. Return only the revised passage.");
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const provider = () => store.settings.ai_provider;
-  const providerName = () => ({ ollama: "Ollama", anthropic: "Anthropic", openai: "OpenAI" })[provider()] ?? provider();
-  createEffect(() => setModel(provider() === "ollama" ? store.settings.ai_local_model : store.settings.ai_model));
+  const provider = () => isAiProvider(store.settings.ai_provider) ? store.settings.ai_provider : "claude";
+  const providerName = () => nameOf(provider());
   const running = () => review()?.status === "running";
   const completed = () => review()?.status === "completed";
   const stale = () => review() ? writing.stale(props.reviewId) : true;
@@ -44,19 +43,18 @@ export default function WritingReviewPanel(props: { reviewId: string }) {
       <Show when={item().kind === "ai"}>
         <div class="writing-review-provider"><span>Request provider: <strong>{providerName()}</strong></span>
           <button disabled={running()} onClick={actions.createAiTab}>AI settings</button></div>
-        <label>Model<input data-tab-focus-target="true" value={model()} disabled={running() || item().status === "applied"} onInput={event => setModel(event.currentTarget.value)} spellcheck={false} /></label>
-        <label>Action<select disabled={running() || item().status === "applied"} onChange={event => preset(event.currentTarget.value)}>
+        <label>Action<select data-tab-focus-target="true" disabled={running() || item().status === "applied"} onChange={event => preset(event.currentTarget.value)}>
           <option value="rewrite">Rewrite</option><option value="explain">Explain</option><option value="summarize">Summarize</option><option value="expand">Expand</option><option value="custom">Custom instruction</option>
         </select></label>
         <label>Instruction<textarea rows={4} value={instruction()} disabled={running() || item().status === "applied"} onInput={event => setInstruction(event.currentTarget.value)} /></label>
-        <p class="writing-review-meta">Generate sends only this passage and instruction to {providerName()}{provider() === "ollama" ? " at your configured Ollama server" : " over its cloud API"}. The source stays unchanged until you apply a result.</p>
-        <div class="writing-review-buttons"><button class="primary" disabled={busy() || running() || stale() || !model().trim() || !instruction().trim() || item().status === "applied"}
-          onClick={() => void run("review generate", { provider: provider(), model: model(), instruction: instruction() })}>{item().output ? "Generate again" : "Generate"}</button>
+        <p class="writing-review-meta">Generate sends only this passage and instruction to {providerName()} through your subscription, using its default model. The source stays unchanged until you apply a result.</p>
+        <div class="writing-review-buttons"><button class="primary" disabled={busy() || running() || stale() || !instruction().trim() || item().status === "applied"}
+          onClick={() => void run("review generate", { provider: provider(), instruction: instruction() })}>{item().output ? "Generate again" : "Generate"}</button>
           <Show when={running()}><button onClick={() => void run("review cancel")} disabled={busy()}>Cancel</button></Show></div>
       </Show>
       <p class="writing-review-status" role="status">{({ ready: "Ready to generate", running: item().kind === "lookup" ? "Looking up…" : "Generating…", completed: "Ready to review", failed: "Request failed", canceled: "Canceled — source unchanged", applied: "Result used" })[item().status]}</p>
       <Show when={item().error || error()}><p class="writing-review-error" role="alert">{error() || item().error}</p></Show>
-      <Show when={item().output}><label>{item().kind === "lookup" ? item().source || "Dictionary" : `Result · ${item().provider} / ${item().model}`}</label><pre class="writing-review-result" tabindex="0">{item().output}</pre></Show>
+      <Show when={item().output}><label>{item().kind === "lookup" ? item().source || "Dictionary" : `Result · ${isAiProvider(item().provider) ? nameOf(item().provider as "claude") : item().provider}${item().model ? ` / ${item().model}` : ""}`}</label><pre class="writing-review-result" tabindex="0">{item().output}</pre></Show>
       <Show when={item().kind === "ai" && item().output}>
         <div class="writing-review-buttons">
           <button disabled={busy() || !completed() || stale()} onClick={() => void run("review apply", { mode: "replace" })}>Replace selection</button>

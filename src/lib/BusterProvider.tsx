@@ -18,7 +18,7 @@ import { focusTabPanel } from "./focus-service";
 import { registerSelectionCommands } from "./selection-commands";
 import { clipboardWrite } from "./clipboard";
 import { createWritingReview, registerWritingReviewCommands } from "./writing-review";
-import { generateWriting } from "./writing-ai-transport";
+import { aiOneShot } from "./ai-oneshot";
 import { lookupSelection } from "./selection-lookup";
 import { createSpeech, nativeSpeechTransport, registerSpeechCommands } from "./speech";
 import { CommandFailure } from "./feature-commands";
@@ -52,7 +52,6 @@ import { createBackgrounds, nativeBackgroundIpc } from "./backgrounds";
 import { registerBackgroundCommands } from "./background-commands";
 import { registerWebSearchCommands } from "./web-search";
 import { createClaudeCodeTransport } from "./assistant-transport";
-import { createLocalModelTransport, createRoutingTransport } from "./local-model-transport";
 import { isMarkdownPath } from "../editor/writing-viewport";
 import { DEFAULT_FONT_FAMILY, setEditorFontFamily } from "../editor/text-measure";
 
@@ -81,20 +80,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   blog_theme: "normal",
   show_indent_guides: true,
   show_whitespace: false,
-  ai_completion_enabled: false,
-  ai_provider: "ollama",
-  ai_api_key: "",
-  ai_model: "claude-haiku-5-5",
-  ai_local_model: "gemma3:4b",
-  ai_ollama_url: "http://localhost:11434",
-  ai_stop_on_newline: true,
-  ai_debounce_local_ms: 1500,
-  ai_debounce_cloud_ms: 500,
-  ai_min_prefix_chars: 3,
-  ai_cache_enabled: true,
-  ai_cache_size: 24,
-  ai_disabled_languages: [],
-  ai_token_budget_monthly: 0,
+  ai_provider: "claude",
 };
 
 const RECENT_FILES_KEY = "buster-recent-files";
@@ -236,8 +222,8 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
     }),
     focusSource: target => { actions.switchToTab(target.tabId); focusTabPanel(target.tabId); },
     closePanel: actions.handleTabClose,
-    generate: generateWriting,
     lookup: lookupSelection,
+    oneShot: aiOneShot,
   });
   registerWritingReviewCommands(commands, writing, navigator.platform.startsWith("Mac"));
   createEffect(() => {
@@ -317,7 +303,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   // Created after every catalog is registered; each conversation snapshots the tool list.
   const assistant = createAssistantWorkspace({
     commands,
-    transport: id => createRoutingTransport(createClaudeCodeTransport(id), createLocalModelTransport()),
+    transport: id => createClaudeCodeTransport(id),
     history: nativeChatHistory,
     storage: { get: key => localStorage.getItem(key), set: (key, value) => localStorage.setItem(key, value) },
   });

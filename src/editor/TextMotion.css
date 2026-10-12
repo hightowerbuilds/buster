@@ -46,7 +46,9 @@
 
 /* Actions sit in a 2 × 3 grid: two rows of three equal buttons. */
 .text-motion-menu { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: min(312px, calc(100% - 24px)); }
-.text-motion-menu button {
+
+/* Square Courier buttons, in the menu and inside panels. */
+.text-motion-button {
   font: 600 13px "Courier New", Courier, monospace;
   padding: 6px 10px; border-radius: 0; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -54,26 +56,79 @@
   background: color-mix(in srgb, var(--blog-bg) 88%, var(--blog-text));
   color: var(--blog-text);
 }
-.text-motion-menu button:hover:not(:disabled),
-.text-motion-menu button:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
-.text-motion-menu button:disabled { opacity: 0.45; cursor: default; }
+.text-motion-button:hover:not(:disabled),
+.text-motion-button:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.text-motion-button:disabled { opacity: 0.45; cursor: default; }
 
-.text-motion-definition {
+/* Panels: what an action opens in the grown opening. */
+.text-motion-panel {
   position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain;
   padding: var(--text-motion-pad); box-sizing: border-box;
   font: 400 13px/1.5 var(--font-ui); color: var(--blog-text); text-align: left;
 }
+.text-motion-panel p { margin: 0; }
+.text-motion-panel .source, .text-motion-panel .empty {
+  color: color-mix(in srgb, var(--blog-text) 55%, transparent); font-size: 11px; margin-top: 6px;
+}
+
 .text-motion-definition .headword { font-weight: 700; color: var(--accent); }
 .text-motion-definition .pronunciation { color: color-mix(in srgb, var(--blog-text) 60%, transparent); margin: 2px 0 4px; }
 .text-motion-definition .sense { margin: 0 0 4px; }
 .text-motion-definition .label { font-style: italic; color: color-mix(in srgb, var(--blog-text) 70%, transparent); }
-.text-motion-definition .source, .text-motion-definition .empty {
-  color: color-mix(in srgb, var(--blog-text) 55%, transparent); font-size: 11px; margin-top: 6px;
+
+/* Count: the word total large, the rest in a small grid. */
+.text-motion-count .count-words { font-size: 15px; margin-bottom: 8px; }
+.text-motion-count .count-words strong { font: 700 30px/1.1 "Courier New", Courier, monospace; color: var(--accent); }
+.text-motion-count .count-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin: 0; }
+.text-motion-count .count-figures > div { display: flex; justify-content: space-between; gap: 8px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--blog-text) 20%, transparent); }
+.text-motion-count dt { color: color-mix(in srgb, var(--blog-text) 60%, transparent); }
+.text-motion-count dd { margin: 0; font: 600 13px "Courier New", Courier, monospace; }
+
+.text-motion-count .count-uses { width: 100%; margin-top: 12px; border-collapse: collapse; }
+.text-motion-count .count-uses th, .text-motion-count .count-uses td { padding: 1px 0; font-weight: 400; text-align: left; }
+.text-motion-count .count-uses thead th { font: 600 11px "Courier New", Courier, monospace; text-transform: uppercase; letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--blog-text) 55%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--blog-text) 20%, transparent); }
+.text-motion-count .count-uses td { font: 600 13px "Courier New", Courier, monospace; width: 22%; }
+.text-motion-count .count-uses td:last-child { position: relative; width: 34%; }
+.text-motion-count .count-bar { position: absolute; left: 0; bottom: 3px; height: 3px; background: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* Search: one entry per note, its first matches with the phrase marked. */
+.text-motion-search .search-summary { color: color-mix(in srgb, var(--blog-text) 60%, transparent); margin-bottom: 6px; }
+.text-motion-search .search-notes { list-style: none; margin: 0; padding: 0; }
+.text-motion-search .search-note {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; margin: 0 0 6px; padding: 5px 6px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 0;
+  background: none; border: 1px solid transparent; border-left: 2px solid color-mix(in srgb, var(--blog-text) 18%, transparent);
 }
-.text-motion-stream > span { opacity: 0; animation: text-motion-arrive 260ms ease forwards; }
+.text-motion-search .search-note:hover, .text-motion-search .search-note:focus-visible { border-color: var(--accent); outline: none; }
+.text-motion-search .search-note-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-motion-search .search-note-count { font: 600 12px "Courier New", Courier, monospace; color: var(--accent); }
+.text-motion-search .search-match { grid-column: 1 / -1; color: color-mix(in srgb, var(--blog-text) 75%, transparent); font-size: 12px; }
+.text-motion-search mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; }
+
+/* Rephrase: consent, a working state, then three options to choose from. */
+.text-motion-rephrase .rephrase { display: flex; flex-direction: column; gap: 6px; min-height: 100%; }
+.text-motion-rephrase .rephrase-heading, .text-motion-rephrase .rephrase-note { color: color-mix(in srgb, var(--blog-text) 60%, transparent); }
+.text-motion-rephrase .rephrase-option {
+  display: block; width: 100%; padding: 6px 10px; text-align: left; cursor: pointer; border-radius: 0;
+  font: 400 13px/1.5 var(--font-ui); color: var(--blog-text); background: none;
+  border: 1px solid color-mix(in srgb, var(--blog-text) 18%, transparent);
+}
+.text-motion-rephrase .rephrase-option:hover:not(:disabled),
+.text-motion-rephrase .rephrase-option:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.text-motion-rephrase .rephrase-actions { display: flex; gap: 6px; }
+.text-motion-rephrase .source { margin-top: auto; }
+.text-motion-rephrase .dots span { animation: text-motion-dot 1.2s infinite; opacity: 0.2; }
+.text-motion-rephrase .dots span:nth-child(2) { animation-delay: 0.2s; }
+.text-motion-rephrase .dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes text-motion-dot { 50% { opacity: 1; } }
+
+.text-motion-stream > span, .text-motion-arrive { opacity: 0; animation: text-motion-arrive 260ms ease forwards; }
 
 @media (prefers-reduced-motion: reduce) {
-  .text-motion-letter.is-arriving, .text-motion-stream > span { animation: none; opacity: 1; }
+  .text-motion-letter.is-arriving, .text-motion-stream > span, .text-motion-arrive { animation: none; opacity: 1; }
+  .text-motion-rephrase .dots span { animation: none; opacity: 1; }
   .text-motion-opening { transform: none; transition: opacity 120ms ease; }
 }
 @media print {

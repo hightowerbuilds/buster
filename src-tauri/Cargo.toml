@@ -33,13 +33,12 @@ ignore = "0.4"
 # File watcher
 notify = "6"
 
-# AI Agent
-reqwest = { version = "0.12", features = ["json", "stream"] }
-futures-util = "0.3"
+# Web search
+reqwest = "0.12"
 
 dirs = "6"
 
-# URL parsing for local model and web search endpoints
+# URL parsing for web search endpoints
 url = "2"
 
 # Image support

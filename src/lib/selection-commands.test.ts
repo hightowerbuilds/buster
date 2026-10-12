@@ -46,6 +46,15 @@ describe("selection commands", () => {
     expect(f.engine.getText()).toBe("A café 世界 passage.");
     expect(f.engine.sel()).toEqual(f.target.range);
   });
+  it("replaces a captured selection as one undoable edit and rejects stale or empty text", async () => {
+    const f = fixture();
+    expect(await f.run("selection replace", { target: f.target, text: "   " })).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENTS" } });
+    expect(await f.run("selection replace", { target: f.target, text: "coffee world" })).toMatchObject({ ok: true, data: { tabId: "draft" } });
+    expect(f.engine.getText()).toBe("A coffee world passage.");
+    expect(await f.run("selection replace", { target: f.target, text: "again" })).toMatchObject({ ok: false, error: { code: "STALE_SELECTION" } });
+    f.engine.undo();
+    expect(f.engine.getText()).toBe("A café 世界 passage.");
+  });
   it("rejects edits or selection changes that occur while clipboard access is pending", async () => {
     for (const edit of [true, false]) {
       const f = fixture();

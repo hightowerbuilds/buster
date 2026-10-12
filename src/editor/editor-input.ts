@@ -5,14 +5,11 @@
  */
 
 import type { EditorEngine } from "./engine";
-import type { createGhostText } from "./editor-ghost-text";
 import { getAutoClosePairMap, getClosingPairSet } from "./language-registry";
 
-type GhostTextHandle = ReturnType<typeof createGhostText>;
 
 export interface InputDeps {
   engine: EditorEngine;
-  ghost: GhostTextHandle;
   languagePath: () => string | null;
   hiddenInput: () => HTMLTextAreaElement | undefined;
   isComposing: () => boolean;
@@ -21,7 +18,6 @@ export interface InputDeps {
 
 export interface TextInsertionDeps {
   engine: EditorEngine;
-  ghost: GhostTextHandle;
   languagePath: () => string | null;
   indentUnit: () => string;
 }
@@ -43,7 +39,7 @@ export function handleEditorInput(deps: InputDeps) {
 }
 
 export function insertEditorText(text: string, deps: TextInsertionDeps) {
-  const { engine, ghost } = deps;
+  const { engine } = deps;
 
   // Auto-close brackets and quotes
   const bracketPairs = getAutoClosePairMap(deps.languagePath());
@@ -70,7 +66,6 @@ export function insertEditorText(text: string, deps: TextInsertionDeps) {
     if (!isQuote || charAfter === "" || /[\s)\]},;]/.test(charAfter)) {
       engine.insert(text + closing);
       engine.moveCursor("left");
-      ghost.scheduleRequest();
       return;
     }
   }
@@ -97,12 +92,10 @@ export function insertEditorText(text: string, deps: TextInsertionDeps) {
         engine.deleteRange({ line: cur.line, col: 0 }, { line: cur.line, col: currentIndent.length });
         engine.setCursor({ line: cur.line, col: 0 });
         engine.insert(newIndent + text);
-        ghost.scheduleRequest();
-        return;
+          return;
       }
     }
   }
 
   engine.insert(text);
-  ghost.scheduleRequest();
 }

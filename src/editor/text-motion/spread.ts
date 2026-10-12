@@ -136,8 +136,11 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
   const blockBottom = toContentY(blockRect.bottom);
   const startCoords = view.coordsAtPos(options.from, 1);
   const endCoords = view.coordsAtPos(options.to, -1);
-  const targetTop = toContentY(startCoords.top);
-  const targetCenterX = (toContentX(startCoords.left) + toContentX(endCoords.right)) / 2;
+  // A selection can wrap onto later lines: the opening goes below its last line,
+  // centered in the column, and the motion ripples out from that line.
+  const multiLine = endCoords.top - startCoords.top > lineHeight / 2;
+  const targetTop = toContentY(endCoords.top);
+  const targetCenterX = multiLine ? columnLeft + columnWidth / 2 : (toContentX(startCoords.left) + toContentX(endCoords.right)) / 2;
 
   const layer = document.createElement("div");
   layer.className = "text-motion-layer";
@@ -199,11 +202,12 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
       word.x = Math.abs(exact - snapped) <= 1.5 ? exact : snapped;
     });
     const lastLine = measured.reduce((max, word) => Math.max(max, word.line), 0);
-    const targetLine = lineAt(toContentY(startCoords.top), toContentY(startCoords.bottom));
+    const startLine = lineAt(toContentY(startCoords.top), toContentY(startCoords.bottom));
+    const endLine = lineAt(toContentY(endCoords.top), toContentY(endCoords.bottom));
 
-    // ── Destinations: the remaining lines, parted around the opening ──
-    const firstMoving = measured.findIndex(word => word.line > targetLine);
-    const flowTop = lineTop(targetLine + 1);
+    // ── Destinations: the lines after the target, parted around the opening ──
+    const firstMoving = measured.findIndex(word => word.line > endLine);
+    const flowTop = lineTop(endLine + 1);
     const runs: FlowRun[] = [];
     const runWords: Measured[][] = [];
     if (firstMoving >= 0) {
@@ -266,7 +270,9 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
         const distance = Math.hypot(word.x - targetCenterX, originY - targetTop);
         const unit: Unit = { el, word, originY, x: spring(0, to ? to.x - word.x : 0), y: spring(0, to ? to.y - originY : 0),
           delay: Math.min(STAGGER_MAX_MS, distance * STAGGER_PX_MS) };
-        if (word.line === targetLine && word.x >= targetLeft && word.x < targetRight) {
+        const inTarget = word.line >= startLine && word.line <= endLine
+          && (word.line > startLine || word.x >= targetLeft) && (word.line < endLine || word.x < targetRight);
+        if (inTarget) {
           el.classList.add("is-target");
           targets.push(unit);
         }

@@ -85,66 +85,23 @@ pub struct AppSettings {
     pub show_indent_guides: bool,
     #[serde(default)]
     pub show_whitespace: bool,
-    // AI Completion
-    #[serde(default)]
-    pub ai_completion_enabled: bool,
-    #[serde(default = "default_ai_provider")]
+    /// The AI command-line tool for writing actions: "claude", "codex", or "opencode".
+    #[serde(default = "default_ai_provider", deserialize_with = "ai_provider_from")]
     pub ai_provider: String,
-    #[serde(default)]
-    pub ai_api_key: String,
-    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
-    pub ai_credential_error: Option<String>,
-    #[serde(default = "default_ai_model")]
-    pub ai_model: String,
-    #[serde(default = "default_ollama_model")]
-    pub ai_local_model: String,
-    #[serde(default = "default_ollama_url")]
-    pub ai_ollama_url: String,
-    #[serde(default = "default_true")]
-    pub ai_stop_on_newline: bool,
-    #[serde(default = "default_ai_debounce_local_ms")]
-    pub ai_debounce_local_ms: u32,
-    #[serde(default = "default_ai_debounce_cloud_ms")]
-    pub ai_debounce_cloud_ms: u32,
-    #[serde(default = "default_ai_min_prefix_chars")]
-    pub ai_min_prefix_chars: u32,
-    #[serde(default = "default_true")]
-    pub ai_cache_enabled: bool,
-    #[serde(default = "default_ai_cache_size")]
-    pub ai_cache_size: u32,
-    #[serde(default)]
-    pub ai_disabled_languages: Vec<String>,
-    /// Monthly token budget. 0 means unlimited.
-    #[serde(default = "default_ai_token_budget_monthly")]
-    pub ai_token_budget_monthly: u32,
 }
 
 fn default_ai_provider() -> String {
-    "ollama".to_string()
+    "claude".to_string()
 }
-fn default_ai_model() -> String {
-    "claude-haiku-5-5".to_string()
-}
-fn default_ollama_model() -> String {
-    "gemma3:4b".to_string()
-}
-fn default_ollama_url() -> String {
-    "http://localhost:11434".to_string()
-}
-fn default_ai_debounce_local_ms() -> u32 {
-    1500
-}
-fn default_ai_debounce_cloud_ms() -> u32 {
-    500
-}
-fn default_ai_min_prefix_chars() -> u32 {
-    3
-}
-fn default_ai_cache_size() -> u32 {
-    24
-}
-fn default_ai_token_budget_monthly() -> u32 {
-    0
+
+/// Earlier versions stored "ollama", "anthropic", or "openai"; map them to the subscription CLIs.
+fn ai_provider_from<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    Ok(match value.as_str() {
+        "claude" | "codex" | "opencode" => value,
+        "openai" => "codex".to_string(),
+        _ => "claude".to_string(),
+    })
 }
 
 fn default_theme_mode() -> String {
@@ -199,27 +156,12 @@ impl Default for AppSettings {
             blog_theme: "normal".to_string(),
             show_indent_guides: true,
             show_whitespace: false,
-            ai_completion_enabled: false,
-            ai_provider: "ollama".to_string(),
-            ai_api_key: String::new(),
-            ai_credential_error: None,
-            ai_model: "claude-haiku-5-5".to_string(),
-            ai_local_model: "gemma3:4b".to_string(),
-            ai_ollama_url: "http://localhost:11434".to_string(),
-            ai_stop_on_newline: true,
-            ai_debounce_local_ms: 1500,
-            ai_debounce_cloud_ms: 500,
-            ai_min_prefix_chars: 3,
-            ai_cache_enabled: true,
-            ai_cache_size: 24,
-            ai_disabled_languages: Vec::new(),
-            ai_token_budget_monthly: 0,
+            ai_provider: "claude".to_string(),
         }
     }
 }
 
 const MAX_RECENT_FOLDERS: usize = 5;
-const AI_KEYCHAIN_SERVICE: &str = "com.hightowerbuilds.buster.ai-completion";
 
 fn settings_path(app: &AppHandle) -> PathBuf {
     let dir = app
@@ -229,72 +171,13 @@ fn settings_path(app: &AppHandle) -> PathBuf {
     dir.join("settings.json")
 }
 
-#[cfg(target_os = "macos")]
-async fn save_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
-    if provider != "anthropic" && provider != "openai" {
-        return Ok(());
-    }
-    if api_key.trim().is_empty() {
-        return Ok(());
-    }
-    security_framework::passwords::set_generic_password(
-        AI_KEYCHAIN_SERVICE,
-        provider,
-        api_key.as_bytes(),
-    )
-    .map_err(|e| e.to_string())
-}
-
-#[cfg(target_os = "linux")]
-async fn save_ai_api_key(provider: &str, api_key: &str) -> Result<(), String> {
-    if !matches!(provider, "anthropic" | "openai") || api_key.trim().is_empty() { return Ok(()); }
-    crate::credentials::store(AI_KEYCHAIN_SERVICE, provider, api_key).await
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-async fn save_ai_api_key(_provider: &str, api_key: &str) -> Result<(), String> {
-    if api_key.is_empty() { Ok(()) } else { Err("Secure credential storage is unavailable on this platform".into()) }
-}
-
-#[cfg(target_os = "macos")]
-async fn load_ai_api_key(provider: &str) -> Result<String, String> {
-    if provider != "anthropic" && provider != "openai" {
-        return Ok(String::new());
-    }
-    match security_framework::passwords::get_generic_password(AI_KEYCHAIN_SERVICE, provider) {
-        Ok(bytes) => String::from_utf8(bytes).map_err(|_| "The saved AI key is invalid.".into()),
-        Err(error) if error.code() == -25300 => Ok(String::new()),
-        Err(_) => Err("Could not read the AI key from Keychain. Unlock your login keychain and retry.".into()),
-    }
-}
-
-#[cfg(target_os = "linux")]
-async fn load_ai_api_key(provider: &str) -> Result<String, String> {
-    if !matches!(provider, "anthropic" | "openai") { return Ok(String::new()); }
-    crate::credentials::lookup(AI_KEYCHAIN_SERVICE, provider).await
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-async fn load_ai_api_key(_provider: &str) -> Result<String, String> { Ok(String::new()) }
-
-#[command]
-pub async fn load_saved_ai_key(provider: String) -> Result<String, String> {
-    load_ai_api_key(&provider).await
-}
-
 #[command]
 pub async fn load_settings(app: AppHandle) -> AppSettings {
     let path = settings_path(&app);
     if path.exists() {
         match fs::read_to_string(&path) {
             Ok(content) => {
-                let mut settings: AppSettings = serde_json::from_str(&content).unwrap_or_default();
-                match load_ai_api_key(&settings.ai_provider).await {
-                    Ok(key) if !key.is_empty() => settings.ai_api_key = key,
-                    Err(error) => settings.ai_credential_error = Some(error),
-                    _ => {}
-                }
-                settings
+                serde_json::from_str(&content).unwrap_or_default()
             }
             Err(_) => AppSettings::default(),
         }
@@ -320,11 +203,7 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    save_ai_api_key(&settings.ai_provider, &settings.ai_api_key).await?;
-    let mut persisted = settings;
-    persisted.ai_api_key.clear();
-    persisted.ai_credential_error = None;
-    let json = serde_json::to_string_pretty(&persisted).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     crate::storage::write(&path, json.as_bytes(), false).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -442,70 +321,32 @@ mod tests {
         assert_eq!(decoded.font_size, 15);
     }
 
-    #[test]
-    fn settings_ai_completion_round_trip() {
-        let settings = AppSettings {
-            ai_completion_enabled: true,
-            ai_provider: "openai".to_string(),
-            ai_api_key: "sk-test".to_string(),
-            ai_model: "gpt-4o-mini".to_string(),
-            ai_local_model: "qwen2.5-coder:7b".to_string(),
-            ai_ollama_url: "http://127.0.0.1:11434".to_string(),
-            ai_stop_on_newline: false,
-            ai_debounce_local_ms: 1200,
-            ai_debounce_cloud_ms: 300,
-            ai_min_prefix_chars: 5,
-            ai_cache_enabled: false,
-            ai_cache_size: 8,
-            ai_disabled_languages: vec!["markdown".to_string(), "plaintext".to_string()],
-            ai_token_budget_monthly: 250_000,
-            ..AppSettings::default()
-        };
-
-        let json = serde_json::to_string(&settings).unwrap();
-        let decoded: AppSettings = serde_json::from_str(&json).unwrap();
-
-        assert!(decoded.ai_completion_enabled);
-        assert_eq!(decoded.ai_provider, "openai");
-        assert_eq!(decoded.ai_api_key, "sk-test");
-        assert_eq!(decoded.ai_model, "gpt-4o-mini");
-        assert_eq!(decoded.ai_local_model, "qwen2.5-coder:7b");
-        assert_eq!(decoded.ai_ollama_url, "http://127.0.0.1:11434");
-        assert!(!decoded.ai_stop_on_newline);
-        assert_eq!(decoded.ai_debounce_local_ms, 1200);
-        assert_eq!(decoded.ai_debounce_cloud_ms, 300);
-        assert_eq!(decoded.ai_min_prefix_chars, 5);
-        assert!(!decoded.ai_cache_enabled);
-        assert_eq!(decoded.ai_cache_size, 8);
-        assert_eq!(decoded.ai_disabled_languages, vec!["markdown", "plaintext"]);
-        assert_eq!(decoded.ai_token_budget_monthly, 250_000);
+    /// Full settings JSON with `fields` added or replaced, as an earlier version would have saved it.
+    fn saved_with(fields: serde_json::Value) -> AppSettings {
+        let mut json = serde_json::to_value(AppSettings::default()).unwrap();
+        json.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+        serde_json::from_value(json).unwrap()
     }
 
     #[test]
-    fn settings_missing_ai_completion_fields_use_defaults() {
-        let json = r#"{
-            "word_wrap": true,
-            "font_size": 14,
-            "tab_size": 4,
-            "minimap": false,
-            "line_numbers": true,
-            "cursor_blink": true
-        }"#;
+    fn settings_saved_with_the_removed_ai_fields_still_load() {
+        let settings = saved_with(serde_json::json!({"ai_completion_enabled": true, "ai_provider": "ollama", "ai_model": "claude-haiku-5-5",
+            "ai_local_model": "gemma3:4b", "ai_ollama_url": "http://localhost:11434", "ai_cache_size": 24}));
+        assert_eq!(settings.ai_provider, "claude");
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert!(!saved.contains("ollama") && !saved.contains("ai_model") && !saved.contains("ai_completion"));
+    }
 
-        let decoded: AppSettings = serde_json::from_str(json).unwrap();
-
-        assert!(!decoded.ai_completion_enabled);
-        assert_eq!(decoded.ai_provider, "ollama");
-        assert_eq!(decoded.ai_model, "claude-haiku-5-5");
-        assert_eq!(decoded.ai_local_model, "gemma3:4b");
-        assert_eq!(decoded.ai_ollama_url, "http://localhost:11434");
-        assert!(decoded.ai_stop_on_newline);
-        assert_eq!(decoded.ai_debounce_local_ms, 1500);
-        assert_eq!(decoded.ai_debounce_cloud_ms, 500);
-        assert_eq!(decoded.ai_min_prefix_chars, 3);
-        assert!(decoded.ai_cache_enabled);
-        assert_eq!(decoded.ai_cache_size, 24);
-        assert!(decoded.ai_disabled_languages.is_empty());
-        assert_eq!(decoded.ai_token_budget_monthly, 0);
+    #[test]
+    fn settings_ai_provider_maps_earlier_providers() {
+        let provider = |value: &str| saved_with(serde_json::json!({"ai_provider": value})).ai_provider;
+        assert_eq!(provider("codex"), "codex");
+        assert_eq!(provider("opencode"), "opencode");
+        assert_eq!(provider("openai"), "codex");
+        assert_eq!(provider("anthropic"), "claude");
+        assert_eq!(AppSettings::default().ai_provider, "claude");
+        let mut json = serde_json::to_value(AppSettings::default()).unwrap();
+        json.as_object_mut().unwrap().remove("ai_provider");
+        assert_eq!(serde_json::from_value::<AppSettings>(json).unwrap().ai_provider, "claude");
     }
 }

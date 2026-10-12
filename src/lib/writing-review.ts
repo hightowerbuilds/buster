@@ -3,9 +3,9 @@ import type { EditorEngine } from "../editor/engine";
 import { orderPositions } from "../editor/engine";
 import { captureSelection, snapshotSchema, type SelectionTarget } from "./selection-commands";
 import { CommandFailure, type FeatureCommands, type CommandSchema } from "./feature-commands";
+import { REPHRASE_INSTRUCTION, REPHRASE_LADDERS, REPHRASE_MAX_CHARS, REPHRASE_SCHEMA, rephrasingsFrom } from "./rephrase";
+import { AI_PROVIDERS, isAiProvider, type AiProvider, type OneShotReply, type OneShotRequest } from "./ai-oneshot";
 
-export type WritingProvider = "ollama" | "anthropic" | "openai";
-export interface WritingRequest { requestId: string; provider: WritingProvider; model: string; instruction: string; text: string }
 export interface WritingReview {
   id: string; tabId: string; kind: "lookup" | "ai"; target: SelectionTarget;
   status: "ready" | "running" | "completed" | "failed" | "canceled" | "applied";
@@ -18,8 +18,9 @@ export interface WritingReviewDeps {
   createNote: (text: string, reviewTabId: string) => string;
   focusSource: (target: SelectionTarget) => void;
   closePanel: (tabId: string) => void;
-  generate: (request: WritingRequest, onToken: (text: string) => void, signal: AbortSignal) => Promise<void>;
   lookup: (text: string) => Promise<{ definition: string | null; source: string }>;
+  /** One answer from the writer's AI CLI (Claude Code, Codex, or OpenCode) on their subscription. */
+  oneShot: (request: OneShotRequest, signal: AbortSignal) => Promise<OneShotReply>;
 }
 const fail = (code: string, message: string): never => { throw new CommandFailure(code, message); };
 export function createWritingReview(deps: WritingReviewDeps) {
@@ -56,6 +57,51 @@ export function createWritingReview(deps: WritingReviewDeps) {
     const result = await deps.lookup(target.text);
     return { query: target.text.trim(), definition: result.definition, source: result.source };
   }
+  interface Rephrasing {
+    status: "running" | "ready" | "failed" | "canceled";
+    provider: AiProvider; rung: number; label: string; servedBy?: string; options?: string[]; error?: { code: string; message: string };
+    controller: AbortController;
+  }
+  const rephrasings = new Map<string, Rephrasing>();
+  /**
+   * Ask the writer's AI CLI, on their subscription, for three rephrasings of a
+   * captured passage without opening a tab. Sends only the passage. Returns at
+   * once — the command queue must not wait on a model — and runs in the
+   * background; `readRephrase` reports the result. A reply with nothing usable
+   * fails with UNUSABLE, so the caller can try the next rung of the ladder.
+   */
+  function rephrase(target: SelectionTarget, provider: AiProvider, rung: number, requestId: string) {
+    validateTarget(target, "ai");
+    if (!target.text.trim() || target.text.length > REPHRASE_MAX_CHARS)
+      fail("INVALID_ARGUMENTS", `Rephrase works on up to ${REPHRASE_MAX_CHARS.toLocaleString()} characters of text.`);
+    if (!isAiProvider(provider)) fail("INVALID_ARGUMENTS", "Rephrase runs on Claude, Codex, or OpenCode.");
+    const step = REPHRASE_LADDERS[provider][rung] ?? fail("INVALID_ARGUMENTS", `That provider has ${REPHRASE_LADDERS[provider].length} step(s).`);
+    if (rephrasings.has(requestId)) fail("BUSY", "That rephrase was already started.");
+    // Keep a handful of finished results for late readers; drop the oldest.
+    for (const [id, item] of rephrasings) if (rephrasings.size >= 16 && item.status !== "running") rephrasings.delete(id);
+    const item: Rephrasing = { status: "running", provider, rung, label: step.label, controller: new AbortController() };
+    rephrasings.set(requestId, item);
+    const settle = (update: Partial<Rephrasing>) => { if (item.status === "running") Object.assign(item, update); };
+    void deps.oneShot({ requestId, provider, model: step.model, effort: step.effort, system: REPHRASE_INSTRUCTION, text: target.text, schema: REPHRASE_SCHEMA }, item.controller.signal)
+      .then(reply => {
+        try { settle({ status: "ready", options: rephrasingsFrom(reply.output, target.text), servedBy: reply.model ?? step.model ?? step.label }); }
+        catch (error) { settle({ status: "failed", error: { code: "UNUSABLE", message: error instanceof Error ? error.message : String(error) } }); }
+      })
+      .catch(error => settle({ status: "failed", error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : String(error) } }));
+    return { requestId, status: item.status, label: step.label };
+  }
+  function readRephrase(requestId: string) {
+    const item = rephrasings.get(requestId) ?? fail("NOT_FOUND", "No rephrase with that ID is running or recent.");
+    const { controller: _controller, ...state } = item;
+    return { requestId, ...state };
+  }
+  function cancelRephrase(requestId: string) {
+    const item = rephrasings.get(requestId);
+    if (!item || item.status !== "running") return { canceled: false };
+    item.status = "canceled";
+    item.controller.abort();
+    return { canceled: true };
+  }
   function start(target: SelectionTarget, kind: "lookup" | "ai") {
     validateTarget(target, kind);
     const id = crypto.randomUUID();
@@ -74,26 +120,24 @@ export function createWritingReview(deps: WritingReviewDeps) {
     }
     return { reviewId: id, tabId: reviews[id].tabId };
   }
-  function generate(id: string, provider: WritingProvider, model: string, instruction: string) {
+  /** Send the captured passage and instruction to the writer's AI CLI on their subscription. Returns at once. */
+  function generate(id: string, provider: AiProvider, instruction: string) {
     const review = requireReview(id);
     if (review.kind !== "ai") fail("INVALID_ARGUMENTS", "This is a dictionary lookup.");
     if (review.status === "running") fail("BUSY", "Cancel the current request before starting another.");
     if (review.status === "applied") fail("UNAVAILABLE", "This result has already been used. Open a new review for another edit.");
     sourceEngine(review.target);
-    if (!model.trim() || !instruction.trim()) fail("INVALID_ARGUMENTS", "Choose a model and enter an instruction.");
+    if (!isAiProvider(provider)) fail("INVALID_ARGUMENTS", "AI review runs on Claude, Codex, or OpenCode.");
+    if (!instruction.trim()) fail("INVALID_ARGUMENTS", "Enter an instruction.");
     if (new TextEncoder().encode(instruction).length > 4096) fail("LIMIT_REACHED", "Keep the instruction within 4 KiB.");
     const controller = new AbortController(); pending.set(id, controller);
-    setReviews(id, { status: "running", output: "", error: "", provider, model: model.trim(), instruction });
-    void deps.generate({ requestId: crypto.randomUUID(), provider, model: model.trim(), instruction, text: review.target.text }, token => {
+    setReviews(id, { status: "running", output: "", error: "", provider, model: "", instruction });
+    void deps.oneShot({ requestId: crypto.randomUUID(), provider, system: instruction, text: review.target.text }, controller.signal).then(reply => {
       if (pending.get(id) !== controller || controller.signal.aborted) return;
-      if (reviews[id].output.length + token.length > 65_536) {
-        controller.abort(); pending.delete(id);
-        setReviews(id, { status: "failed", error: "The response exceeded the output limit. Try a shorter instruction." }); return;
-      }
-      setReviews(id, "output", text => text + token);
-    }, controller.signal).then(() => {
-      if (pending.get(id) !== controller || controller.signal.aborted) return;
-      setReviews(id, { status: reviews[id].output.trim() ? "completed" : "failed", error: reviews[id].output.trim() ? "" : "The model returned no text." });
+      const text = typeof reply.output === "string" ? reply.output.trim() : JSON.stringify(reply.output);
+      if (text.length > 65_536) setReviews(id, { status: "failed", error: "The response exceeded the output limit. Try a shorter instruction." });
+      else if (!text) setReviews(id, { status: "failed", error: "The model returned no text." });
+      else setReviews(id, { status: "completed", output: text, error: "", model: reply.model ?? "" });
     }).catch(error => {
       if (pending.get(id) === controller && !controller.signal.aborted) setReviews(id, { status: "failed", error: String(error instanceof Error ? error.message : error) });
     }).finally(() => { if (pending.get(id) === controller) pending.delete(id); });
@@ -152,8 +196,12 @@ export function createWritingReview(deps: WritingReviewDeps) {
     cancel(id); deps.closePanel(tabId); setReviews(id, undefined!);
     return { reviewId: id, discarded: true };
   }
-  function dispose() { for (const controller of pending.values()) controller.abort(); pending.clear(); }
-  return { reviews, start, define, generate, cancel, apply, returnToSource, stale, reconcile, discard, dispose };
+  function dispose() {
+    for (const controller of pending.values()) controller.abort();
+    for (const item of rephrasings.values()) item.controller.abort();
+    pending.clear(); rephrasings.clear();
+  }
+  return { reviews, start, define, rephrase, readRephrase, cancelRephrase, generate, cancel, apply, returnToSource, stale, reconcile, discard, dispose };
 }
 export type WritingReviewService = ReturnType<typeof createWritingReview>;
 
@@ -167,10 +215,16 @@ export function registerWritingReviewCommands(service: FeatureCommands, review: 
     service.register({ name, description: dictionaryCommands.has(name) && !dictionaryAvailable ? "Unavailable on Linux: offline dictionary lookup is deferred from this release." : description, inputSchema, outputSchema: result, run, effect, version: 1, examples: [name], available: () => !dictionaryCommands.has(name) || dictionaryAvailable });
   add("selection lookup", "Look up a captured word or phrase in local macOS dictionaries in a review tab.", snapshotSchema, target => review.start(target, "lookup"));
   add("selection define", "Look up a captured word or phrase in local macOS dictionaries and return the definition without opening a tab. Text never leaves the machine.", snapshotSchema, target => review.define(target), "read");
+  add("selection rephrase", "Start asking the writer's AI CLI (claude, codex, or opencode, on their subscription) for three rephrasings of a captured passage (up to 4,000 characters). Sends only the passage. Returns at once; poll selection rephrase read. Start at rung 0 (Claude Haiku 5.5, or Codex at low effort); on UNUSABLE, or when the writer wants stronger options, start again one rung up (Claude Sonnet 5.5 then Opus 5.5; Codex medium then high effort; OpenCode has one rung). Apply a chosen option with selection replace.",
+    obj({ target: snapshotSchema, provider: { type: "string", enum: AI_PROVIDERS.map(entry => entry.id) }, rung: { type: "number" }, requestId: string }),
+    args => review.rephrase(args.target, args.provider, args.rung, args.requestId), "read");
+  add("selection rephrase read", "Read a rephrase request: status running, ready (with options and the model that served them), failed (with error code UNUSABLE or UNAVAILABLE), or canceled.",
+    obj({ requestId: string }), args => review.readRephrase(args.requestId), "read");
+  add("selection rephrase cancel", "Stop a running rephrase request. The note is unchanged.", obj({ requestId: string }), args => review.cancelRephrase(args.requestId), "read");
   add("selection ai", "Open an AI review tab for a captured selection. Does not send text until review generate is invoked.", snapshotSchema, target => review.start(target, "ai"));
-  add("review generate", "Send only the captured passage and instruction to the explicitly chosen configured provider/model. Returns immediately; inspect review read for progress.",
-    obj({ reviewId: string, provider: { type: "string", enum: ["ollama", "anthropic", "openai"] }, model: string, instruction: string }),
-    args => review.generate(args.reviewId, args.provider, args.model, args.instruction));
+  add("review generate", "Send only the captured passage and instruction to the writer's AI CLI (claude, codex, or opencode) on their subscription, using its default model. Returns immediately; inspect review read for progress.",
+    obj({ reviewId: string, provider: { type: "string", enum: AI_PROVIDERS.map(entry => entry.id) }, instruction: string }),
+    args => review.generate(args.reviewId, args.provider, args.instruction));
   add("review read", "Read a review's source, status, streamed result, errors, and whether its source is stale.", id, args => {
     const item = review.reviews[args.reviewId];
     if (!item) fail("NOT_FOUND", "This review is no longer open.");
