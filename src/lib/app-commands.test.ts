@@ -35,7 +35,7 @@ function makeDeps(overrides: Partial<CommandDeps> = {}): CommandDeps {
     setSidebarVisible: vi.fn(),
     findVisible: () => false,
     paletteVisible: () => false,
-    settings: () => ({ word_wrap: true, font_size: 14, font_family: "JetBrains Mono, Menlo, Monaco, Consolas, monospace", tab_size: 4, use_spaces: true, line_numbers: true, cursor_blink: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, syntax_colors: {}, auto_save: false, auto_save_delay_ms: 1500, language_settings: {}, blog_theme: "normal", show_indent_guides: true, show_whitespace: false, terminal_font_family: "", terminal_shell: "", terminal_bell_mode: "visual", terminal_scrollback_rows: 10_000, ai_provider: "claude" }),
+    settings: () => ({ word_wrap: true, font_size: 14, font_family: "JetBrains Mono, Menlo, Monaco, Consolas, monospace", tab_size: 4, use_spaces: true, line_numbers: true, cursor_blink: true, ui_zoom: 100, recent_folders: [], theme_mode: "dark", theme_hue: -1, effect_cursor_glow: 0, effect_vignette: 0, effect_grain: 0, syntax_colors: {}, auto_save: false, auto_save_delay_ms: 1500, language_settings: {}, blog_theme: "normal", show_indent_guides: true, show_whitespace: false, terminal_font_family: "", terminal_shell: "", terminal_bell_mode: "visual", terminal_scrollback_rows: 10_000, ai_provider: "claude", spread_motion: "calm" }),
     updateSettings: vi.fn(),
     tabTrapping: () => true,
     setTabTrapping: vi.fn(),

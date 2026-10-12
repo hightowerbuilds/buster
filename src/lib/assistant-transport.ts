@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AssistantTool } from "./assistant-tools";
+import type { AiProvider } from "./ai-oneshot";
 
-/** Claude Code installation and sign-in, as reported by `claude auth status`. */
+/** The CLI's installation and sign-in (for Claude Code, as reported by `claude auth status`). */
 export interface CliStatus {
   installed: boolean;
   loggedIn: boolean;
@@ -18,8 +19,10 @@ export interface SendRequest {
   effort?: string;
   system: string;
   tools: AssistantTool[];
-  /** Claude Code session to continue when a new process has to be started. */
+  /** Session to continue when a new process has to be started (every message, for Codex and OpenCode). */
   resume?: string;
+  /** The CLI that answers: Claude Code (default), Codex, or OpenCode. */
+  provider?: AiProvider;
 }
 
 export type SessionEvent =
@@ -36,7 +39,7 @@ export type SessionEvent =
 export interface ToolCall { callId: string; name: string; input: Record<string, unknown> | null; toolUseId?: string | null }
 
 export interface AssistantTransport {
-  status(): Promise<CliStatus>;
+  status(provider?: AiProvider): Promise<CliStatus>;
   send(request: SendRequest): Promise<void>;
   interrupt(): Promise<void>;
   reset(): Promise<void>;
@@ -48,7 +51,7 @@ export const createClaudeCodeTransport = (conversationId = "default"): Assistant
   let channelId = crypto.randomUUID();
   const reset = () => { channelId = crypto.randomUUID(); return invoke<void>("assistant_reset", { conversationId }); };
   return {
-  status: () => invoke<CliStatus>("assistant_status"),
+  status: provider => invoke<CliStatus>("assistant_status", { provider }),
   send: request => invoke("assistant_send", { request: { ...request, conversationId, channelId } }),
   interrupt: () => invoke("assistant_interrupt", { conversationId }),
   reset,

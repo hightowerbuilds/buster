@@ -106,33 +106,29 @@
 }
 
 /* Courier: text drawn in ASCII characters (src/editor/ascii-art.ts). Each
-   paragraph opens on a large first letter, and Heading 1 and 2 are drawn over.
-   The real text stays, transparent, for the caret, selection, and Markdown. */
-.block-editor[data-writing-style="courier"] .block-prose > p,
+   paragraph opens on a large ASCII first letter, and Heading 1 and 2 are drawn
+   over. The real text stays for the caret, selection, and Markdown. Never style
+   ::first-letter here: WebKit then garbles typing at the end of a first line. */
 .block-editor[data-writing-style="courier"] .block-prose > h1,
-.block-editor[data-writing-style="courier"] .block-prose > h2 { position: relative; }
-.block-editor[data-writing-style="courier"] .block-prose > p::first-letter {
-  float: left;
-  /* About three lines of text tall. */
-  font-size: 4.8em;
-  line-height: 1;
-  font-weight: 700;
-  margin: 0.06em 0.2em 0 0;
-  color: transparent;
-}
-.block-editor[data-writing-style="courier"] .block-prose > h1,
-.block-editor[data-writing-style="courier"] .block-prose > h2 { color: transparent; }
+.block-editor[data-writing-style="courier"] .block-prose > h2 { position: relative; color: transparent; }
 .ascii-art {
-  position: absolute; pointer-events: none; user-select: none;
+  pointer-events: none; user-select: none;
   color: var(--blog-text);
 }
+.ascii-heading { position: absolute; }
+/* The drop cap floats at the start of its paragraph, about three lines tall
+   (src/editor/ascii-art.ts sets its size); the real letter is kept but hidden. */
+.ascii-cap { float: left; position: relative; margin: 0.29em 0.96em 0 0; }
+/* A short paragraph's cap is taller than its text: the next block starts below it. */
+.block-editor[data-writing-style="courier"] .block-prose > * { clear: left; }
+.drop-cap-letter { color: transparent; font-size: 0.01em; }
 .ascii-art canvas { display: block; width: 100%; height: 100%; }
 @media print {
   /* Print the real text; the drawing is for the screen. */
   .ascii-art { display: none; }
-  .block-editor[data-writing-style="courier"] .block-prose > p::first-letter,
   .block-editor[data-writing-style="courier"] .block-prose > h1,
   .block-editor[data-writing-style="courier"] .block-prose > h2 { color: inherit; }
+  .drop-cap-letter { color: inherit; font-size: inherit; }
 }
 
 /* ── Links ────────────────────────────────────────────────── */

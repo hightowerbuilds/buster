@@ -89,6 +89,18 @@ pub struct AppSettings {
     /// The AI command-line tool for writing actions: "claude", "codex", or "opencode".
     #[serde(default = "default_ai_provider", deserialize_with = "ai_provider_from")]
     pub ai_provider: String,
+    /// How text moves when the Spread menu opens: "off", "calm", or "wild".
+    #[serde(default = "default_spread_motion", deserialize_with = "spread_motion_from")]
+    pub spread_motion: String,
+}
+
+fn default_spread_motion() -> String {
+    "calm".to_string()
+}
+
+fn spread_motion_from<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    Ok(if matches!(value.as_str(), "off" | "calm" | "wild") { value } else { default_spread_motion() })
 }
 
 fn default_ai_provider() -> String {
@@ -164,6 +176,7 @@ impl Default for AppSettings {
             show_indent_guides: true,
             show_whitespace: false,
             ai_provider: "claude".to_string(),
+            spread_motion: default_spread_motion(),
         }
     }
 }
@@ -350,6 +363,9 @@ mod tests {
         assert_eq!(style("courier"), "courier");
         for retired in ["normal", "newspaper", "technical", "business", "none"] { assert_eq!(style(retired), "none"); }
         assert_eq!(AppSettings::default().blog_theme, "none");
+        let motion = |value: &str| saved_with(serde_json::json!({"spread_motion": value})).spread_motion;
+        assert_eq!([motion("off"), motion("wild"), motion("bouncy")], ["off", "wild", "calm"]);
+        assert_eq!(AppSettings::default().spread_motion, "calm");
     }
 
     #[test]

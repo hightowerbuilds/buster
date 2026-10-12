@@ -2,8 +2,8 @@
 
 Status: **IN PROGRESS.** The feasibility spike (§1), Define (§4), and the phrase spread (§4b) are
 complete. A word opens Copy · Paste · Define over Bold · Italic · Spelling; a phrase opens Copy ·
-Bold · Italic over Search · Count · Rephrase, all in square Courier buttons. Spelling & Grammar is
-next (§5).
+Bold · Italic over Search · Count · Rephrase, all in square Courier buttons. Spelling & Grammar (§5)
+and the motion engine's polish (§2, §6) are complete; only the canvas editor remains optional.
 
 BusterMark replaces modal chrome with motion in the text itself. When the writer
 asks something of a word, the surrounding prose moves aside, opens a space, and
@@ -139,15 +139,22 @@ and act as a sanity check (fall back to them beyond 1.5px disagreement).
 - [x] **COMPLETED** — `src/editor/text-motion/spread.ts`: origins, ghost
   decoration, spacer widget (margin-collapse compensated so later blocks slide
   without a jump), staggered springs with velocity tilt, exact return.
-- [ ] Extend beyond the target paragraph: let neighbouring visible paragraphs
-  part as well, limited to the viewport plus a margin.
+- [x] **COMPLETED** (2026-10-12) — Neighbouring paragraphs part too: up to four
+  paragraphs below the target, in the same column and on screen, are ghosted and
+  drawn in the layer. One the opening reaches flows around it; the rest shift
+  down rigidly, and the spacer sits after the last. A Courier neighbour's ASCII
+  cap moves with its words (46.2px each, in the smoke test).
 - [x] **COMPLETED** — Rigid fallback: headings, letter-spaced or justified
   paragraphs, and paragraphs with inline images or hard breaks open the space
   below the block; later blocks slide down.
-- [ ] Interruptible retarget, so a resize or a Define expansion mid-flight
-  retargets smoothly instead of restarting.
-- [ ] After an edit (Paste, Bold), close onto freshly measured origins instead
-  of the current crossfade.
+- [x] **COMPLETED** (2026-10-12) — Resizing the column re-measures the scene and
+  retargets every word, the opening, and flown letters mid-flight; the spread
+  stays open (a ResizeObserver on the note replaces closing on window resize).
+- [x] **COMPLETED** (2026-10-12) — After an edit (Paste, Bold, a suggestion, the
+  assistant) the words land on the edited text: the paragraphs stay ghosted in
+  the new document, are measured once it renders, and each surviving word
+  springs to its new place; changed words fade out and new ones fade in. Bold on
+  "lantern": 165 words kept, 1 new, 1 gone.
 
 ## 3 — Spread menu entry
 
@@ -166,7 +173,10 @@ and act as a sanity check (fall back to them beyond 1.5px disagreement).
   the note, so scrolling keeps it open.
 - [x] **COMPLETED** — Reduced motion (`prefers-reduced-motion` or the writing
   style's motion off) places everything at once with no traveling words.
-- [ ] Verify keyboard entry and screen-reader announcements in the native app.
+- [x] **COMPLETED** (2026-10-12) — Verified in the native app: Shift+F10 opens a
+  labelled menu with focus on the first action, the moving words are hidden from
+  assistive technology, arrows move between actions, and Escape returns focus to
+  the note. (Checked through the accessibility tree, not with VoiceOver running.)
 
 ## 4 — Define — **COMPLETED** (2026-10-11)
 
@@ -197,9 +207,13 @@ build).
   etymology and phrase sections left out.
 - [x] **COMPLETED** — No entry: the opening says so in place and points to the
   macOS Dictionary app.
-- [ ] Phrases and words split across formatting runs show the headword as text
-  instead of flying letters; consider grapheme flight across runs.
-- [ ] "Keep as note" for a definition, consistent with writing review (decide).
+- [x] **COMPLETED** (2026-10-12) — A word split across break segments or
+  formatting runs flies letter by letter from every part; each letter takes the
+  headword's font as it gathers. Verified natively on "well-known" (two pieces,
+  all ten letters fly; the hyphen fades into the headword's space).
+- [x] **COMPLETED** (2026-10-12) — Keep as note: the definition becomes a new note
+  in the Notes folder, "lantern (definition).md", with headword, pronunciation,
+  senses, and source.
 
 ## 4b — Phrase spread — **COMPLETED** (2026-10-11)
 
@@ -249,31 +263,37 @@ writer's own notes every one of 167 paragraph right-clicks now parts the text
 test adds a dashed paragraph: every line parts, 0px return drift, and a
 glyph-by-glyph first frame within 1px (72/72 checks).
 
-## 5 — Spelling & Grammar
+## 5 — Spelling & Grammar — **COMPLETED** (2026-10-12)
 
-- [ ] Use the Language Model only (decided 2026-10-11). Send the target word and
-  its sentence through the one-shot CLI runner Rephrase uses (`ai_cli.rs`), and ask for structured
-  output: whether it is misspelled, ranked suggestions, and grammar issues with
-  ranges and short explanations. Validate the response; never apply model text
-  unchecked.
-- [ ] Before the first request, make clear which text is sent and to which
-  provider (Claude Code, Codex, or OpenCode), reusing Rephrase's once-per-session
-  consent. Show a clear state when no CLI is installed or signed in.
-- [ ] Catalog commands `selection spelling` (read) and a revision-checked
-  replacement (write), so the assistant sidebar can use them too.
-- [ ] Spread view: the flagged word, suggestions as buttons, grammar
-  explanation. Applying a suggestion replaces the range as one undoable edit and
-  settles the corrected word into the line.
-- [ ] WebKit's native red underlines stay as the passive indicator; the Spread
-  view is the active check.
+- [x] **COMPLETED** — The Language Model only. `src/lib/spelling.ts` sends the
+  word's sentence with the word marked (`⟦stor⟧`), cut to 600 characters around
+  it, through the one-shot runner Rephrase uses, and asks for structured output:
+  misspelled or not, up to five spellings the writer may have meant (never
+  synonyms), and up to three grammar issues. Replies are validated: suggestions
+  must be short, and every grammar excerpt must be quoted exactly from the note.
+  Claude Haiku 5.5 answers in about 3s; Codex in about 7s.
+- [x] **COMPLETED** — The first request says which text goes to which provider,
+  sharing Rephrase's once-per-session consent; the ladder escalates the same way.
+- [x] **COMPLETED** — Catalog commands `selection spelling`, `… read`, `… cancel`;
+  fixes apply through `selection set` + `selection replace`, revision-checked.
+- [x] **COMPLETED** — Spread view: the flagged word, corrections as buttons, each
+  grammar issue with its fix and a one-line reason. Applying replaces the range
+  as one undoable edit and the corrected word settles into the line.
+- [x] **COMPLETED** — WebKit's red underlines stay the passive indicator.
 
 ## 6 — Polish and reach
 
-- [ ] Tune the motion: wave speed, overshoot, glyph scatter for Define. Add an
-  intensity setting (off, calm, wild) under Appearances.
-- [ ] Interplay with shader backgrounds, focus dimming, split view (two panes),
-  and printing (the motion layer must never print).
-- [ ] Long notes: only the viewport participates. Off-screen text never moves.
+- [x] **COMPLETED** (2026-10-12) — Settings › Writing › Spread Motion: Off, Calm
+  (the tuning so far), or Wild (more overshoot and tilt, a slower, wider wave,
+  and letters that scatter farther before spelling the headword). macOS reduced
+  motion always means Off.
+- [x] **COMPLETED** (2026-10-12) — Printing closes the spread first, and the ghost
+  rule applies on screen only. Split view gives each pane its own spread. The
+  layer sits above shader backgrounds like the text. Focus dimming exists only in
+  the canvas editor, so it doesn't meet the spread.
+- [x] **COMPLETED** (2026-10-12) — Long notes: words that start and end outside the
+  visible part of the note jump straight to their places, and neighbouring
+  paragraphs join only when on screen.
 - [ ] Optional later: bring the Spread menu to the canvas plain-text editor.
 
 ## Decisions (2026-10-11)
@@ -283,6 +303,8 @@ glyph-by-glyph first frame within 1px (72/72 checks).
    wider. The writer's text is never scrambled.
 2. **Spelling & Grammar source:** the Language Model only, through the writer's
    subscription CLI (Claude Code, Codex, or OpenCode). There is no native checker.
+4. **Definitions kept as notes** (2026-10-12): Keep as note saves a new note in the
+   Notes folder rather than a review tab.
 3. **Scope:** Markdown notes (ProseMirror) first; plain-text canvas files later.
 
 ## Open questions

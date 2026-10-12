@@ -18,7 +18,7 @@ import { focusTabPanel } from "./focus-service";
 import { registerSelectionCommands } from "./selection-commands";
 import { clipboardWrite } from "./clipboard";
 import { createWritingReview, registerWritingReviewCommands } from "./writing-review";
-import { aiOneShot } from "./ai-oneshot";
+import { aiOneShot, isAiProvider } from "./ai-oneshot";
 import { lookupSelection } from "./selection-lookup";
 import { createSpeech, nativeSpeechTransport, registerSpeechCommands } from "./speech";
 import { CommandFailure } from "./feature-commands";
@@ -81,6 +81,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   show_indent_guides: true,
   show_whitespace: false,
   ai_provider: "claude",
+  spread_motion: "calm",
 };
 
 const RECENT_FILES_KEY = "buster-recent-files";
@@ -304,6 +305,7 @@ const BusterProvider: Component<{ children: JSX.Element }> = (props) => {
   const assistant = createAssistantWorkspace({
     commands,
     transport: id => createClaudeCodeTransport(id),
+    defaultProvider: () => isAiProvider(store.settings.ai_provider) ? store.settings.ai_provider : "claude",
     history: nativeChatHistory,
     storage: { get: key => localStorage.getItem(key), set: (key, value) => localStorage.setItem(key, value) },
   });

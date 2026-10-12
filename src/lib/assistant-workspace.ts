@@ -1,9 +1,12 @@
 import { batch, createEffect, createRoot, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { createAssistant, type AssistantDeps, type AssistantService, type AssistantState } from "./assistant";
+import type { AiProvider } from "./ai-oneshot";
 import { readChatArchive, chatPreview, type ChatHistoryStorage, type SavedChat, type ChatArchive } from "./chat-history";
 
-interface WorkspaceDeps extends Omit<AssistantDeps, "transport" | "initial" | "id"> {
+interface WorkspaceDeps extends Omit<AssistantDeps, "transport" | "initial" | "id" | "defaultProvider"> {
+  /** The provider for a new chat when there is no chat to take it from (Settings › AI). */
+  defaultProvider?: () => AiProvider;
   transport(id: string): AssistantDeps["transport"];
   history: ChatHistoryStorage;
 }
@@ -11,9 +14,9 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 
 /** Conversation library. Each chat owns its transcript, model process, and approvals. */
 export function createAssistantWorkspace(deps: WorkspaceDeps) {
-  const seed = (model = "", effort: SavedChat["effort"] = "high"): SavedChat => ({
+  const seed = (model = "", effort: SavedChat["effort"] = "high", provider: AiProvider = deps.defaultProvider?.() ?? "claude"): SavedChat => ({
     id: crypto.randomUUID(), title: "New chat", titleEdited: false, createdAt: Date.now(), updatedAt: Date.now(),
-    model, effort, draft: "", entries: [], usage: { input: 0, output: 0, cacheRead: 0 },
+    provider, model, effort, draft: "", entries: [], usage: { input: 0, output: 0, cacheRead: 0 },
     sessionId: null, lastTurnMs: null, inFlight: false,
   });
   const initial = seed();
@@ -68,6 +71,7 @@ export function createAssistantWorkspace(deps: WorkspaceDeps) {
   const active = () => coreFor(meta.activeId);
   const summaries = () => records.map(chat => ({ id: chat.id, title: chat.title, updatedAt: chat.updatedAt,
     model: controllers.get(chat.id)?.core.state.model ?? chat.model,
+    provider: controllers.get(chat.id)?.core.state.provider ?? chat.provider,
     preview: chatPreview(controllers.get(chat.id)?.core.state.entries ?? chat.entries),
     running: controllers.get(chat.id)?.core.state.running ?? false,
   })).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -130,7 +134,7 @@ export function createAssistantWorkspace(deps: WorkspaceDeps) {
   async function newChat() {
     if (!meta.ready || meta.switching) return;
     const current = active();
-    const chat = seed(current.state.model, current.state.effort);
+    const chat = seed(current.state.model, current.state.effort, current.state.provider);
     setRecords(records.length, chat);
     await switchChat(chat.id);
   }
@@ -180,6 +184,7 @@ export function createAssistantWorkspace(deps: WorkspaceDeps) {
     setDraft: (text: string) => { if (meta.ready) active().setDraft(text); },
     setModel: (model: string) => { if (meta.ready) active().setModel(model); },
     setEffort: (effort: SavedChat["effort"]) => { if (meta.ready) active().setEffort(effort); },
+    setProvider: (provider: AiProvider) => { if (meta.ready) active().setProvider(provider); },
     setOpen: (open: boolean) => active().setOpen(open), setWidth: (width: number) => active().setWidth(width),
     refreshStatus: () => active().refreshStatus(), sessionId: () => active().sessionId(),
   };

@@ -25,12 +25,19 @@
 @keyframes text-motion-arrive { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: none; } }
 @keyframes text-motion-depart { from { opacity: 1; } to { opacity: 0; } }
 
-/* The paragraph keeps its layout while the motion layer draws its words. */
-.text-motion-ghost, .text-motion-ghost * {
-  color: transparent !important;
-  text-decoration-color: transparent !important;
-  background-color: transparent !important;
+/* The paragraph keeps its layout while the motion layer draws its words.
+   Courier's ASCII art takes its ink from its own color, so it stays. */
+@media screen {
+  .text-motion-ghost, .text-motion-ghost *:not(.ascii-art, .ascii-art *) {
+    color: transparent !important;
+    text-decoration-color: transparent !important;
+    background-color: transparent !important;
+  }
 }
+
+/* Closing after an edit: words that changed fade where they are; new ones fade in where they now sit. */
+.text-motion-word.is-leaving { opacity: 0; transition: opacity 160ms ease-out; }
+.text-motion-word.is-entering { animation: text-motion-arrive 260ms ease 80ms both; }
 
 .text-motion-spacer { display: block; pointer-events: none; user-select: none; }
 
@@ -74,6 +81,9 @@
 .text-motion-definition .headword { font-weight: 700; color: var(--accent); }
 .text-motion-definition .pronunciation { color: color-mix(in srgb, var(--blog-text) 60%, transparent); margin: 2px 0 4px; }
 .text-motion-definition .sense { margin: 0 0 4px; }
+.text-motion-definition .definition-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.text-motion-definition .definition-footer .source { margin: 0; }
+.text-motion-definition .keep-note { font-size: 11px; padding: 3px 8px; }
 .text-motion-definition .label { font-style: italic; color: color-mix(in srgb, var(--blog-text) 70%, transparent); }
 
 /* Count: the word total large, the rest in a small grid. */
@@ -107,28 +117,39 @@
 .text-motion-search .search-match { grid-column: 1 / -1; color: color-mix(in srgb, var(--blog-text) 75%, transparent); font-size: 12px; }
 .text-motion-search mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; }
 
-/* Rephrase: consent, a working state, then three options to choose from. */
-.text-motion-rephrase .rephrase { display: flex; flex-direction: column; gap: 6px; min-height: 100%; }
-.text-motion-rephrase .rephrase-heading, .text-motion-rephrase .rephrase-note { color: color-mix(in srgb, var(--blog-text) 60%, transparent); }
-.text-motion-rephrase .rephrase-option {
+/* Rephrase and Spelling: consent, a working state, then choices from the model. */
+.text-motion-panel .ai-panel { display: flex; flex-direction: column; gap: 6px; min-height: 100%; }
+.text-motion-panel .ai-heading, .text-motion-panel .ai-note { color: color-mix(in srgb, var(--blog-text) 60%, transparent); }
+.text-motion-panel .ai-option {
   display: block; width: 100%; padding: 6px 10px; text-align: left; cursor: pointer; border-radius: 0;
   font: 400 13px/1.5 var(--font-ui); color: var(--blog-text); background: none;
   border: 1px solid color-mix(in srgb, var(--blog-text) 18%, transparent);
 }
-.text-motion-rephrase .rephrase-option:hover:not(:disabled),
-.text-motion-rephrase .rephrase-option:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
-.text-motion-rephrase .rephrase-actions { display: flex; gap: 6px; }
-.text-motion-rephrase .source { margin-top: auto; }
-.text-motion-rephrase .dots span { animation: text-motion-dot 1.2s infinite; opacity: 0.2; }
-.text-motion-rephrase .dots span:nth-child(2) { animation-delay: 0.2s; }
-.text-motion-rephrase .dots span:nth-child(3) { animation-delay: 0.4s; }
+.text-motion-panel .ai-option:hover:not(:disabled),
+.text-motion-panel .ai-option:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.text-motion-panel .ai-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.text-motion-panel .ai-panel .source { margin-top: auto; }
+.text-motion-panel .dots span { animation: text-motion-dot 1.2s infinite; opacity: 0.2; }
+.text-motion-panel .dots span:nth-child(2) { animation-delay: 0.2s; }
+.text-motion-panel .dots span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes text-motion-dot { 50% { opacity: 1; } }
+
+/* Spelling: the flagged word, suggestions as buttons, then grammar notes. */
+.text-motion-spelling .flagged { font: 700 18px "Courier New", Courier, monospace;
+  text-decoration: underline wavy color-mix(in srgb, #d0342c 80%, transparent); text-underline-offset: 4px; }
+.text-motion-spelling .flagged.is-correct { text-decoration: none; color: var(--accent); }
+.text-motion-spelling .grammar { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: start;
+  padding: 5px 0 5px 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.text-motion-spelling .grammar del { color: color-mix(in srgb, var(--blog-text) 55%, transparent); }
+.text-motion-spelling .grammar ins { text-decoration: none; font-weight: 700; }
+.text-motion-spelling .grammar .why { grid-column: 1; color: color-mix(in srgb, var(--blog-text) 70%, transparent); font-size: 12px; }
+.text-motion-spelling .grammar .text-motion-button { grid-column: 2; grid-row: 1 / span 2; }
 
 .text-motion-stream > span, .text-motion-arrive { opacity: 0; animation: text-motion-arrive 260ms ease forwards; }
 
 @media (prefers-reduced-motion: reduce) {
-  .text-motion-letter.is-arriving, .text-motion-stream > span, .text-motion-arrive { animation: none; opacity: 1; }
-  .text-motion-rephrase .dots span { animation: none; opacity: 1; }
+  .text-motion-letter.is-arriving, .text-motion-stream > span, .text-motion-arrive, .text-motion-word.is-entering { animation: none; opacity: 1; }
+  .text-motion-panel .dots span { animation: none; opacity: 1; }
   .text-motion-opening { transform: none; transition: opacity 120ms ease; }
 }
 @media print {

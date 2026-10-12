@@ -101,6 +101,8 @@ export interface AppSettings {
   auto_save_delay_ms: number;
   language_settings?: Record<string, EditorLanguageSettings>;
   blog_theme: string;
+  /** How text moves when the Spread menu opens: "off", "calm", or "wild". */
+  spread_motion: string;
   show_indent_guides: boolean;
   show_whitespace: boolean;
   /** The AI command-line tool for writing actions. */

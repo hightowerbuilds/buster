@@ -1,6 +1,6 @@
 # Phase 3 — Claude and Codex connections
 
-Status: **IN PROGRESS — connections and the assistant-to-app tool loop work end to end; chat UI and the acceptance workflows remain.**
+Status: **IN PROGRESS — Claude Code, Codex, and OpenCode all drive the Assistant end to end (verified live 2026-10-12); appearance actions, phrase search, and failure-path demos remain.**
 
 Give writers a clear UI for choosing **Claude** or **Codex**, connecting the chosen
 assistant, and using it to operate BusterMark's writing features through the
@@ -46,35 +46,49 @@ connections belong to the BusterMark app being built here.
   checks and request-ID deduplication unchanged. `agent send` returns as soon as a
   run is registered; awaiting the whole reply deadlocked the shared queue against
   the tool calls that reply needed, and a regression test now covers that.
-- [ ] Show included writing context before sending it and make running actions,
-  cancellation, and results visible in the UI.
-- [ ] Retain the existing explicit apply/reject workflow and single-step undo for
-  generated writing. Define how direct user-requested app actions appear in chat.
+- [x] **COMPLETED** (2026-10-12) — The composer says where messages go ("to
+  OpenAI through Codex on your subscription") and that notes are shared only
+  through the actions listed in the chat; each read the model received is marked
+  "sent to Codex". Running actions, approvals, Stop, and results show in the chat.
+- [x] **COMPLETED** (2026-10-12) — Changes wait for Allow or Deny with a before/after
+  view, and an allowed edit undoes in one step.
+- [x] **COMPLETED** (2026-10-12) — Codex and OpenCode in the sidebar. A Provider
+  picker sits beside Model and Effort; a chat keeps its provider, new chats take
+  the last one (the first takes Settings › AI). Codex runs `codex exec --json`
+  per message (resuming its thread) with the shell, apps, plugins, web search,
+  and user config off and only BusterMark's MCP server, pre-approved there so the
+  app asks the writer instead. OpenCode runs `opencode run --format json` per
+  message (`--session`) with a `bustermark` agent whose only tools are
+  BusterMark's. Switching provider mid-chat starts fresh there and says so.
 - [ ] Connect selection review and the search portal to the chosen assistant.
   Define model/web search separately from Phase 2's local open-note search.
 
 ## Acceptance examples
 
-- [ ] Connect Claude, rewrite a selected passage, review it, apply, and undo.
-- [ ] Connect Codex and run the same workflow through its adapter.
+- [x] **COMPLETED** — Connect Claude, edit a note after approval, and undo
+  (`scripts/native-macos-assistant-smoke.js`, live on the writer's subscription).
+- [x] **COMPLETED** — Codex and OpenCode run the same workflow through their adapters.
 - [ ] Ask the selected assistant to center a draft, adjust line spacing, and apply
   a saved appearance using the shared commands; revert from the visible UI.
 - [ ] Ask it to find a phrase in open notes and open the correct result.
 - [ ] Demonstrate cancellation, expired sign-in, missing runtime, process failure,
   stale document revision, and provider switching without leaking context.
-- [ ] Complete live end-to-end tests with each supported connection. Clearly
-  separate verified flows from mocks and unavailable providers.
+  Cancellation, a declined action, and provider switching are verified live; the
+  failure paths are covered by unit tests only.
+- [x] **COMPLETED** (2026-10-12) — Live end-to-end tests with each connection: 30
+  checks across Claude Code (Haiku 5.5, ~2.5s per read), Codex (~9s), and OpenCode
+  (~9s). Nothing there is mocked.
 
-Writing actions (Rephrase, writing review) no longer use API keys or local
-models: they run one-shot through the writer's Claude Code, Codex, or OpenCode
-subscription (`src-tauri/src/commands/ai_cli.rs`). The Assistant sidebar still
-runs on Claude Code only; Codex and OpenCode there are the next pass.
+Writing actions (Rephrase, Spelling, writing review) no longer use API keys or
+local models: they run one-shot through the writer's Claude Code, Codex, or
+OpenCode subscription (`src-tauri/src/commands/ai_cli.rs`). The Assistant sidebar
+runs on all three (`src-tauri/src/commands/assistant.rs`).
 
 The remaining work is the conversation surface and the acceptance workflows. Claude
 Code's headless runs cannot answer a permission prompt, so its spawn passes
 `--allowedTools mcp__bustermark`: this server's tools are allowed and nothing else,
-alongside `--restricted`, which removes the shell. The equivalent Codex path is
-configured but has not been exercised live.
+alongside `--restricted`, which removes the shell. Codex and OpenCode get the
+same server with their own tools switched off (see above).
 
 The next milestone is [Phase 4 — AI command bar and assistant chat panes](phase-4.md),
 which replaces the AI search entry point with a single input that either runs an

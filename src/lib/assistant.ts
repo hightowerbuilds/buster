@@ -3,6 +3,7 @@ import { createSignal } from "solid-js";
 import { buildAssistantTools, type AssistantTool, type ToolTarget } from "./assistant-tools";
 import type { AssistantTransport, CliStatus, SessionEvent, ToolCall } from "./assistant-transport";
 import type { FeatureCommands } from "./feature-commands";
+import { isAiProvider, type AiProvider } from "./ai-oneshot";
 
 /** "" leaves the choice to Claude Code, which picks the default model for the writer's plan. */
 export const ASSISTANT_MODELS = [
@@ -16,6 +17,19 @@ export const ASSISTANT_MODELS = [
 ] as const;
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = typeof EFFORTS[number];
+
+/** The command-line tool behind each provider, as the writer installed it. */
+export const cliName = (provider: AiProvider) => ({ claude: "Claude Code", codex: "Codex", opencode: "OpenCode" })[provider];
+/** Models offered for a provider; Codex and OpenCode use the writer's own default. */
+export const assistantModels = (provider: AiProvider) =>
+  provider === "claude" ? ASSISTANT_MODELS : [{ id: "", label: "Default model" }] as const;
+/** Effort levels a provider and model accept: Codex goes to high; OpenCode has none. */
+export const effortsFor = (provider: AiProvider, model: string): readonly Effort[] =>
+  provider === "codex" ? ["low", "medium", "high"] : provider === "opencode" || !supportsEffort(model) ? [] : EFFORTS;
+const sentEffort = (provider: AiProvider, model: string, effort: Effort) => {
+  const allowed = effortsFor(provider, model);
+  return allowed.length ? allowed.includes(effort) ? effort : allowed[allowed.length - 1] : undefined;
+};
 const STORAGE = { model: "bustermark.assistant.model", effort: "bustermark.assistant.effort", open: "bustermark.assistant.open", width: "bustermark.assistant.width" };
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 720;
@@ -63,6 +77,7 @@ export interface AssistantState {
   /** When the current response started (ms since epoch), and how long the last one took. */
   turnStartedAt: number | null;
   lastTurnMs: number | null;
+  provider: AiProvider;
   model: string;
   effort: Effort;
   entries: AssistantEntry[];
@@ -78,10 +93,13 @@ export interface AssistantDeps {
   transport: AssistantTransport;
   /** Per-viewer preferences; failures are ignored. */
   storage?: { get(key: string): string | null; set(key: string, value: string): void };
+  /** The provider for a chat that has none yet (Settings › AI). */
+  defaultProvider?: AiProvider;
 }
 
 export interface AssistantSnapshot {
   inFlight: boolean;
+  provider: AiProvider;
   model: string;
   effort: Effort;
   entries: AssistantEntry[];
@@ -126,10 +144,11 @@ export function createAssistant(deps: AssistantDeps) {
     connection: "unknown",
     connectionDetail: "",
     usage: { input: 0, output: 0, cacheRead: 0 },
+    provider: isAiProvider(deps.initial?.provider) ? deps.initial.provider : deps.defaultProvider ?? "claude",
     ...(deps.initial ? { model: claudeModel(deps.initial.model), effort: deps.initial.effort, entries: deps.initial.entries,
       draft: deps.initial.draft, usage: deps.initial.usage, lastTurnMs: deps.initial.lastTurnMs } : {}),
   });
-  // Last known Claude Code status, for the connection dot.
+  // Last known status of the chat's CLI, for the connection dot.
   let claudeStatus: CliStatus | { error: string } | null = null;
   const [sessionId, setSessionId] = createSignal<string | null>(deps.initial?.sessionId ?? null);
   let lifecycle = 0;
@@ -202,7 +221,7 @@ export function createAssistant(deps: AssistantDeps) {
         break;
       }
       case "retry":
-        notice("Claude Code is retrying the request…", "info");
+        notice(`${cliName(state.provider)} is retrying the request…`, "info");
         break;
       case "rate_limit": {
         const resets = event.info?.resetsAt ? ` It resets at ${new Date(event.info.resetsAt * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : "";
@@ -211,7 +230,8 @@ export function createAssistant(deps: AssistantDeps) {
       }
       case "exit":
         if (state.running || event.code) {
-          notice(event.detail ? `Claude Code stopped: ${event.detail}` : `Claude Code stopped unexpectedly (exit code ${event.code ?? "unknown"}).`);
+          const name = cliName(state.provider);
+          notice(event.detail ? `${name} stopped: ${event.detail}` : `${name} stopped unexpectedly (exit code ${event.code ?? "unknown"}).`);
         }
         if (state.running) endTurn();
         break;
@@ -295,8 +315,9 @@ export function createAssistant(deps: AssistantDeps) {
       if (generation !== lifecycle) return;
       await deps.transport.send({
         text: trimmed,
+        provider: state.provider,
         model: state.model || undefined,
-        effort: supportsEffort(state.model) ? state.effort : undefined,
+        effort: sentEffort(state.provider, state.model, state.effort),
         system: ASSISTANT_SYSTEM_PROMPT,
         tools: toolSet.tools,
         resume: sessionId() ?? undefined,
@@ -316,7 +337,7 @@ export function createAssistant(deps: AssistantDeps) {
     turn?.abort();
     notice("Stopped.", "info");
     void deps.transport.interrupt().catch(() => {});
-    // If Claude Code does not confirm, end the process; the next message resumes the session.
+    // If the CLI does not confirm, end the process; the next message resumes the session.
     interruptTimer = setTimeout(() => {
       if (!state.running) return;
       void deps.transport.reset().catch(() => {});
@@ -356,7 +377,7 @@ export function createAssistant(deps: AssistantDeps) {
   }
 
   function snapshot(): AssistantSnapshot {
-    return JSON.parse(JSON.stringify({ inFlight: state.running, model: state.model, effort: state.effort, entries: state.entries,
+    return JSON.parse(JSON.stringify({ inFlight: state.running, provider: state.provider, model: state.model, effort: state.effort, entries: state.entries,
       draft: state.draft, usage: state.usage, lastTurnMs: state.lastTurnMs, sessionId: sessionId() }));
   }
 
@@ -366,12 +387,34 @@ export function createAssistant(deps: AssistantDeps) {
     applyConnection();
   }
 
-  /** Show Claude Code's connection status. */
+  /**
+   * Answer with another CLI. Its session can't continue the last one, so the
+   * chat starts a fresh conversation there; the transcript stays.
+   */
+  function setProvider(provider: AiProvider) {
+    if (provider === state.provider || state.running || !isAiProvider(provider)) return;
+    const hadSession = sessionId() !== null || state.entries.length > 0;
+    lifecycle++;
+    resetting = deps.transport.reset();
+    void resetting.catch(() => {});
+    setSessionId(null);
+    toolSet = null;
+    setState({ provider, model: "" });
+    if (hadSession) notice(`Now answering with ${cliName(provider)}. It starts a fresh conversation and doesn't see the messages above.`, "info");
+    void refreshStatus();
+  }
+
+  /** Show the chat's CLI connection status. */
   function applyConnection() {
     const status = claudeStatus;
+    const name = cliName(state.provider);
     if (!status) setState({ connection: "unknown", connectionDetail: "" });
     else if ("error" in status) setState({ connection: "error", connectionDetail: status.error });
-    else {
+    else if (state.provider !== "claude") {
+      if (!status.installed) setState({ connection: "missing", connectionDetail: status.detail ?? `${name} is not installed.` });
+      else if (!status.loggedIn) setState({ connection: "logged-out", connectionDetail: status.detail ?? `${name} is not signed in.` });
+      else setState({ connection: "ready", connectionDetail: `${name}${status.detail ? ` · ${status.detail}` : ""}` });
+    } else {
       const plan = status.subscription ? `Claude ${status.subscription[0].toUpperCase()}${status.subscription.slice(1)}` : "Claude";
       if (!status.installed) setState({ connection: "missing", connectionDetail: status.detail ?? "Claude Code is not installed." });
       else if (!status.loggedIn || status.authMethod !== "claude.ai") setState({ connection: "logged-out", connectionDetail: status.detail ?? "Claude Code is not signed in." });
@@ -394,10 +437,13 @@ export function createAssistant(deps: AssistantDeps) {
     save(STORAGE.width, String(state.width));
   }
 
-  /** Check Claude Code's installation and sign-in. */
+  /** Check the chat's CLI installation and sign-in. */
   async function refreshStatus() {
+    const provider = state.provider;
     setState("connection", "checking");
-    claudeStatus = await deps.transport.status().catch(error => ({ error: errorText(error) }));
+    const status = await deps.transport.status(provider).catch(error => ({ error: errorText(error) }));
+    if (provider !== state.provider) return;
+    claudeStatus = status;
     applyConnection();
   }
 
@@ -406,7 +452,7 @@ export function createAssistant(deps: AssistantDeps) {
     (await subscription)();
   }
 
-  return { state, send, stop, approve, reset, suspend, snapshot, setDraft: (text: string) => setState("draft", text), setModel, setEffort, setOpen, setWidth, refreshStatus, dispose, sessionId };
+  return { state, send, stop, approve, reset, suspend, snapshot, setDraft: (text: string) => setState("draft", text), setModel, setEffort, setProvider, setOpen, setWidth, refreshStatus, dispose, sessionId };
 }
 
 export type AssistantService = ReturnType<typeof createAssistant>;

@@ -311,3 +311,43 @@ describe("selection rephrase", () => {
     expect(await settled(f, "r1")).toMatchObject({ ok: true, data: { status: "canceled" } });
   });
 });
+
+describe("selection spelling", () => {
+  function wordFixture() {
+    const f = fixture();
+    // Select "passage" in "A café 世界 passage. Private surrounding context."
+    const col = original.indexOf("passage");
+    f.engine.setSelection({ line: 0, col }, { line: 0, col: col + 7 });
+    return { ...f, word: captureSelection("draft", f.engine)! };
+  }
+  const settled = async (f: ReturnType<typeof fixture>, requestId: string) => {
+    let read: Awaited<ReturnType<typeof f.run>> | undefined;
+    await vi.waitFor(async () => {
+      read = await f.run("selection spelling read", { requestId });
+      expect(read).toMatchObject({ ok: true, data: { status: expect.not.stringMatching(/^running$/) } });
+    });
+    return read!;
+  };
+
+  it("sends only the word's sentence, marked, and returns grammar fixes with ranges in the note", async () => {
+    const f = wordFixture();
+    f.oneShot.mockResolvedValueOnce({ output: { misspelled: true, suggestions: ["passages"], grammar: [{ excerpt: "A café", replacement: "The café", explanation: "Use the definite article." }] }, model: "claude-haiku-5-5" });
+    expect(await f.run("selection spelling", { target: f.word, provider: "claude", rung: 0, requestId: "s1" })).toMatchObject({ ok: true, data: { status: "running" } });
+    expect(f.oneShot.mock.calls[0][0]).toMatchObject({ provider: "claude", model: "claude-haiku-5-5", text: "A café 世界 ⟦passage⟧." });
+    const read = await settled(f, "s1");
+    expect(read).toMatchObject({ ok: true, data: { status: "ready", word: "passage", misspelled: true, suggestions: ["passages"], revision: f.word.revision,
+      grammar: [{ excerpt: "A café", replacement: "The café", range: { anchor: { line: 0, col: 0 }, head: { line: 0, col: 6 } } }] } });
+    expect(f.engine.getText()).toBe(original);
+  });
+
+  it("checks one word only, and marks an unusable reply for escalation", async () => {
+    const f = wordFixture();
+    f.engine.setSelection(f.target.range.anchor, f.target.range.head);
+    expect(await f.run("selection spelling", { target: f.target, provider: "claude", rung: 0, requestId: "phrase" })).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENTS" } });
+    f.engine.setSelection(f.word.range.anchor, f.word.range.head);
+    f.oneShot.mockResolvedValueOnce({ output: { suggestions: [] }, model: null });
+    await f.run("selection spelling", { target: f.word, provider: "codex", rung: 0, requestId: "s2" });
+    expect(await settled(f, "s2")).toMatchObject({ ok: true, data: { status: "failed", error: { code: "UNUSABLE" } } });
+    expect(await f.run("selection rephrase read", { requestId: "s2" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  });
+});

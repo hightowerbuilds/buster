@@ -17,7 +17,7 @@ interface SettingsPanelProps {
 
 type SettingsItem =
   | { id: string; type: "number"; key: keyof AppSettings; label: string; description: string; min: number; max: number; step: number }
-  | { id: string; type: "theme" | "blog_theme" };
+  | { id: string; type: "theme" | "blog_theme" | "spread_motion" };
 
 const SETTINGS_TABS = ["Appearances", "Hotkeys"] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
@@ -29,6 +29,7 @@ const SETTINGS_SECTIONS: { title: string; description?: string; items: SettingsI
   ] },
   { title: "Writing", description: "Markdown notes save automatically after you pause typing, wherever they are stored.", items: [
     { id: "blog_theme", type: "blog_theme" },
+    { id: "spread_motion", type: "spread_motion" },
     { id: "font_size", type: "number", key: "font_size", label: "Text Size", description: "Default text size for notes and shells; note appearance overrides can change it", min: 10, max: 32, step: 1 },
   ] },
 ];
@@ -191,6 +192,27 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </Show>
           </div>
         );
+      case "spread_motion": {
+        const current = () => ["off", "wild"].includes(props.settings.spread_motion) ? props.settings.spread_motion : "calm";
+        return (
+          <div class="settings-row-content">
+            <div class="settings-info">
+              <span class="settings-label">Spread Motion</span>
+              <span class="settings-desc">How the text moves when you right-click a word. Reduced motion in macOS always turns it off.</span>
+            </div>
+            <div class="settings-theme-btns settings-motion-btns">
+              <For each={[{ id: "off", label: "Off" }, { id: "calm", label: "Calm" }, { id: "wild", label: "Wild" }]}>
+                {(m) => (
+                  <button
+                    class={`settings-theme-btn ${current() === m.id ? "settings-theme-btn-active" : ""}`}
+                    onClick={() => update("spread_motion", m.id)}
+                  >{m.label}</button>
+                )}
+              </For>
+            </div>
+          </div>
+        );
+      }
       case "blog_theme": {
         const current = () => writingStyle(props.settings.blog_theme);
         return (

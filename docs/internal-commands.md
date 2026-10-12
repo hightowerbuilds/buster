@@ -436,6 +436,20 @@ from cheap to strong: Claude Haiku 5.5 → Sonnet 5.5 → Opus 5.5, or Codex at 
 medium → high reasoning effort; OpenCode has one rung. Apply a chosen option with
 `selection replace {target, text}`, a revision-checked single-undo edit.
 
+## Spelling & Grammar
+
+`selection spelling` takes the same `{target, provider, rung, requestId}` for a
+single captured word and returns at once. Only the word's sentence is sent, with
+the word marked `⟦like this⟧` (long sentences are cut to 600 characters around
+it). `selection spelling read {requestId}` reports `ready` with `misspelled`,
+up to five `suggestions` (best first, empty when the word is spelled correctly),
+and up to three `grammar` issues, each `{excerpt, replacement, explanation,
+range}` with the excerpt quoted exactly from the note and `range` valid in the
+returned `revision`; `failed` and `canceled` match Rephrase, and
+`selection spelling cancel` stops it. Apply a suggestion with `selection replace`
+on the word. Apply a grammar fix with `selection set {tabId, revision, range}`,
+then `selection replace` on the snapshot it returns.
+
 ## macOS selected-text speech
 
 `selection voice` takes the captured selection target above and opens playback

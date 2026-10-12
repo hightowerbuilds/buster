@@ -1,7 +1,11 @@
-//! The Assistant runs through the writer's locally installed, logged-in Claude Code CLI, so it uses
-//! their Claude subscription rather than an API key. BusterMark starts `claude -p` in streaming JSON
-//! mode with every built-in tool disabled, and serves its own command catalog to it as an MCP server
-//! on 127.0.0.1. Tool calls are forwarded to the frontend, which asks the writer before any change.
+//! The Assistant runs through the writer's locally installed, logged-in AI CLI — Claude Code, Codex,
+//! or OpenCode — so it uses their subscription rather than an API key. BusterMark serves its own
+//! command catalog to the CLI as an MCP server on 127.0.0.1, with every built-in tool disabled. Tool
+//! calls are forwarded to the frontend, which asks the writer before any change.
+//!
+//! Claude Code keeps one process per chat in streaming JSON mode. Codex (`codex exec --json`) and
+//! OpenCode (`opencode run --format json`) start one process per message and resume the chat's
+//! session; their events are translated into the same frontend events as Claude Code's.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -15,6 +19,7 @@ use std::{
     time::Duration,
 };
 use tauri::{command, AppHandle, Emitter, Manager, State};
+use super::ai_cli::{Provider, CODEX_EFFORTS};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
@@ -26,6 +31,8 @@ const SERVER_NAME: &str = "bustermark";
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const MAX_MESSAGE_BYTES: usize = 256 * 1024;
 const MAX_HTTP_BODY: usize = 4 * 1024 * 1024;
+/// Codex reads the MCP server's bearer token from this variable.
+const CODEX_TOKEN_ENV: &str = "BUSTERMARK_MCP_TOKEN";
 // Approvals wait on the writer, so tool calls may take a while.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
@@ -42,6 +49,9 @@ pub struct SendRequest {
     system: String,
     tools: Vec<Value>,
     resume: Option<String>,
+    /// The CLI to run; Claude Code when absent.
+    #[serde(default)]
+    provider: Option<Provider>,
 }
 
 #[derive(Serialize)]
@@ -58,6 +68,7 @@ pub struct CliStatus {
 /// The settings a running process was started with. A change means restarting it with `--resume`.
 #[derive(Clone, PartialEq, Debug)]
 struct SessionConfig {
+    provider: Provider,
     channel_id: Option<String>,
     model: Option<String>,
     effort: Option<String>,
@@ -68,7 +79,8 @@ struct SessionConfig {
 struct Session {
     generation: u64,
     config: SessionConfig,
-    stdin: ChildStdin,
+    /// Claude Code's input; Codex and OpenCode take one message per process.
+    stdin: Option<ChildStdin>,
     pid: Option<u32>,
 }
 
@@ -110,7 +122,8 @@ struct ToolReply {
 }
 
 fn valid_model(model: &str) -> bool {
-    !model.is_empty() && model.len() <= 100 && model.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_.[]".contains(&c))
+    // OpenCode names models provider/model.
+    !model.is_empty() && model.len() <= 100 && model.bytes().all(|c| c.is_ascii_alphanumeric() || b"-_.[]/:".contains(&c))
 }
 
 fn validate(request: &SendRequest) -> Result<(), String> {
@@ -123,10 +136,16 @@ fn validate(request: &SendRequest) -> Result<(), String> {
     if request.model.as_deref().is_some_and(|m| !valid_model(m)) {
         return Err("Choose a valid Claude model".into());
     }
-    if request.effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e)) {
-        return Err("Effort must be low, medium, high, xhigh or max".into());
+    match request.provider.unwrap_or(Provider::Claude) {
+        Provider::Claude if request.effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e)) =>
+            return Err("Effort must be low, medium, high, xhigh or max".into()),
+        Provider::Codex if request.effort.as_deref().is_some_and(|e| !CODEX_EFFORTS.contains(&e)) =>
+            return Err("Codex effort must be minimal, low, medium or high".into()),
+        Provider::Opencode if request.effort.is_some() => return Err("OpenCode has no effort setting".into()),
+        _ => {}
     }
-    if request.resume.as_deref().is_some_and(|id| id.is_empty() || id.len() > 128 || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')) {
+    // OpenCode session IDs use underscores ("ses_…").
+    if request.resume.as_deref().is_some_and(|id| id.is_empty() || id.len() > 128 || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')) {
         return Err("Invalid conversation ID".into());
     }
     if request.tools.len() > 128 || request.system.len() > 64 * 1024 {
@@ -139,8 +158,21 @@ async fn find_claude() -> Option<PathBuf> {
     super::ai_cli::find_cli("claude").await
 }
 
+/// The Assistant's connection for `provider`: Claude Code's sign-in in detail, or Codex/OpenCode's
+/// status from the writing-actions check.
 #[command]
-pub async fn assistant_status() -> CliStatus {
+pub async fn assistant_status(provider: Option<Provider>) -> CliStatus {
+    match provider.unwrap_or(Provider::Claude) {
+        Provider::Claude => claude_status().await,
+        other => {
+            let found = super::ai_cli::ai_providers_status().await.into_iter().find(|s| s.provider() == other);
+            let (installed, signed_in, detail) = found.map(|s| s.parts()).unwrap_or((false, false, Some(other.install_hint().into())));
+            CliStatus { installed, logged_in: signed_in, version: None, auth_method: None, subscription: None, detail }
+        }
+    }
+}
+
+async fn claude_status() -> CliStatus {
     let mut status = CliStatus { installed: false, logged_in: false, version: None, auth_method: None, subscription: None, detail: None };
     let Some(claude) = find_claude().await else {
         status.detail = Some("Claude Code is not installed. Install it from claude.com/claude-code, then sign in by running `claude` in a terminal.".into());
@@ -190,6 +222,12 @@ fn emit(app: &AppHandle, shared: &Shared, generation: u64, mut payload: Value) {
     }
 }
 
+/// Emits an event and remembers when it was the turn's result.
+fn report(app: &AppHandle, shared: &Shared, generation: u64, event: Value, answered: &std::sync::atomic::AtomicBool) {
+    if event["kind"] == "result" { answered.store(true, Ordering::SeqCst); }
+    emit(app, shared, generation, event);
+}
+
 /// Maps one line of Claude Code's stream-json output to a frontend event.
 fn translate(line: &Value) -> Option<Value> {
     match (line["type"].as_str()?, line["subtype"].as_str()) {
@@ -218,51 +256,217 @@ fn translate(line: &Value) -> Option<Value> {
     }
 }
 
-async fn spawn_session(app: &AppHandle, shared: &Arc<Shared>, config: SessionConfig, resume: Option<&str>) -> Result<Session, String> {
-    let claude = find_claude().await.ok_or("Claude Code is not installed")?;
-    let mcp = ensure_server(app, shared).await?;
-    let mcp_config = json!({"mcpServers": {SERVER_NAME: {
-        "type": "http", "url": format!("http://127.0.0.1:{}/mcp", mcp.0),
-        "headers": {"Authorization": format!("Bearer {}", mcp.1)},
-    }}}).to_string();
+/// Turns one CLI's JSON lines into frontend events. Codex and OpenCode report whole messages, not
+/// deltas; each becomes its own reply. OpenCode has no closing event, so the result is sent at the end.
+enum Translator {
+    Claude,
+    Codex,
+    Opencode { session: Option<String>, usage: (u64, u64, u64), failed: bool },
+}
+
+impl Translator {
+    fn for_provider(provider: Provider) -> Self {
+        match provider {
+            Provider::Claude => Translator::Claude,
+            Provider::Codex => Translator::Codex,
+            Provider::Opencode => Translator::Opencode { session: None, usage: (0, 0, 0), failed: false },
+        }
+    }
+
+    fn line(&mut self, line: &Value) -> Vec<Value> {
+        let reply = |text: &Value| vec![json!({"kind": "message_start"}), json!({"kind": "text", "text": text})];
+        match self {
+            Translator::Claude => translate(line).into_iter().collect(),
+            Translator::Codex => match line["type"].as_str().unwrap_or_default() {
+                "thread.started" => vec![json!({"kind": "session", "sessionId": line["thread_id"]})],
+                "item.completed" => match line["item"]["type"].as_str() {
+                    Some("agent_message") => reply(&line["item"]["text"]),
+                    Some("reasoning") => vec![json!({"kind": "thinking", "text": line["item"]["text"]})],
+                    _ => vec![],
+                },
+                "turn.completed" => {
+                    let usage = &line["usage"];
+                    let cached = usage["cached_input_tokens"].as_u64().unwrap_or(0);
+                    vec![json!({"kind": "result", "isError": false, "usage": {
+                        "input_tokens": usage["input_tokens"].as_u64().unwrap_or(0).saturating_sub(cached),
+                        "output_tokens": usage["output_tokens"], "cache_read_input_tokens": cached,
+                    }})]
+                }
+                "turn.failed" => vec![json!({"kind": "result", "isError": true, "text": line["error"]["message"]})],
+                "error" => vec![json!({"kind": "result", "isError": true, "text": line["message"]})],
+                _ => vec![],
+            },
+            Translator::Opencode { session, usage, failed } => {
+                let mut events = Vec::new();
+                if session.is_none() {
+                    if let Some(id) = line["sessionID"].as_str() {
+                        *session = Some(id.to_owned());
+                        events.push(json!({"kind": "session", "sessionId": id}));
+                    }
+                }
+                let part = &line["part"];
+                match line["type"].as_str().unwrap_or_default() {
+                    "text" if part["text"].as_str().is_some_and(|t| !t.trim().is_empty()) => events.extend(reply(&part["text"])),
+                    "reasoning" => events.push(json!({"kind": "thinking", "text": part["text"]})),
+                    "step_finish" => {
+                        let tokens = &part["tokens"];
+                        usage.0 += tokens["input"].as_u64().unwrap_or(0);
+                        usage.1 += tokens["output"].as_u64().unwrap_or(0);
+                        usage.2 += tokens["cache"]["read"].as_u64().unwrap_or(0);
+                    }
+                    "error" => {
+                        *failed = true;
+                        let error = &line["error"];
+                        let detail = error["data"]["message"].as_str().or_else(|| error["message"].as_str()).or_else(|| error["name"].as_str());
+                        events.push(json!({"kind": "result", "isError": true, "text": detail.unwrap_or("OpenCode reported an error")}));
+                    }
+                    _ => {}
+                }
+                events
+            }
+        }
+    }
+
+    /// Events once the output ends: OpenCode's result.
+    fn end(&mut self, exit_ok: bool) -> Vec<Value> {
+        match self {
+            Translator::Opencode { session, usage, failed: false } if exit_ok => vec![json!({"kind": "result", "isError": false, "sessionId": session,
+                "usage": {"input_tokens": usage.0, "output_tokens": usage.1, "cache_read_input_tokens": usage.2}})],
+            _ => vec![],
+        }
+    }
+}
+
+/// `codex exec --json`: only BusterMark's tools (pre-approved here; the writer approves changes in
+/// the app), no shell, apps, plugins, web search, or user config. The prompt is read from stdin.
+fn codex_turn_args(config: &SessionConfig, port: u16, resume: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec!["exec".into()];
+    if resume.is_some() { args.push("resume".into()); }
+    args.extend(["--json", "--skip-git-repo-check", "--ignore-user-config"].map(String::from));
+    for feature in ["shell_tool", "unified_exec", "apps", "plugins", "multi_agent", "image_generation", "browser_use", "computer_use", "view_image", "hooks"] {
+        args.extend(["--disable".into(), feature.into()]);
+    }
+    let server = format!("mcp_servers.{SERVER_NAME}");
+    for setting in [
+        r#"sandbox_mode="read-only""#.to_string(), r#"web_search="disabled""#.to_string(),
+        format!("developer_instructions={}", serde_json::to_string(&config.system).unwrap_or_default()),
+        format!(r#"{server}.url="http://127.0.0.1:{port}/mcp""#),
+        format!(r#"{server}.bearer_token_env_var="{CODEX_TOKEN_ENV}""#),
+        format!(r#"{server}.default_tools_approval_mode="approve""#),
+        format!("{server}.tool_timeout_sec={}", TOOL_TIMEOUT.as_secs()),
+    ] {
+        args.extend(["-c".into(), setting]);
+    }
+    if let Some(effort) = &config.effort { args.extend(["-c".into(), format!(r#"model_reasoning_effort="{effort}""#)]); }
+    if let Some(model) = &config.model { args.extend(["--model".into(), model.clone()]); }
+    if let Some(id) = resume { args.push(id.into()); }
+    args.push("-".into());
+    args
+}
+
+/// OpenCode's config for the Assistant: a `bustermark` agent with the system prompt and only
+/// BusterMark's MCP tools; editing, shell, and web fetch are denied.
+fn opencode_config(config: &SessionConfig, port: u16, token: &str) -> String {
+    let tools = json!({"*": false, format!("{SERVER_NAME}_*"): true});
+    json!({
+        "$schema": "https://opencode.ai/config.json",
+        "tools": tools,
+        "permission": {"edit": "deny", "bash": "deny", "webfetch": "deny"},
+        "mcp": {SERVER_NAME: {"type": "remote", "url": format!("http://127.0.0.1:{port}/mcp"),
+            "headers": {"Authorization": format!("Bearer {token}")}, "enabled": true, "timeout": TOOL_TIMEOUT.as_millis() as u64}},
+        "agent": {SERVER_NAME: {"mode": "primary", "prompt": config.system, "tools": tools}},
+    }).to_string()
+}
+
+fn opencode_turn_args(config: &SessionConfig, resume: Option<&str>, text: &str) -> Vec<String> {
+    let mut args: Vec<String> = ["run", "--pure", "--format", "json", "--agent", SERVER_NAME, "--title", "BusterMark Assistant"].map(String::from).to_vec();
+    if let Some(model) = &config.model { args.extend(["--model".into(), model.clone()]); }
+    if let Some(id) = resume { args.extend(["--session".into(), id.into()]); }
+    args.extend(["--".into(), text.into()]);
+    args
+}
+
+/// Starts the CLI for a chat: Claude Code for the whole conversation (messages go to its stdin), or
+/// Codex/OpenCode for one message (`text`), continuing `resume`.
+async fn spawn_session(app: &AppHandle, shared: &Arc<Shared>, config: SessionConfig, resume: Option<&str>, text: &str) -> Result<Session, String> {
+    let provider = config.provider;
+    let cli = super::ai_cli::find_cli(provider.binary()).await
+        .ok_or_else(|| format!("{} is not installed. {}", provider.name(), provider.install_hint()))?;
+    let (port, token) = ensure_server(app, shared).await?;
     // Sessions live in their own directory so they never mix with the writer's coding projects.
     let cwd = app.path().app_data_dir().map_err(|e| e.to_string())?.join("assistant");
     std::fs::create_dir_all(&cwd).map_err(|e| format!("Could not create the assistant folder: {e}"))?;
-    let mut command = Command::new(claude);
-    command.args(session_args(&config, &mcp_config, resume))
-        .current_dir(&cwd)
+    let mut command = Command::new(cli);
+    command.current_dir(&cwd)
         // An API key in the environment would take precedence over the subscription login.
-        .env_remove("ANTHROPIC_API_KEY")
-        .env_remove("ANTHROPIC_AUTH_TOKEN")
-        .env("MCP_TOOL_TIMEOUT", TOOL_TIMEOUT.as_millis().to_string())
+        .env_remove("ANTHROPIC_API_KEY").env_remove("ANTHROPIC_AUTH_TOKEN")
+        .env_remove("OPENAI_API_KEY").env_remove("CODEX_API_KEY")
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .kill_on_drop(true);
+    match provider {
+        Provider::Claude => {
+            let mcp_config = json!({"mcpServers": {SERVER_NAME: {
+                "type": "http", "url": format!("http://127.0.0.1:{port}/mcp"),
+                "headers": {"Authorization": format!("Bearer {token}")},
+            }}}).to_string();
+            command.args(session_args(&config, &mcp_config, resume)).env("MCP_TOOL_TIMEOUT", TOOL_TIMEOUT.as_millis().to_string());
+        }
+        Provider::Codex => { command.args(codex_turn_args(&config, port, resume)).env(CODEX_TOKEN_ENV, &token); }
+        Provider::Opencode => {
+            command.args(opencode_turn_args(&config, resume, text)).env("OPENCODE_CONFIG_CONTENT", opencode_config(&config, port, &token));
+        }
+    }
     #[cfg(unix)]
     command.process_group(0);
-    let mut child: Child = command.spawn().map_err(|e| format!("Could not start Claude Code: {e}"))?;
+    let mut child: Child = command.spawn().map_err(|e| format!("Could not start {}: {e}", provider.name()))?;
     let generation = shared.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let stdin = child.stdin.take().ok_or("Claude Code input unavailable")?;
-    let stdout = child.stdout.take().ok_or("Claude Code output unavailable")?;
-    let mut stderr = child.stderr.take().ok_or("Claude Code errors unavailable")?;
+    let mut stdin = child.stdin.take().ok_or("The assistant's input is unavailable")?;
+    let stdout = child.stdout.take().ok_or("The assistant's output is unavailable")?;
+    let mut stderr = child.stderr.take().ok_or("The assistant's errors are unavailable")?;
     let pid = child.id();
+    let stdin = match provider {
+        Provider::Claude => Some(stdin),
+        // Codex reads the message from stdin; closing it starts the turn.
+        Provider::Codex => {
+            stdin.write_all(text.as_bytes()).await.map_err(|_| "Codex stopped accepting the message")?;
+            drop(stdin);
+            None
+        }
+        Provider::Opencode => { drop(stdin); None }
+    };
 
-    let (app_out, shared_out) = (app.clone(), shared.clone());
+    let (done_tx, done_rx) = oneshot::channel::<bool>();
+    // Whether the turn reported its result; a per-message process that did needs no exit event.
+    let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (app_out, shared_out, answered_out) = (app.clone(), shared.clone(), answered.clone());
     tokio::spawn(async move {
+        let mut translator = Translator::for_provider(provider);
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Some(event) = serde_json::from_str::<Value>(&line).ok().as_ref().and_then(translate) {
-                emit(&app_out, &shared_out, generation, event);
+            if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                for event in translator.line(&value) { report(&app_out, &shared_out, generation, event, &answered_out); }
             }
         }
+        // The result follows the exit status, so a failed run is reported by the exit event instead.
+        let exit_ok = done_rx.await.unwrap_or(false);
+        for event in translator.end(exit_ok) { report(&app_out, &shared_out, generation, event, &answered_out); }
     });
     let (app_exit, shared_exit) = (app.clone(), shared.clone());
     tokio::spawn(async move {
         let mut tail = Vec::new();
         let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut tail).await;
         let status = child.wait().await.ok();
+        let success = status.is_some_and(|s| s.success());
+        let _ = done_tx.send(success);
+        // Let the output reader send its last events first.
+        tokio::time::sleep(Duration::from_millis(50)).await;
         let detail = String::from_utf8_lossy(&tail);
         let detail: String = detail.trim().chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
-        emit(&app_exit, &shared_exit, generation, json!({"kind": "exit", "code": status.and_then(|s| s.code()), "detail": detail}));
+        // A Codex or OpenCode turn ends its process: that is only news when the turn did not finish.
+        let quiet = provider != Provider::Claude && success && answered.load(Ordering::SeqCst);
+        if !quiet {
+            emit(&app_exit, &shared_exit, generation, json!({"kind": "exit", "code": status.and_then(|s| s.code()), "detail": detail}));
+        }
         let mut session = shared_exit.session.lock().await;
         if session.as_ref().is_some_and(|s| s.generation == generation) {
             *session = None;
@@ -275,32 +479,45 @@ async fn spawn_session(app: &AppHandle, shared: &Arc<Shared>, config: SessionCon
 pub async fn assistant_send(app: AppHandle, state: State<'_, AssistantState>, request: SendRequest) -> Result<(), String> {
     validate(&request)?;
     let shared = conversation(&state, request.conversation_id.as_deref())?;
-    let config = SessionConfig { channel_id: request.channel_id, model: request.model, effort: request.effort, system: request.system, tools: request.tools };
+    let provider = request.provider.unwrap_or(Provider::Claude);
+    let config = SessionConfig { provider, channel_id: request.channel_id, model: request.model, effort: request.effort, system: request.system, tools: request.tools };
     *shared.tools.lock().map_err(|_| "Assistant state unavailable")? = config.tools.clone();
     let mut guard = shared.session.lock().await;
-    if guard.as_ref().is_some_and(|s| s.config != config) {
+    // Codex and OpenCode run one process per message; Claude Code restarts only when its settings change.
+    if guard.as_ref().is_some_and(|s| s.config != config || provider != Provider::Claude) {
         stop_session(&shared, guard.take());
     }
     *shared.channel_id.lock().map_err(|_| "Assistant state unavailable")? = config.channel_id.clone();
     if guard.is_none() {
-        *guard = Some(spawn_session(&app, &shared, config, request.resume.as_deref()).await?);
+        *guard = Some(spawn_session(&app, &shared, config, request.resume.as_deref(), &request.text).await?);
     }
+    if provider != Provider::Claude { return Ok(()); }
     let line = json!({"type": "user", "message": {"role": "user", "content": request.text}}).to_string() + "\n";
-    let session = guard.as_mut().ok_or("Claude Code is not running")?;
-    session.stdin.write_all(line.as_bytes()).await.map_err(|_| "Claude Code stopped accepting messages")?;
-    session.stdin.flush().await.map_err(|_| "Claude Code stopped accepting messages")?;
+    let stdin = guard.as_mut().and_then(|s| s.stdin.as_mut()).ok_or("Claude Code is not running")?;
+    stdin.write_all(line.as_bytes()).await.map_err(|_| "Claude Code stopped accepting messages")?;
+    stdin.flush().await.map_err(|_| "Claude Code stopped accepting messages")?;
     Ok(())
 }
 
 /// Interrupts the current turn in place; the process and conversation stay alive.
 #[command]
-pub async fn assistant_interrupt(state: State<'_, AssistantState>, conversation_id: Option<String>) -> Result<(), String> {
+pub async fn assistant_interrupt(app: AppHandle, state: State<'_, AssistantState>, conversation_id: Option<String>) -> Result<(), String> {
     let shared = conversation(&state, conversation_id.as_deref())?;
     fail_pending(&shared);
     let mut guard = shared.session.lock().await;
+    // A Codex or OpenCode turn is its own process: end it; the next message resumes the session.
+    if let Some(session) = guard.as_ref().filter(|s| s.config.provider != Provider::Claude) {
+        emit(&app, &shared, session.generation, json!({"kind": "result", "subtype": "interrupted", "isError": true}));
+        stop_session(&shared, guard.take());
+        return Ok(());
+    }
     if let Some(session) = guard.as_mut() {
         let request = json!({"type": "control_request", "request_id": format!("interrupt-{}", shared.next_call.fetch_add(1, Ordering::SeqCst)), "request": {"subtype": "interrupt"}});
-        if session.stdin.write_all(format!("{request}\n").as_bytes()).await.is_err() {
+        let written = match session.stdin.as_mut() {
+            Some(stdin) => stdin.write_all(format!("{request}\n").as_bytes()).await.is_ok(),
+            None => false,
+        };
+        if !written {
             stop_session(&shared, guard.take());
         }
     }
@@ -484,7 +701,7 @@ mod tests {
     use super::*;
 
     fn request() -> SendRequest {
-        SendRequest { conversation_id: None, channel_id: None, text: "Hi".into(), model: Some("claude-opus-5".into()), effort: Some("high".into()), system: "Be brief.".into(), tools: vec![], resume: None }
+        SendRequest { conversation_id: None, channel_id: None, text: "Hi".into(), model: Some("claude-opus-5".into()), effort: Some("high".into()), system: "Be brief.".into(), tools: vec![], resume: None, provider: None }
     }
 
     #[test]
@@ -495,13 +712,14 @@ mod tests {
         let mut r = request(); r.effort = Some("extreme".into()); assert!(validate(&r).is_err());
         let mut r = request(); r.resume = Some("../x".into()); assert!(validate(&r).is_err());
         let mut r = request(); r.resume = Some("cd801306-20df-4307-b2e7-ca37c34dd0a3".into()); assert!(validate(&r).is_ok());
+        let mut r = request(); r.resume = Some("ses_eceed0abcffeGKyRiBU1Wpfdax".into()); assert!(validate(&r).is_ok());
         let mut r = request(); r.model = None; r.effort = None; assert!(validate(&r).is_ok());
         let mut r = request(); r.model = Some("claude-haiku-5-5".into()); r.effort = Some("low".into()); assert!(validate(&r).is_ok());
     }
 
     #[test]
     fn session_args_confine_claude_to_bustermark_tools() {
-        let config = SessionConfig { channel_id: None, model: Some("claude-opus-5".into()), effort: Some("max".into()), system: "Sys".into(), tools: vec![] };
+        let config = SessionConfig { provider: Provider::Claude, channel_id: None, model: Some("claude-opus-5".into()), effort: Some("max".into()), system: "Sys".into(), tools: vec![] };
         let args = session_args(&config, "{}", Some("abc-123"));
         let pair = |flag: &str| args.iter().position(|a| a == flag).map(|i| args[i + 1].as_str());
         assert_eq!(pair("--tools"), Some(""));
@@ -512,7 +730,7 @@ mod tests {
         assert_eq!(pair("--effort"), Some("max"));
         assert_eq!(pair("--resume"), Some("abc-123"));
         assert!(args.contains(&"--strict-mcp-config".to_string()) && !args.contains(&"--bare".to_string()));
-        let default = session_args(&SessionConfig { channel_id: None, model: None, effort: None, system: "Sys".into(), tools: vec![] }, "{}", None);
+        let default = session_args(&SessionConfig { provider: Provider::Claude, channel_id: None, model: None, effort: None, system: "Sys".into(), tools: vec![] }, "{}", None);
         assert!(!default.contains(&"--model".to_string()) && !default.contains(&"--effort".to_string()) && !default.contains(&"--resume".to_string()));
     }
 
@@ -529,6 +747,66 @@ mod tests {
         assert_eq!(t(json!({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected"}})).unwrap()["kind"], "rate_limit");
         assert!(t(json!({"type": "assistant", "message": {}})).is_none());
         assert!(t(json!({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "signature_delta"}}})).is_none());
+    }
+
+    #[test]
+    fn validates_efforts_per_provider() {
+        let mut r = request(); r.provider = Some(Provider::Codex); r.effort = Some("max".into()); assert!(validate(&r).is_err());
+        r.effort = Some("medium".into()); r.model = None; assert!(validate(&r).is_ok());
+        let mut r = request(); r.provider = Some(Provider::Opencode); r.effort = Some("low".into()); assert!(validate(&r).is_err());
+        r.effort = None; r.model = Some("anthropic/claude-sonnet-5-5".into()); assert!(validate(&r).is_ok());
+    }
+
+    #[test]
+    fn codex_turns_use_only_bustermark_tools() {
+        let config = SessionConfig { provider: Provider::Codex, channel_id: None, model: None, effort: Some("low".into()), system: "Say \"hi\".\nThen stop.".into(), tools: vec![] };
+        let args = codex_turn_args(&config, 4242, None);
+        assert_eq!(&args[..2], ["exec", "--json"]);
+        assert!(args.contains(&"--ignore-user-config".to_string()) && args.contains(&"shell_tool".to_string()));
+        assert!(args.contains(&r#"mcp_servers.bustermark.url="http://127.0.0.1:4242/mcp""#.to_string()));
+        assert!(args.contains(&r#"mcp_servers.bustermark.default_tools_approval_mode="approve""#.to_string()));
+        assert!(args.contains(&r#"developer_instructions="Say \"hi\".\nThen stop.""#.to_string()));
+        assert!(args.contains(&r#"model_reasoning_effort="low""#.to_string()) && args.last().unwrap() == "-");
+        let resumed = codex_turn_args(&config, 4242, Some("01a1-thread"));
+        assert_eq!(&resumed[..2], ["exec", "resume"]);
+        assert_eq!(&resumed[resumed.len() - 2..], ["01a1-thread", "-"]);
+    }
+
+    #[test]
+    fn opencode_turns_use_a_bustermark_agent() {
+        let config = SessionConfig { provider: Provider::Opencode, channel_id: None, model: None, effort: None, system: "Sys".into(), tools: vec![] };
+        let args = opencode_turn_args(&config, Some("ses_1"), "-rf hello");
+        assert_eq!(&args[args.len() - 2..], ["--", "-rf hello"]);
+        assert!(args.windows(2).any(|w| w == ["--session", "ses_1"]) && args.windows(2).any(|w| w == ["--agent", "bustermark"]));
+        let content: Value = serde_json::from_str(&opencode_config(&config, 4242, "tok")).unwrap();
+        assert_eq!(content["tools"], json!({"*": false, "bustermark_*": true}));
+        assert_eq!(content["mcp"]["bustermark"]["headers"]["Authorization"], "Bearer tok");
+        assert_eq!(content["agent"]["bustermark"]["prompt"], "Sys");
+    }
+
+    #[test]
+    fn translates_codex_and_opencode_events() {
+        let mut codex = Translator::for_provider(Provider::Codex);
+        assert_eq!(codex.line(&json!({"type": "thread.started", "thread_id": "t1"}))[0]["sessionId"], "t1");
+        let reply = codex.line(&json!({"type": "item.completed", "item": {"type": "agent_message", "text": "Hi"}}));
+        assert_eq!((reply[0]["kind"].as_str(), reply[1]["text"].as_str()), (Some("message_start"), Some("Hi")));
+        let done = codex.line(&json!({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 60, "output_tokens": 5}}));
+        assert_eq!(done[0]["usage"], json!({"input_tokens": 40, "output_tokens": 5, "cache_read_input_tokens": 60}));
+        assert_eq!(codex.line(&json!({"type": "turn.failed", "error": {"message": "Usage limit"}}))[0]["text"], "Usage limit");
+        assert!(codex.line(&json!({"type": "item.started", "item": {"type": "mcp_tool_call"}})).is_empty());
+
+        let mut open = Translator::for_provider(Provider::Opencode);
+        let first = open.line(&json!({"type": "step_start", "sessionID": "ses_1"}));
+        assert_eq!(first[0]["sessionId"], "ses_1");
+        assert_eq!(open.line(&json!({"type": "text", "sessionID": "ses_1", "part": {"text": "Hello"}}))[1]["text"], "Hello");
+        open.line(&json!({"type": "step_finish", "sessionID": "ses_1", "part": {"tokens": {"input": 10, "output": 3, "cache": {"read": 7}}}}));
+        let end = open.end(true);
+        assert_eq!((end[0]["isError"].as_bool(), end[0]["sessionId"].as_str()), (Some(false), Some("ses_1")));
+        assert_eq!(end[0]["usage"]["cache_read_input_tokens"], 7);
+        assert!(open.end(false).is_empty());
+        let mut failed = Translator::for_provider(Provider::Opencode);
+        assert_eq!(failed.line(&json!({"type": "error", "error": {"data": {"message": "Sign in"}}}))[0]["text"], "Sign in");
+        assert!(failed.end(true).is_empty());
     }
 
     #[test]

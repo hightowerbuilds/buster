@@ -14,7 +14,7 @@ const MAX_SYSTEM: usize = 8 * 1024;
 const MAX_SCHEMA: usize = 8 * 1024;
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 /// Codex reasoning efforts (`model_reasoning_effort`).
-const CODEX_EFFORTS: [&str; 4] = ["minimal", "low", "medium", "high"];
+pub(crate) const CODEX_EFFORTS: [&str; 4] = ["minimal", "low", "medium", "high"];
 /// OpenCode with every tool off and nothing it could act on.
 const OPENCODE_CONFIG: &str = r#"{"$schema":"https://opencode.ai/config.json","tools":{"*":false},"permission":{"edit":"deny","bash":"deny","webfetch":"deny"}}"#;
 
@@ -23,13 +23,13 @@ const OPENCODE_CONFIG: &str = r#"{"$schema":"https://opencode.ai/config.json","t
 pub enum Provider { Claude, Codex, Opencode }
 
 impl Provider {
-    fn binary(self) -> &'static str {
+    pub(crate) fn binary(self) -> &'static str {
         match self { Provider::Claude => "claude", Provider::Codex => "codex", Provider::Opencode => "opencode" }
     }
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self { Provider::Claude => "Claude Code", Provider::Codex => "Codex", Provider::Opencode => "OpenCode" }
     }
-    fn install_hint(self) -> &'static str {
+    pub(crate) fn install_hint(self) -> &'static str {
         match self {
             Provider::Claude => "Install Claude Code from claude.com/claude-code, then sign in by running `claude` in a terminal.",
             Provider::Codex => "Install Codex (npm install -g @openai/codex), then sign in by running `codex login` in a terminal.",
@@ -69,6 +69,12 @@ pub struct ProviderStatus {
     installed: bool,
     signed_in: bool,
     detail: Option<String>,
+}
+
+impl ProviderStatus {
+    pub(crate) fn provider(&self) -> Provider { self.provider }
+    /// Installed, signed in, and the detail to show.
+    pub(crate) fn parts(self) -> (bool, bool, Option<String>) { (self.installed, self.signed_in, self.detail) }
 }
 
 #[derive(Default)]

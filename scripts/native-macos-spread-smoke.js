@@ -97,14 +97,258 @@ void (async () => {
     const target = before.filter(word => Math.abs(word.top - tops[1]) < 4 && /^[a-z]{4,}$/i.test(word.text))[2];
     assert(!!target, `Target word on line 2: “${target?.text}”`);
 
+    const activeTab = () => [...document.querySelectorAll('.tab-bar [role="tab"]')].find(tab => tab.getAttribute('aria-selected') === 'true').id;
+    const driftBetween = (a, b) => a.length !== b.length ? Infinity : a.reduce((max, w, i) => Math.max(max, Math.abs(w.left - b[i].left), Math.abs(w.top - b[i].top)), 0);
+    const overlapping = hole => [...document.querySelectorAll('.text-motion-word')].filter(span => {
+      if (span.querySelector('span') || span.classList.contains('is-leaving')) return false;
+      const r = span.getBoundingClientRect();
+      return r.right > hole.left + 1 && r.left < hole.right - 1 && r.bottom > hole.top + 1 && r.top < hole.bottom - 1;
+    }).map(span => span.textContent);
+    const action = label => [...opening().querySelectorAll('button')].find(b => b.textContent === label);
+
+    // Keyboard entry, neighbouring paragraphs, Keep as note, landing after an
+    // edit, resizing, Spelling, the motion setting, and printing.
+    const polish = async () => {
+      const homeTab = activeTab();
+      const toHome = async () => { document.getElementById(homeTab).click(); await wait(() => editor() === note, 'back to the first note'); };
+      const base1 = words(first), base2 = words(second);
+
+      // ── Keyboard: Shift+F10 opens a labelled menu with focus on the first action ──
+      note.focus();
+      const walker = document.createTreeWalker(first, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.data.indexOf('lantern');
+        if (at >= 0) { getSelection().collapse(node, at + 3); break; }
+      }
+      await delay(150);
+      window.__textMotion = undefined;
+      key(note, 'F10', 'F10', { shiftKey: true });
+      await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'keyboard spread');
+      const menu = opening().querySelector('[role="menu"]');
+      assert(menu && /lantern/.test(menu.getAttribute('aria-label')), `Shift+F10 opens the spread as a labelled menu (${menu?.getAttribute('aria-label')})`);
+      const items = [...menu.querySelectorAll('[role="menuitem"]')];
+      await wait(() => document.activeElement === items[0], 'focus on the first action');
+      assert(true, 'Keyboard entry focuses the first action');
+      assert(layer().getAttribute('aria-hidden') === 'true', 'The moving words are hidden from assistive technology');
+      key(document.activeElement, 'ArrowRight', 'ArrowRight');
+      assert(document.activeElement === items[1], 'ArrowRight moves to the next action');
+      key(document.activeElement, 'ArrowDown', 'ArrowDown');
+      assert(document.activeElement === items[4], 'ArrowDown moves to the action below');
+      key(document.activeElement, 'Escape', 'Escape');
+      await closed();
+      assert(document.activeElement === note, 'Escape returns focus to the note');
+
+      // ── Neighbours: Define near a paragraph's end parts the next paragraph too ──
+      const lastTop = lines(base1).at(-1);
+      const lastWords = base1.filter(w => Math.abs(w.top - lastTop) < 4 && /^[a-z]{5,}$/i.test(w.text));
+      const defineOn = lastWords[Math.floor(lastWords.length / 2)];
+      await openOn(defineOn);
+      metrics.neighbourParagraphs = window.__textMotion.paragraphs;
+      assert(window.__textMotion.paragraphs >= 2, `The paragraphs below join the spread (${window.__textMotion.paragraphs})`);
+      window.__textMotion = undefined;
+      action('Define').click();
+      await wait(() => document.querySelector('.text-motion-definition') && window.__textMotion, 'definition settled');
+      await delay(1200);
+      const definition = document.querySelector('.text-motion-definition');
+      if (definition.querySelector('.empty')) metrics.neighbourSkipped = `no definition for ${defineOn.text}`;
+      else {
+        const grown = opening().getBoundingClientRect();
+        const crowd = overlapping(grown);
+        assert(!crowd.length, `No word of any paragraph overlaps the grown opening (${crowd.join(', ')})`);
+        const firstEnd = Math.max(...[...document.querySelectorAll('.text-motion-word')].slice(0, base1.length).map(span => span.getBoundingClientRect().bottom));
+        const secondSpans = [...document.querySelectorAll('.text-motion-word')].slice(base1.length, base1.length + base2.length);
+        const beside = secondSpans.filter(span => { const r = span.getBoundingClientRect(); return r.top < grown.bottom - 1 && r.bottom > grown.top + 1; });
+        metrics.neighbour = { firstEnd, openingBottom: grown.bottom, beside: beside.map(span => span.textContent) };
+        assert(firstEnd < grown.bottom && beside.length > 0, `The next paragraph flows beside the opening (${beside.map(span => span.textContent).join(' ')})`);
+        // Keep as note: the definition becomes a note of its own.
+        const keep = [...definition.querySelectorAll('button')].find(b => b.textContent === 'Keep as note');
+        assert(!!keep, 'Define offers Keep as note');
+        keep.click();
+        await wait(() => keep.textContent === 'Kept', 'definition kept');
+        const headword = definition.querySelector('.headword').textContent;
+        const kept = await ipc('read_file', { path: `${notes.root}/${headword} (definition).md` }).catch(error => ({ error: String(error) }));
+        metrics.keptNote = (kept.content ?? kept.error ?? '').slice(0, 200);
+        assert(kept.content?.startsWith(`# ${headword}\n`) && /—/.test(kept.content), `Keep as note saves “${headword} (definition).md”`);
+        assert(editor() === note && !!layer(), 'Keeping a definition leaves the spread and the note in front');
+      }
+      key(window, 'Escape', 'Escape');
+      await closed();
+      await frame();
+      const neighbourDrift = Math.max(driftBetween(words(first), base1), driftBetween(words(second), base2));
+      assert(neighbourDrift < 0.01, `Escape returns both paragraphs exactly (drift ${neighbourDrift}px)`);
+
+      // ── A word in two pieces ("well-known") still flies letter by letter into the headword ──
+      const dashedPara = note.querySelectorAll('p')[3];
+      dashedPara.scrollIntoView({ block: 'center' }); await delay(150);
+      const hyphenWalker = document.createTreeWalker(dashedPara, NodeFilter.SHOW_TEXT);
+      let hyphenRect = null;
+      for (let node = hyphenWalker.nextNode(); node; node = hyphenWalker.nextNode()) {
+        const at = node.data.indexOf('well-known');
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at); range.setEnd(node, at + 'well-known'.length);
+        note.focus();
+        getSelection().removeAllRanges(); getSelection().addRange(range);
+        hyphenRect = [...range.getClientRects()].find(r => r.width > 0);
+        break;
+      }
+      await delay(200);
+      window.__textMotion = undefined;
+      assert(rightClick(hyphenRect.left + hyphenRect.width / 2, hyphenRect.top + 4).defaultPrevented, 'Right-clicking the selected “well-known” opens the spread');
+      await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'hyphen spread');
+      window.__textMotion = undefined;
+      action('Define').click();
+      await wait(() => document.querySelector('.text-motion-definition') && window.__textMotion, 'hyphen definition');
+      await delay(800);
+      if (document.querySelector('.text-motion-definition .empty')) metrics.hyphenSkipped = 'no definition for well-known';
+      else {
+        const flying = [...document.querySelectorAll('.text-motion-letter')].filter(l => !l.classList.contains('is-arriving'));
+        metrics.hyphenLetters = flying.map(l => l.textContent).join('');
+        assert(flying.length === 'well-known'.length, `Both pieces of “well-known” take flight (${flying.length} letters)`);
+        const shown = flying.filter(l => !l.classList.contains('is-fading')).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+        const headword = document.querySelector('.text-motion-definition .headword').textContent;
+        const letters = text => text.toLowerCase().replace(/[^\p{L}]/gu, '');
+        assert(letters(shown.map(l => l.textContent).join('')) === letters(headword), `The pieces spell the headword “${headword}”`);
+      }
+      key(window, 'Escape', 'Escape');
+      await closed();
+      first.scrollIntoView({ block: 'center' }); await delay(150);
+
+      // ── Bold lands every word on the edited text instead of fading ──
+      await openOn(words(first).find(w => w.text === 'lantern'));
+      window.__textMotionClose = undefined;
+      action('Bold').click();
+      await closed();
+      const landing = window.__textMotionClose;
+      metrics.boldLanding = landing;
+      assert(landing?.mode === 'settle', `Bold closes by landing the words on the edited text (${landing?.mode})`);
+      assert(landing.entering >= 1 && landing.leaving >= 1 && landing.matched >= base1.length + base2.length - 2,
+        `Only the bolded word changes; the rest land in place (${landing.matched} kept, ${landing.entering} new, ${landing.leaving} gone)`);
+      await wait(() => first.querySelector('strong')?.textContent === 'lantern', 'bold applied');
+      key(note, 'z', 'KeyZ', { metaKey: true });
+      await wait(() => !first.querySelector('strong'), 'undo bold');
+      await frame();
+      assert(driftBetween(words(first), base1) < 0.01, 'Undo restores the paragraph exactly');
+
+      // ── Resizing the column re-measures and retargets mid-spread ──
+      const scroller = note.closest('.block-editor');
+      const resizeOn = base1.filter(w => Math.abs(w.top - lines(base1)[1]) < 4 && /^[a-z]{4,}$/i.test(w.text))[1];
+      await openOn(resizeOn);
+      window.__textMotion = undefined;
+      scroller.style.width = '72%';
+      await wait(() => window.__textMotion, 'relayout settled');
+      assert(!!layer() && opening().classList.contains('is-visible'), 'Resizing the column keeps the spread open');
+      const narrow = opening().getBoundingClientRect();
+      const narrowCrowd = overlapping(narrow);
+      assert(!narrowCrowd.length, `No word overlaps the opening after the resize (${narrowCrowd.join(', ')})`);
+      const column = first.getBoundingClientRect();
+      const outside = [...document.querySelectorAll('.text-motion-word')].filter(span => {
+        const r = span.getBoundingClientRect();
+        return r.right > column.right + 2 || r.left < column.left - 2;
+      }).map(span => span.textContent);
+      metrics.resize = { columnWidth: column.width, outside };
+      assert(!outside.length, `Every word reflows into the narrower column (${outside.join(', ')})`);
+      window.__textMotion = undefined;
+      scroller.style.width = '';
+      await wait(() => window.__textMotion, 'relayout back');
+      key(window, 'Escape', 'Escape');
+      await closed();
+      await frame();
+      const resizeDrift = driftBetween(words(first), base1);
+      assert(resizeDrift < 0.01, `After resizing back, Escape returns the text exactly (drift ${resizeDrift}px)`);
+
+      // ── Printing closes the spread first ──
+      await openOn(words(first)[5]);
+      window.dispatchEvent(new Event('beforeprint'));
+      await closed();
+      assert(true, 'Printing closes the spread, so the note prints as written');
+
+      // ── Spread Motion: Off, Calm, Wild ──
+      const motionButtons = async () => {
+        footer('Settings');
+        return wait(() => { const found = [...document.querySelectorAll('.tab-content.is-active .settings-motion-btns button')]; return found.length ? found : null; }, 'Spread Motion setting');
+      };
+      let buttons = await motionButtons();
+      assert(buttons.map(b => b.textContent).join(',') === 'Off,Calm,Wild', 'Spread Motion offers Off, Calm, Wild');
+      buttons[2].click();
+      await toHome();
+      await openOn(words(first)[5]);
+      assert(window.__textMotion.motion === 'wild', 'Wild applies to the next spread');
+      key(window, 'Escape', 'Escape');
+      await closed();
+      buttons = await motionButtons();
+      buttons[0].click();
+      await toHome();
+      await openOn(words(first)[5]);
+      assert(window.__textMotion.motion === 'off' && window.__textMotion.frames === 0, 'Off places everything at once, with no frames of motion');
+      key(window, 'Escape', 'Escape');
+      await closed();
+      await frame();
+      assert(driftBetween(words(first), base1) < 0.01, 'Off returns the text exactly too');
+      buttons = await motionButtons();
+      buttons[1].click();
+      await toHome();
+
+      // ── Spelling & Grammar on the writer's subscription ──
+      footer('New Note');
+      const spellNote = await wait(() => editor() !== note && editor(), 'spelling note');
+      spellNote.focus();
+      document.execCommand('insertText', false, 'Their going to the stor tomorrow to buy bread.');
+      await delay(300);
+      const line = () => spellNote.querySelector('p');
+      const spellPanel = () => document.querySelector('.text-motion-spelling');
+      const check = async word => {
+        await openOn(words(line()).find(w => w.text === word));
+        action('Spelling').click();
+        await wait(spellPanel, 'spelling panel');
+        const send = [...spellPanel().querySelectorAll('button')].find(b => b.textContent === 'Send');
+        if (send) {
+          assert(new RegExp(`sentence around “${word}”`).test(spellPanel().textContent), 'Spelling says what it sends before the first request');
+          send.click();
+        }
+        for (let i = 0; i < 1200 && !spellPanel()?.querySelector('.flagged, [role="alert"]'); i++) await delay(100);
+        return spellPanel()?.querySelector('[role="alert"]')?.textContent ?? null;
+      };
+      const failure = await check('stor');
+      if (failure) metrics.spellingSkipped = failure;
+      else {
+        metrics.spellingSource = spellPanel().querySelector('.source').textContent;
+        const suggestions = [...spellPanel().querySelectorAll('.spelling-suggestions button')].map(b => b.textContent);
+        metrics.spelling = { suggestions, grammar: [...spellPanel().querySelectorAll('.grammar')].map(g => g.textContent) };
+        assert(/Haiku 5\.5/.test(metrics.spellingSource), `Haiku 5.5 checks spelling first (${metrics.spellingSource})`);
+        assert(spellPanel().querySelector('.flagged').textContent === 'stor' && suggestions.includes('store'), `Spelling flags “stor” and suggests “store” (${suggestions.join(', ')})`);
+        assert([...spellPanel().querySelectorAll('button')].some(b => b.textContent === 'Try Sonnet 5.5'), 'Spelling offers Sonnet 5.5 next');
+        window.__textMotionClose = undefined;
+        [...spellPanel().querySelectorAll('.spelling-suggestions button')].find(b => b.textContent === 'store').click();
+        await closed();
+        assert(line().textContent === 'Their going to the store tomorrow to buy bread.', 'Choosing a suggestion corrects the word');
+        assert(window.__textMotionClose?.mode === 'settle', 'The corrected word settles into the line');
+        const grammarFailure = await check('Their');
+        const fix = spellPanel()?.querySelector('.grammar button');
+        if (grammarFailure || !fix) metrics.grammarSkipped = grammarFailure ?? 'no grammar issue returned';
+        else {
+          const replacement = spellPanel().querySelector('.grammar ins').textContent;
+          metrics.grammarFix = spellPanel().querySelector('.grammar').textContent;
+          fix.click();
+          await closed();
+          assert(line().textContent.includes(replacement) && !line().textContent.startsWith('Their going'), `Fix applies the grammar correction (“${replacement}”)`);
+          key(spellNote, 'z', 'KeyZ', { metaKey: true });
+          await wait(() => line().textContent.startsWith('Their going'), 'undo grammar fix');
+          assert(true, 'Undo removes the grammar fix in one step');
+        }
+      }
+      await toHome();
+    };
+
     // `--only courier` (prepare-native-macos-smoke.py) runs just the Courier section.
     if (!only) {
       // ── First frame matches the page exactly ──────────────────────────
       window.__textMotion = undefined;
       const event = rightClick(target.left + target.width / 2, target.top + 4);
       assert(event.defaultPrevented, 'Right-clicking a word replaces the native menu');
-      const spans = [...document.querySelectorAll('.text-motion-word')];
-      assert(spans.length === before.length, `Motion layer holds every word (${spans.length})`);
+      // The target paragraph's words come first; the paragraphs below it follow.
+      const spans = [...document.querySelectorAll('.text-motion-word')].slice(0, before.length);
+      assert(spans.map(span => span.textContent).join(' ') === before.map(word => word.text).join(' '), `Motion layer holds every word (${spans.length})`);
       // WebKit reports the page's text rects snapped outward to whole pixels.
       // Snap each overlay glyph box the same way; every edge must agree.
       const errors = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -139,13 +383,18 @@ void (async () => {
       const aboveMoved = [...document.querySelectorAll('.text-motion-word')]
         .filter((span, index) => before[index].top < tops[1] - 2 && span.style.transform);
       assert(!aboveMoved.length, 'Lines above the word do not move');
-      const pushed = second.getBoundingClientRect().top - secondTop;
+      // The paragraphs below take part in the spread: the layer draws them where they move to.
+      const drawn = [...document.querySelectorAll('.text-motion-word')];
+      const secondDrawn = drawn[before.length]?.getBoundingClientRect();
+      const pushed = secondDrawn ? secondDrawn.top - secondTop : second.getBoundingClientRect().top - secondTop;
       metrics.secondParagraphShiftPx = pushed;
+      metrics.spreadParagraphs = window.__textMotion.paragraphs;
       assert(pushed > hole.height * 0.5, `Later paragraphs slide down (${pushed.toFixed(1)}px)`);
+      assert(drawn[before.length]?.textContent === 'A' || second.getBoundingClientRect().top > secondTop, 'The next paragraph moves with the spread');
       assert(third.getBoundingClientRect().top > second.getBoundingClientRect().top, 'Block order is preserved');
       const buttons = [...opening().querySelectorAll('button')];
       assert(buttons.map(b => b.textContent).join(',') === 'Copy,Paste,Define,Bold,Italic,Spelling', 'The opening offers Copy, Paste, Define, Bold, Italic, Spelling');
-      assert(!buttons[2].disabled && !buttons[4].disabled && buttons[5].disabled, 'Define and Italic are ready; Spelling is marked as coming next');
+      assert(buttons.every(b => !b.disabled), 'Every action is ready, Spelling included');
       const boxes = buttons.map(b => b.getBoundingClientRect());
       const sameRow = (a, b) => Math.abs(a.top - b.top) < 1;
       assert(sameRow(boxes[0], boxes[1]) && sameRow(boxes[1], boxes[2]) && sameRow(boxes[3], boxes[4]) && sameRow(boxes[4], boxes[5]) && boxes[3].top > boxes[0].bottom,
@@ -416,7 +665,14 @@ void (async () => {
       await closed();
     }
 
+    // ── Polish: keyboard entry, neighbours, landing after edits, resize, Spelling, motion ──
+    if (!only || only === 'polish') await polish();
+
     // ── Courier: an ASCII drop cap on every paragraph ─────────────────
+    if (!only || only === 'courier') {
+    const artOf = (block, kind = '') => block?.querySelector(`:scope > .ascii-art${kind}`) ?? null;
+    /** Type the way a person does: one key at a time. */
+    const typeKeys = async text => { for (const ch of text) { document.execCommand('insertText', false, ch); await delay(25); } };
     const noteTabId = [...document.querySelectorAll('.tab-bar [role="tab"]')].find(tab => tab.getAttribute('aria-selected') === 'true').id;
     // The tab bar re-renders, so look the note's tab up each time.
     const noteTab = { click: () => document.getElementById(noteTabId).click() };
@@ -427,53 +683,60 @@ void (async () => {
     noteTab.click();
     await wait(() => editor() === note && document.querySelector('.block-editor[data-writing-style="courier"]'), 'Courier style applied');
     const paragraphs = [...note.querySelectorAll(':scope > p')].filter(p => /\S/.test(p.textContent));
-    await wait(() => paragraphs.every(p => p.querySelector('.ascii-art')?.dataset.state === 'settled'), 'drop caps settled', 120);
+    await wait(() => paragraphs.every(p => artOf(p)?.dataset.state === 'settled'), 'drop caps settled', 120);
     assert(paragraphs.length === 4, `Every paragraph has an ASCII drop cap (${paragraphs.length})`);
-    // WebKit's range rects don't show the floated first letter, so check the cap
-    // against things that are measured reliably: the text after the float starts
-    // at the cap's right edge plus its margin, the cap sits at the paragraph's
-    // content corner, and it is as tall as the letter's line height.
-    const textNode = p => [...p.childNodes].find(n => n.nodeType === 3);
-    const charRect = (p, i) => { const r = document.createRange(); r.setStart(textNode(p), i); r.setEnd(textNode(p), i + 1); return r.getBoundingClientRect(); };
+    // The cap floats at the paragraph's content corner, the text after the
+    // (hidden) first letter starts at its right edge plus its margin, and it is
+    // about three lines tall.
+    const afterCap = p => {
+      const node = p.querySelector('.drop-cap-letter').nextSibling;
+      const r = document.createRange(); r.setStart(node, 0); r.setEnd(node, 1); return r.getBoundingClientRect();
+    };
     const capOffsets = paragraphs.map(p => {
-      const host = p.querySelector('.ascii-art').getBoundingClientRect(), outer = p.getBoundingClientRect();
-      const letter = getComputedStyle(p, '::first-letter'), block = getComputedStyle(p);
-      const after = charRect(p, 1);
+      const host = artOf(p).getBoundingClientRect(), outer = p.getBoundingClientRect();
+      const cap = getComputedStyle(artOf(p)), block = getComputedStyle(p);
       return Math.max(
-        Math.abs(host.right + parseFloat(letter.marginRight) - after.left),
-        Math.abs(host.left - (outer.left + parseFloat(block.paddingLeft))),
-        Math.abs(host.height - parseFloat(letter.lineHeight)));
+        Math.abs(host.right + parseFloat(cap.marginRight) - afterCap(p).left),
+        Math.abs(host.left - (outer.left + parseFloat(block.paddingLeft))));
     });
     metrics.courierCapOffsetPx = Math.max(...capOffsets);
-    assert(metrics.courierCapOffsetPx <= 1.5, `Each ASCII cap covers its floated first letter (worst ${metrics.courierCapOffsetPx.toFixed(2)}px)`);
-    const capLines = parseFloat(getComputedStyle(first, '::first-letter').lineHeight) / parseFloat(getComputedStyle(first).lineHeight);
+    assert(metrics.courierCapOffsetPx <= 1.5, `Each ASCII cap floats at its paragraph's start, with the text beside it (worst ${metrics.courierCapOffsetPx.toFixed(2)}px)`);
+    const capLines = artOf(first).getBoundingClientRect().height / parseFloat(getComputedStyle(first).lineHeight);
     metrics.courierCapLines = capLines;
     assert(capLines >= 2.5, `The drop cap is about three lines tall (${capLines.toFixed(2)})`);
-    const capBoxOf = p => p.querySelector('.ascii-art').getBoundingClientRect();
-    const firstCap = first.querySelector('.ascii-art canvas');
+    const capBoxOf = p => artOf(p).getBoundingClientRect();
+    const firstCap = artOf(first).querySelector('canvas');
     metrics.courierCapSize = [firstCap.width, firstCap.height];
     const inked = canvas => { const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++; return n; };
     assert(inked(firstCap) > 50, `The cap is drawn in ASCII (${inked(firstCap)} inked pixels)`);
-    assert(getComputedStyle(first, '::first-letter').color === 'rgba(0, 0, 0, 0)', 'The real first letter is transparent under the drawing');
+    const realLetter = first.querySelector('.drop-cap-letter');
+    assert(realLetter?.textContent === 'T' && getComputedStyle(realLetter).color === 'rgba(0, 0, 0, 0)' && realLetter.getBoundingClientRect().width < 1, 'The real first letter stays in the text, hidden behind the drawing');
     assert(first.textContent === prose, 'The drop cap adds nothing to the note text');
     try { await ipc('create_file', { path: `${notes.root}/courier-cap.txt` }); } catch { /* exists */ }
     await ipc('write_file', { path: `${notes.root}/courier-cap.txt`, content: firstCap.toDataURL('image/png') });
 
     // A new paragraph's cap assembles; the others keep theirs.
-    const before4 = paragraphs.map(p => p.querySelector('.ascii-art'));
+    const before4 = paragraphs.map(p => artOf(p));
     const fourthEnd = document.createRange(); fourthEnd.selectNodeContents(paragraphs[3]); fourthEnd.collapse(false);
     note.focus(); getSelection().removeAllRanges(); getSelection().addRange(fourthEnd);
     document.dispatchEvent(new Event('selectionchange')); await delay(80);
     key(note, 'Enter', 'Enter');
-    document.execCommand('insertText', false, 'Typewriter keys struck the page.');
-    const fifth = await wait(() => note.querySelectorAll(':scope > p')[4]?.querySelector('.ascii-art'), 'new paragraph cap');
-    assert(fifth.dataset.state === 'assembling' || !fifth.dataset.state, `A new paragraph's cap assembles (${fifth.dataset.state})`);
-    await wait(() => fifth.dataset.state === 'settled', 'new cap settled');
-    assert(paragraphs.every((p, i) => p.querySelector('.ascii-art') === before4[i]), 'Earlier caps are kept, not redrawn from scratch');
+    await typeKeys('T');
+    const fifth = await wait(() => artOf(note.querySelectorAll(':scope > p')[4]), 'new paragraph cap');
+    assert(fifth.dataset.state === 'assembling' || !fifth.dataset.state, `A new paragraph's cap assembles from its first letter (${fifth.dataset.state})`);
+    await typeKeys('ypewriter keys struck the page.');
+    await delay(100);
+    const typed = note.querySelectorAll(':scope > p')[4].textContent;
+    assert(typed === 'Typewriter keys struck the page.', `Typing a new paragraph key by key keeps every letter (“${typed}”)`);
+    assert(getComputedStyle(note.querySelectorAll(':scope > p')[4]).color !== 'rgba(0, 0, 0, 0)', 'The new paragraph’s words are visible beside its cap');
+    metrics.capReplacedWhileTyping = !fifth.isConnected;
+    await wait(() => artOf(note.querySelectorAll(':scope > p')[4])?.dataset.state === 'settled', 'new cap settled');
+    assert(paragraphs.every((p, i) => artOf(p) === before4[i]), 'Earlier caps are kept, not redrawn from scratch');
     key(note, 'z', 'KeyZ', { metaKey: true });
+    for (let i = 0; i < 40 && note.querySelectorAll(':scope > p').length > 4 && note.querySelectorAll(':scope > p')[4].textContent !== ''; i++) { key(note, 'z', 'KeyZ', { metaKey: true }); await delay(40); }
     await wait(() => note.querySelectorAll(':scope > p').length === 4 || note.querySelectorAll(':scope > p')[4]?.textContent === '', 'undo new paragraph');
     await frame(); await frame();
-    const afterUndo = [...note.querySelectorAll(':scope > p')].filter(p => /\S/.test(p.textContent)).map(p => p.querySelector('.ascii-art')?.dataset.state);
+    const afterUndo = [...note.querySelectorAll(':scope > p')].filter(p => /\S/.test(p.textContent)).map(p => artOf(p)?.dataset.state);
     metrics.courierCapsAfterUndo = afterUndo;
     assert(afterUndo.length === 4 && afterUndo.every(state => state !== 'assembling'), `Undo doesn't replay the drop caps (${afterUndo.join(',')})`);
 
@@ -485,7 +748,7 @@ void (async () => {
     // Type a line, then make it a heading with the toolbar's Heading level menu.
     const makeHeading = async (text, level) => {
       key(note, 'Enter', 'Enter');
-      document.execCommand('insertText', false, text);
+      await typeKeys(text);
       // Let the note's selection settle, as it would before a person reaches the menu.
       document.dispatchEvent(new Event('selectionchange')); await delay(200);
       const levelMenu = [...document.querySelectorAll('select[aria-label="Heading level"]')].find(menu => menu.offsetParent && !menu.disabled);
@@ -504,7 +767,7 @@ void (async () => {
       return heading;
     };
     const h1 = await makeHeading('Typewritten', 1);
-    const h1Art = await wait(() => h1.querySelector('.ascii-art.ascii-heading'), 'heading art');
+    const h1Art = await wait(() => artOf(h1, '.ascii-heading'), 'heading art');
     assert(getComputedStyle(h1).color === 'rgba(0, 0, 0, 0)' && h1.textContent === 'Typewritten', 'Heading 1 text stays in place, transparent, under its ASCII art');
     await wait(() => h1Art.dataset.state === 'settled', 'heading art settled');
     const headingBox = h => { const r = h.getBoundingClientRect(), st = getComputedStyle(h); return { left: r.left + parseFloat(st.paddingLeft), top: r.top + parseFloat(st.paddingTop), width: h.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight) }; };
@@ -513,8 +776,7 @@ void (async () => {
     const h1Ink = inked(h1Art.querySelector('canvas'));
     assert(h1Ink > 200, `Heading 1 is drawn in ASCII (${h1Ink} inked pixels)`);
     // Typing in a heading: only the new letters arrive, the rest stay put.
-    const artOf = h => h.querySelector('.ascii-art');
-    document.execCommand('insertText', false, ' Heading');
+    await typeKeys(' Heading');
     await wait(() => h1.textContent === 'Typewritten Heading', 'heading text extended');
     const typing = await wait(() => artOf(h1)?.dataset.state === 'assembling' && artOf(h1), 'typed letters arriving');
     const arrivingNow = Number(typing.dataset.arriving), inkNow = Number(typing.dataset.ink);
@@ -527,14 +789,14 @@ void (async () => {
     endOf(note.querySelectorAll(':scope > p')[2]); await delay(80);
     document.execCommand('insertText', false, ' More words.');
     await delay(120);
-    const capWhileTyping = note.querySelectorAll(':scope > p')[2].querySelector('.ascii-art');
+    const capWhileTyping = artOf(note.querySelectorAll(':scope > p')[2]);
     assert(capWhileTyping?.dataset.state === 'settled' && capWhileTyping.dataset.arriving === '0', `Typing in a paragraph leaves its drop cap settled (${capWhileTyping?.dataset.state}, ${capWhileTyping?.dataset.arriving} arriving)`);
     key(note, 'z', 'KeyZ', { metaKey: true });
     await wait(() => !note.querySelectorAll(':scope > p')[2].textContent.endsWith('More words.'), 'undo typing');
     endOf(h1); await delay(80);
 
     const h2 = await makeHeading('Second level', 2);
-    const h2Art = await wait(() => h2.querySelector('.ascii-art.ascii-heading'), 'heading 2 art');
+    const h2Art = await wait(() => artOf(h2, '.ascii-heading'), 'heading 2 art');
     await wait(() => h2Art.dataset.state === 'settled', 'heading 2 settled');
     assert(inked(h2Art.querySelector('canvas')) > 150 && getComputedStyle(h2).color === 'rgba(0, 0, 0, 0)', 'Heading 2 is drawn in ASCII');
     metrics.courierHeadings = { h1: [artOf(h1).querySelector('canvas').width, artOf(h1).querySelector('canvas').height, getComputedStyle(h1).fontSize], h2: getComputedStyle(h2).fontSize };
@@ -572,6 +834,32 @@ void (async () => {
     words(courierFirst).forEach((w, i) => { courierDrift = Math.max(courierDrift, Math.abs(w.left - courierBefore[i].left), Math.abs(w.top - courierBefore[i].top)); });
     assert(courierDrift < 0.01, `Courier: Escape returns every word exactly (drift ${courierDrift}px)`);
 
+    // Define on a paragraph's next-to-last line: the paragraph grows, and the
+    // next paragraph's ASCII cap moves down with its words.
+    const courierSecond = note.querySelectorAll(':scope > p')[1];
+    const secondWordsBefore = words(courierSecond);
+    const lastCourierLine = courierBefore.filter(w => Math.abs(w.top - courierLines.at(-2)) < 4 && /^[a-z]{5,}$/i.test(w.text));
+    const courierDefine = lastCourierLine[Math.floor(lastCourierLine.length / 2)];
+    window.__textMotion = undefined;
+    rightClick(courierDefine.left + courierDefine.width / 2, courierDefine.top + 4);
+    await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'courier define spread');
+    window.__textMotion = undefined;
+    [...opening().querySelectorAll('button')].find(b => b.textContent === 'Define').click();
+    await wait(() => document.querySelector('.text-motion-definition') && window.__textMotion, 'courier definition settled');
+    const secondArt = artOf(courierSecond);
+    const capShift = Number((secondArt.style.transform.match(/translateY\(([-\d.]+)px\)/) ?? [])[1] ?? 0);
+    const translateY = el => Number((el?.style.transform.match(/translate\([-\d.]+px, ([-\d.]+)px\)/) ?? [])[1] ?? 0);
+    const wordShift = translateY([...document.querySelectorAll('.text-motion-word')].find(span => span.textContent === 'second'));
+    metrics.courierNeighbourCap = { capShift, wordShift, paragraphs: window.__textMotion?.paragraphs };
+    if (!document.querySelector('.text-motion-definition .empty')) {
+      assert(capShift > 0 && Math.abs(capShift - wordShift) <= 1.5, `Courier: the next paragraph's ASCII cap moves with its words (${capShift.toFixed(1)}px, words ${wordShift.toFixed(1)}px)`);
+      assert(inked(secondArt.querySelector('canvas')) > 50, 'Courier: the moving cap stays drawn during the spread');
+    }
+    key(window, 'Escape', 'Escape');
+    await closed();
+    await frame();
+    assert(!secondArt.style.transform && Math.abs(words(courierSecond)[0].top - secondWordsBefore[0].top) < 0.01, 'Courier: the cap and its paragraph return exactly');
+
     // Back to None: the drop caps go away and the letters return to the line.
     footer('Settings');
     // Other settings (backgrounds) have a "None" too; use the writing-style group.
@@ -583,7 +871,8 @@ void (async () => {
     noteTab.click();
     await wait(() => editor() === note && document.querySelector('.block-editor[data-writing-style="none"]'), 'None style applied');
     await frame(); await frame();
-    assert(!note.querySelector('.ascii-art') && getComputedStyle(note.querySelector('p'), '::first-letter').float === 'none', 'Switching to None removes the drop caps');
+    assert(!note.querySelector('.ascii-art') && !note.querySelector('.drop-cap-letter'), 'Switching to None removes the drop caps and shows every letter');
+    }
 
     // ── Off a word the native menu is untouched ───────────────────────
     const rect = third.getBoundingClientRect();

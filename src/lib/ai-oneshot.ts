@@ -14,6 +14,24 @@ export const AI_PROVIDERS: Array<{ id: AiProvider; name: string; company: string
 export const isAiProvider = (value: unknown): value is AiProvider => AI_PROVIDERS.some(provider => provider.id === value);
 export const providerName = (provider: AiProvider) => AI_PROVIDERS.find(entry => entry.id === provider)?.name ?? provider;
 
+/** One step of a provider's ladder: cheapest and fastest first, each offered when the last falls short (Rephrase, Spelling). */
+export interface AiRung { label: string; short: string; model?: string; effort?: string }
+export const AI_LADDERS: Record<AiProvider, AiRung[]> = {
+  claude: [
+    { label: "Claude Haiku 5.5", short: "Haiku 5.5", model: "claude-haiku-5-5", effort: "low" },
+    { label: "Claude Sonnet 5.5", short: "Sonnet 5.5", model: "claude-sonnet-5-5", effort: "low" },
+    { label: "Claude Opus 5.5", short: "Opus 5.5", model: "claude-opus-5-5", effort: "low" },
+  ],
+  // Codex escalates its reasoning effort on the writer's default model.
+  codex: [
+    { label: "Codex · low effort", short: "low effort", effort: "low" },
+    { label: "Codex · medium effort", short: "medium effort", effort: "medium" },
+    { label: "Codex · high effort", short: "high effort", effort: "high" },
+  ],
+  // OpenCode's models are whatever the writer configured; it uses their default.
+  opencode: [{ label: "OpenCode", short: "OpenCode" }],
+};
+
 export interface OneShotRequest {
   requestId: string;
   provider: AiProvider;

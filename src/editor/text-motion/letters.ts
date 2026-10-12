@@ -20,22 +20,28 @@ export function graphemes(text: string): string[] {
 
 const fold = (letter: string) => letter.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-/** For each letter of `word`, the index of the headword letter it becomes, or -1. */
-export function matchLetters(word: string[], headword: string[]): number[] {
-  const a = word.map(fold);
-  const b = headword.map(fold);
+/**
+ * For each item of `a`, the index of the item of `b` it pairs with in a longest
+ * common subsequence under `same`, or -1.
+ */
+export function matchSequences<A, B>(a: readonly A[], b: readonly B[], same: (x: A, y: B) => boolean): number[] {
   // lengths[i][j]: LCS of a[i..] and b[j..].
   const lengths = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
-      lengths[i][j] = a[i] === b[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
+      lengths[i][j] = same(a[i], b[j]) ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
     }
   }
   const matched = new Array<number>(a.length).fill(-1);
   for (let i = 0, j = 0; i < a.length && j < b.length;) {
-    if (a[i] === b[j]) matched[i++] = j++;
+    if (same(a[i], b[j])) matched[i++] = j++;
     else if (lengths[i + 1][j] >= lengths[i][j + 1]) i++;
     else j++;
   }
   return matched;
+}
+
+/** For each letter of `word`, the index of the headword letter it becomes, or -1. */
+export function matchLetters(word: string[], headword: string[]): number[] {
+  return matchSequences(word.map(fold), headword.map(fold), (x, y) => x === y);
 }

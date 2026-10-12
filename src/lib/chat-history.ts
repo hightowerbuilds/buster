@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { EFFORTS, type AssistantEntry, type AssistantSnapshot } from "./assistant";
+import { isAiProvider } from "./ai-oneshot";
 
 export interface SavedChat extends AssistantSnapshot {
   id: string;
@@ -18,6 +19,8 @@ export const nativeChatHistory: ChatHistoryStorage = {
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === "object" && !Array.isArray(value);
 const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const id = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9-]{1,128}$/.test(value);
+/** A provider's session: OpenCode's use underscores ("ses_…"). */
+const sessionId = (value: unknown) => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 const invalid = (): never => { throw new Error("Saved chat history is invalid. The original file has been preserved."); };
 
 /** Validate the entire archive before publishing it or enabling saves. Pending actions are never replayed. */
@@ -32,7 +35,7 @@ export function readChatArchive(value: unknown): ChatArchive | null {
       || typeof chat.model !== "string" || !EFFORTS.includes(chat.effort) || typeof chat.draft !== "string"
       || typeof chat.inFlight !== "boolean"
       || !object(chat.usage) || ![chat.usage.input, chat.usage.output, chat.usage.cacheRead].every(finite)
-      || (chat.lastTurnMs !== null && !finite(chat.lastTurnMs)) || (chat.sessionId !== null && !id(chat.sessionId))
+      || (chat.lastTurnMs !== null && !finite(chat.lastTurnMs)) || (chat.sessionId !== null && !sessionId(chat.sessionId))
       || !Array.isArray(chat.entries)) return invalid();
     seen.add(chat.id);
     let interrupted = chat.inFlight;
@@ -62,6 +65,8 @@ export function readChatArchive(value: unknown): ChatArchive | null {
     const legacy = chat as Partial<Record<"lastProvider" | "localHistory", unknown>>;
     delete legacy.lastProvider; delete legacy.localHistory;
     if (chat.model.startsWith("ollama:")) chat.model = "";
+    // Chats saved before Codex and OpenCode joined the Assistant ran on Claude Code.
+    if (!isAiProvider(chat.provider)) chat.provider = "claude";
     if (interrupted) chat.entries.push({ id: crypto.randomUUID(), kind: "notice", tone: "info", text: "The previous response was interrupted. Send a message to continue; pending actions were cancelled." });
   }
   if (archive.chats.length && !seen.has(archive.activeId)) return invalid();

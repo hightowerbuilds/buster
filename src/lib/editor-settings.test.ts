@@ -27,6 +27,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     show_indent_guides: true,
     show_whitespace: false,
     ai_provider: "claude",
+    spread_motion: "calm",
     ...overrides,
   };
 }

@@ -49,15 +49,15 @@ export default function BlockEditor(props: {
   const spread = createSpreadMenu({
     tabId: props.tabId, engine, commands, view: () => view, scroller: () => scroller,
     aiProvider: () => isAiProvider(store.settings.ai_provider) ? store.settings.ai_provider : "claude",
-    reducedMotion,
-    setDecorations: next => {
+    motion: () => reducedMotion() ? "off" : store.settings.spread_motion === "wild" || store.settings.spread_motion === "off" ? store.settings.spread_motion : "calm",
+    setDecorations: (next, render = true) => {
       motionDecorations = next;
-      if (view && !view.isDestroyed) view.setProps({ decorations });
+      if (render && view && !view.isDestroyed) view.setProps({ decorations });
     },
   });
   const controller = createBlockEditor(engine, state => {
-    // An open spread's decorations describe the old document; close it before the view moves on.
-    if (view && motionDecorations !== DecorationSet.empty && !state.doc.eq(view.state.doc)) spread.documentChanged();
+    // An open spread's decorations describe the old document; move them onto the new one before the view does.
+    if (view && motionDecorations !== DecorationSet.empty && !state.doc.eq(view.state.doc)) spread.documentChanged(state.doc);
     view?.updateState(state);
   });
   const style = createMemo(() => {

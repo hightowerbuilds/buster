@@ -302,3 +302,45 @@ describe("assistant through Claude Code", () => {
     expect(assistant.state.width).toBe(300);
   });
 });
+
+describe("assistant through Codex and OpenCode", () => {
+  it("sends the chat's provider with an effort it accepts, and resumes its own session", async () => {
+    const { commands } = catalog();
+    const cc = fakeClaudeCode();
+    const assistant = createAssistant({ commands, transport: cc.transport, defaultProvider: "codex" });
+    assistant.setEffort("max");
+    await assistant.send("What is open?");
+    expect(cc.sent[0]).toMatchObject({ provider: "codex", effort: "high", resume: undefined });
+    cc.emit({ kind: "session", sessionId: "thread-1" });
+    cc.emit({ kind: "message_start" });
+    cc.emit({ kind: "text", text: "Two notes." });
+    cc.emit(done());
+    await assistant.send("And now?");
+    expect(cc.sent[1]).toMatchObject({ provider: "codex", resume: "thread-1" });
+    expect(assistant.snapshot().provider).toBe("codex");
+  });
+
+  it("switching provider starts a fresh session there and says so", async () => {
+    const { commands } = catalog();
+    const cc = fakeClaudeCode();
+    const assistant = createAssistant({ commands, transport: cc.transport });
+    await assistant.send("Hi");
+    cc.emit({ kind: "session", sessionId: "claude-session" });
+    cc.emit(done());
+    assistant.setProvider("opencode");
+    expect(cc.transport.reset).toHaveBeenCalled();
+    expect(assistant.state.entries[assistant.state.entries.length - 1]).toMatchObject({ kind: "notice", text: expect.stringContaining("OpenCode") });
+    await flush();
+    await assistant.send("Hello again");
+    expect(cc.sent[1]).toMatchObject({ provider: "opencode", resume: undefined, effort: undefined });
+  });
+
+  it("reports the provider's own sign-in state", async () => {
+    const { commands } = catalog();
+    const cc = fakeClaudeCode({ installed: true, loggedIn: false, version: null, authMethod: null, subscription: null, detail: "Not signed in. Run `codex login` in a terminal." });
+    const assistant = createAssistant({ commands, transport: cc.transport, defaultProvider: "codex" });
+    await assistant.refreshStatus();
+    expect(cc.transport.status).toHaveBeenCalledWith("codex");
+    expect(assistant.state).toMatchObject({ connection: "logged-out", connectionDetail: "Not signed in. Run `codex login` in a terminal." });
+  });
+});

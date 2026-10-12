@@ -104,6 +104,8 @@
 .as-send:disabled { background: var(--bg-surface1); color: var(--text-muted); cursor: default; }
 .as-stop { background: var(--text); }
 .as-usage { padding: 0 14px 8px; }
+.as-destination { color: var(--text-muted); font-size: 11px; line-height: 1.4; margin: 0; padding: 0 14px 6px; }
+.as-tool-shared { margin-left: 6px; color: var(--text-muted); font-size: 10.5px; }
 
 .assistant-sidebar :is(button, select, input, textarea, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .as-composer textarea:focus-visible { outline: none; }

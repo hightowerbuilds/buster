@@ -2,9 +2,12 @@
  * Courier writing style: text drawn in ASCII characters.
  *
  * Two kinds of art, one renderer:
- * - **Drop caps.** Every paragraph opens on a large first letter. CSS
- *   (`p::first-letter` under `[data-writing-style="courier"]`) makes the real
- *   letter large, floats it, and makes it transparent.
+ * - **Drop caps.** Every paragraph opens on a large first letter: the art
+ *   floats at the start of the paragraph, sized to the letter, and the real
+ *   letter stays in the text, transparent and practically zero-width (an inline
+ *   decoration). No `::first-letter` styling: in WebKit any `::first-letter`
+ *   rule breaks typing at the end of a paragraph's first line (each key
+ *   replaces the one before it).
  * - **Headings.** Heading 1 and Heading 2 text is transparent and drawn over in
  *   ASCII, character by character where WebKit laid it out.
  *
@@ -150,42 +153,18 @@ function textNodes(block: HTMLElement): Text[] {
   return nodes;
 }
 
+/** A drop cap is this many times the body text size, one line tall at that size. */
+const CAP_SCALE = 4.8;
+
 /**
- * The floated `::first-letter` box of `paragraph`, in viewport coordinates.
- * WebKit reports no rect for the floated letter itself, and its float is wider
- * than the glyph's advance (by about a character of the body text), so the
- * box is measured from what WebKit does report: it starts at the top-left of
- * the paragraph's content box, ends where the first character after the
- * letter begins (less the letter's right margin), and is as tall as the
- * letter's line height. With nothing after the letter, the advance is used.
- * Returns null when the letter didn't actually float.
+ * The size of `paragraph`'s drop cap: `letter` in bold at CAP_SCALE times the
+ * paragraph's font, one line tall. The art floats at the start of the
+ * paragraph at this size, and the lines beside it wrap around it.
  */
-export function dropCapBox(paragraph: HTMLElement, letter: string): DOMRect | null {
-  const cap = getComputedStyle(paragraph, "::first-letter");
-  if (cap.float === "none") return null;
-  const outer = paragraph.getBoundingClientRect();
-  const block = getComputedStyle(paragraph);
-  const height = px(cap.lineHeight) || px(cap.fontSize) * 1.2;
-  const left = outer.left + paragraph.clientLeft + px(block.paddingLeft) + px(cap.marginLeft);
-  const top = outer.top + paragraph.clientTop + px(block.paddingTop) + px(cap.marginTop);
-  let width = canvasMeasure(letter, `${cap.fontStyle} ${cap.fontWeight} ${cap.fontSize} ${cap.fontFamily}`);
-  const text = textNodes(paragraph)[0];
-  const after = text ? text.data.search(/\S/) + letter.length : -1;
-  if (text && after > 0 && after < text.data.length) {
-    const range = document.createRange();
-    range.setStart(text, after); range.setEnd(text, after + 1);
-    const next = Array.from(range.getClientRects()).find(rect => rect.width > 0 || rect.height > 0);
-    // Only the first line of text sits beside the letter's top.
-    if (next && next.top < top + height) {
-      // The computed style says "float" even when WebKit didn't float the
-      // letter (a paragraph that starts with preserved whitespace): then the
-      // next character sits where an ordinary letter would end, and there is
-      // no drop cap to draw.
-      if (next.left < left + width * 0.5) return null;
-      width = Math.max(width, next.left - px(cap.marginRight) - left);
-    }
-  }
-  return width > 0 && height > 0 ? new DOMRect(left, top, width, height) : null;
+export function capSize(paragraph: HTMLElement, letter: string): DOMRect {
+  const style = getComputedStyle(paragraph);
+  const size = px(style.fontSize) * CAP_SCALE;
+  return new DOMRect(0, 0, Math.ceil(canvasMeasure(letter, `700 ${size}px ${style.fontFamily}`)), Math.ceil(size));
 }
 
 /** A heading's content box, and each of its characters where WebKit drew it. */
@@ -225,7 +204,8 @@ function place(art: Art, box: DOMRect, now: number, source: string, raster: (col
   const block = art.host.parentElement!;
   const outer = block.getBoundingClientRect();
   const width = Math.round(box.width), height = Math.round(box.height);
-  Object.assign(art.host.style, {
+  // A drop cap floats in its paragraph at its own size; heading art lies over the heading.
+  Object.assign(art.host.style, art.kind === "cap" ? { width: `${width}px`, height: `${height}px` } : {
     left: `${box.left - outer.left - block.clientLeft}px`, top: `${box.top - outer.top - block.clientTop}px`,
     width: `${width}px`, height: `${height}px`,
   });
@@ -308,8 +288,8 @@ function layOut(art: Art, now: number, force: boolean): boolean | null {
   if (art.layout && !force && quick === art.quick) return false;
   art.quick = quick;
   if (art.kind === "cap") {
-    const box = dropCapBox(block, art.letter);
-    return box ? place(art, box, now, `cap:${art.letter}`, (columns, rows) => rasterizeLetter(art.letter, columns, rows), box.height / CAP_ROWS) : null;
+    const box = capSize(block, art.letter);
+    return place(art, box, now, `cap:${art.letter}`, (columns, rows) => rasterizeLetter(art.letter, columns, rows), box.height / CAP_ROWS);
   }
   const heading = headingGlyphs(block);
   if (!heading || !heading.glyphs.length) return null;
@@ -407,6 +387,11 @@ export function asciiArtDecorations(doc: ProseNode, seen: Set<string>): Decorati
     decorations.push(heading
       ? Decoration.widget(offset + 1, () => createArt("heading", "", assemble), { key: `ascii-heading:${node.attrs.level}`, side: -1, ignoreSelection: true })
       : Decoration.widget(offset + 1, () => createArt("cap", letter!, assemble), { key: `ascii-cap:${letter}`, side: -1, ignoreSelection: true }));
+    if (letter) {
+      // The real letter stays in the text but out of sight; the art stands in for it.
+      const start = offset + 1 + node.textContent.search(/\S/);
+      decorations.push(Decoration.inline(start, start + letter.length, { class: "drop-cap-letter" }));
+    }
   });
   while (seen.size > 4000) seen.delete(seen.values().next().value!);
   built.set(seen, { doc, decorations });

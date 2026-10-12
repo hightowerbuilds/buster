@@ -41,3 +41,16 @@ export function shapeDefinition(raw: string, fallbackHeadword: string): ShapedDe
     .filter(Boolean);
   return { headword, pronunciation, senses: senses.length ? senses : [body || text] };
 }
+
+/** A definition kept as a note: the headword as its title, then pronunciation, senses, and source. */
+export function definitionNote(shaped: ShapedDefinition, source: string): string {
+  const lines = [`# ${shaped.headword}`, ""];
+  if (shaped.pronunciation) lines.push(`*${shaped.pronunciation}*`, "");
+  for (const sense of shaped.senses) {
+    // A one-word sense is a label ("noun", "verb"): it heads the senses after it.
+    if (!/\s/.test(sense)) lines.push(`*${sense}*`, "");
+    else lines.push(`- ${sense}`, "");
+  }
+  lines.push(`— ${source}`, "");
+  return lines.join("\n");
+}

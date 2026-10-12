@@ -3,8 +3,9 @@ import type { EditorEngine } from "../editor/engine";
 import { orderPositions } from "../editor/engine";
 import { captureSelection, snapshotSchema, type SelectionTarget } from "./selection-commands";
 import { CommandFailure, type FeatureCommands, type CommandSchema } from "./feature-commands";
-import { REPHRASE_INSTRUCTION, REPHRASE_LADDERS, REPHRASE_MAX_CHARS, REPHRASE_SCHEMA, rephrasingsFrom } from "./rephrase";
-import { AI_PROVIDERS, isAiProvider, type AiProvider, type OneShotReply, type OneShotRequest } from "./ai-oneshot";
+import { REPHRASE_INSTRUCTION, REPHRASE_MAX_CHARS, REPHRASE_SCHEMA, rephrasingsFrom } from "./rephrase";
+import { SPELLING_INSTRUCTION, SPELLING_SCHEMA, markedSentence, sentenceAround, spellingFrom } from "./spelling";
+import { AI_LADDERS, AI_PROVIDERS, isAiProvider, type AiProvider, type OneShotReply, type OneShotRequest } from "./ai-oneshot";
 
 export interface WritingReview {
   id: string; tabId: string; kind: "lookup" | "ai"; target: SelectionTarget;
@@ -57,50 +58,80 @@ export function createWritingReview(deps: WritingReviewDeps) {
     const result = await deps.lookup(target.text);
     return { query: target.text.trim(), definition: result.definition, source: result.source };
   }
-  interface Rephrasing {
+  /** A one-shot model request running in the background: Rephrase or Spelling. */
+  interface AiJob {
+    kind: "rephrase" | "spelling";
     status: "running" | "ready" | "failed" | "canceled";
-    provider: AiProvider; rung: number; label: string; servedBy?: string; options?: string[]; error?: { code: string; message: string };
+    provider: AiProvider; rung: number; label: string; servedBy?: string; result?: Record<string, unknown>; error?: { code: string; message: string };
     controller: AbortController;
   }
-  const rephrasings = new Map<string, Rephrasing>();
+  const jobs = new Map<string, AiJob>();
   /**
-   * Ask the writer's AI CLI, on their subscription, for three rephrasings of a
-   * captured passage without opening a tab. Sends only the passage. Returns at
-   * once — the command queue must not wait on a model — and runs in the
-   * background; `readRephrase` reports the result. A reply with nothing usable
-   * fails with UNUSABLE, so the caller can try the next rung of the ladder.
+   * Start asking the writer's AI CLI, on their subscription, at `rung` of the
+   * provider's ladder. Returns at once — the command queue must not wait on a
+   * model — and runs in the background; `readJob` reports the result. A reply
+   * `parse` rejects fails with UNUSABLE, so the caller can try the next rung.
    */
-  function rephrase(target: SelectionTarget, provider: AiProvider, rung: number, requestId: string) {
-    validateTarget(target, "ai");
-    if (!target.text.trim() || target.text.length > REPHRASE_MAX_CHARS)
-      fail("INVALID_ARGUMENTS", `Rephrase works on up to ${REPHRASE_MAX_CHARS.toLocaleString()} characters of text.`);
-    if (!isAiProvider(provider)) fail("INVALID_ARGUMENTS", "Rephrase runs on Claude, Codex, or OpenCode.");
-    const step = REPHRASE_LADDERS[provider][rung] ?? fail("INVALID_ARGUMENTS", `That provider has ${REPHRASE_LADDERS[provider].length} step(s).`);
-    if (rephrasings.has(requestId)) fail("BUSY", "That rephrase was already started.");
+  function startJob(kind: AiJob["kind"], requestId: string, provider: AiProvider, rung: number,
+    request: { system: string; text: string; schema: Record<string, unknown> }, parse: (output: unknown) => Record<string, unknown>) {
+    if (!isAiProvider(provider)) fail("INVALID_ARGUMENTS", "This runs on Claude, Codex, or OpenCode.");
+    const step = AI_LADDERS[provider][rung] ?? fail("INVALID_ARGUMENTS", `That provider has ${AI_LADDERS[provider].length} step(s).`);
+    if (jobs.has(requestId)) fail("BUSY", "That request was already started.");
     // Keep a handful of finished results for late readers; drop the oldest.
-    for (const [id, item] of rephrasings) if (rephrasings.size >= 16 && item.status !== "running") rephrasings.delete(id);
-    const item: Rephrasing = { status: "running", provider, rung, label: step.label, controller: new AbortController() };
-    rephrasings.set(requestId, item);
-    const settle = (update: Partial<Rephrasing>) => { if (item.status === "running") Object.assign(item, update); };
-    void deps.oneShot({ requestId, provider, model: step.model, effort: step.effort, system: REPHRASE_INSTRUCTION, text: target.text, schema: REPHRASE_SCHEMA }, item.controller.signal)
+    for (const [id, item] of jobs) if (jobs.size >= 16 && item.status !== "running") jobs.delete(id);
+    const item: AiJob = { kind, status: "running", provider, rung, label: step.label, controller: new AbortController() };
+    jobs.set(requestId, item);
+    const settle = (update: Partial<AiJob>) => { if (item.status === "running") Object.assign(item, update); };
+    void deps.oneShot({ requestId, provider, model: step.model, effort: step.effort, ...request }, item.controller.signal)
       .then(reply => {
-        try { settle({ status: "ready", options: rephrasingsFrom(reply.output, target.text), servedBy: reply.model ?? step.model ?? step.label }); }
+        try { settle({ status: "ready", result: parse(reply.output), servedBy: reply.model ?? step.model ?? step.label }); }
         catch (error) { settle({ status: "failed", error: { code: "UNUSABLE", message: error instanceof Error ? error.message : String(error) } }); }
       })
       .catch(error => settle({ status: "failed", error: { code: "UNAVAILABLE", message: error instanceof Error ? error.message : String(error) } }));
     return { requestId, status: item.status, label: step.label };
   }
-  function readRephrase(requestId: string) {
-    const item = rephrasings.get(requestId) ?? fail("NOT_FOUND", "No rephrase with that ID is running or recent.");
-    const { controller: _controller, ...state } = item;
-    return { requestId, ...state };
+  function readJob(kind: AiJob["kind"], requestId: string) {
+    const item = jobs.get(requestId);
+    if (!item || item.kind !== kind) return fail("NOT_FOUND", `No ${kind} request with that ID is running or recent.`);
+    const { controller: _controller, kind: _kind, result, ...state } = item;
+    return { requestId, ...state, ...result };
   }
-  function cancelRephrase(requestId: string) {
-    const item = rephrasings.get(requestId);
-    if (!item || item.status !== "running") return { canceled: false };
+  function cancelJob(kind: AiJob["kind"], requestId: string) {
+    const item = jobs.get(requestId);
+    if (!item || item.kind !== kind || item.status !== "running") return { canceled: false };
     item.status = "canceled";
     item.controller.abort();
     return { canceled: true };
+  }
+  /** Three rephrasings of a captured passage, without opening a tab. Sends only the passage. */
+  function rephrase(target: SelectionTarget, provider: AiProvider, rung: number, requestId: string) {
+    validateTarget(target, "ai");
+    if (!target.text.trim() || target.text.length > REPHRASE_MAX_CHARS)
+      fail("INVALID_ARGUMENTS", `Rephrase works on up to ${REPHRASE_MAX_CHARS.toLocaleString()} characters of text.`);
+    return startJob("rephrase", requestId, provider, rung, { system: REPHRASE_INSTRUCTION, text: target.text, schema: REPHRASE_SCHEMA },
+      output => ({ options: rephrasingsFrom(output, target.text) }));
+  }
+  /**
+   * Check one captured word, in its sentence, for spelling and grammar. Sends
+   * only that sentence. Grammar fixes come back with a `range` in the same
+   * revision, to apply with `selection set` then `selection replace`.
+   */
+  function spelling(target: SelectionTarget, provider: AiProvider, rung: number, requestId: string) {
+    validateTarget(target, "ai");
+    const word = target.text;
+    if (!word.trim() || /\s/.test(word) || word.length > 64 || target.range.anchor.line !== target.range.head.line)
+      fail("INVALID_ARGUMENTS", "Spelling checks one word at a time.");
+    const [from, to] = orderPositions(target.range.anchor, target.range.head);
+    const line = from.line;
+    const context = sentenceAround(deps.engine(target.tabId)!.getLine(line), from.col, to.col);
+    return startJob("spelling", requestId, provider, rung, { system: SPELLING_INSTRUCTION, text: markedSentence(context, word), schema: SPELLING_SCHEMA }, output => {
+      const checked = spellingFrom(output, word, context);
+      return {
+        word, revision: target.revision, misspelled: checked.misspelled, suggestions: checked.suggestions,
+        grammar: checked.grammar.map(({ at, ...issue }) => ({ ...issue,
+          range: { anchor: { line, col: context.start + at }, head: { line, col: context.start + at + issue.excerpt.length } } })),
+      };
+    });
   }
   function start(target: SelectionTarget, kind: "lookup" | "ai") {
     validateTarget(target, kind);
@@ -198,10 +229,10 @@ export function createWritingReview(deps: WritingReviewDeps) {
   }
   function dispose() {
     for (const controller of pending.values()) controller.abort();
-    for (const item of rephrasings.values()) item.controller.abort();
-    pending.clear(); rephrasings.clear();
+    for (const item of jobs.values()) item.controller.abort();
+    pending.clear(); jobs.clear();
   }
-  return { reviews, start, define, rephrase, readRephrase, cancelRephrase, generate, cancel, apply, returnToSource, stale, reconcile, discard, dispose };
+  return { reviews, start, define, rephrase, spelling, readJob, cancelJob, generate, cancel, apply, returnToSource, stale, reconcile, discard, dispose };
 }
 export type WritingReviewService = ReturnType<typeof createWritingReview>;
 
@@ -219,8 +250,14 @@ export function registerWritingReviewCommands(service: FeatureCommands, review: 
     obj({ target: snapshotSchema, provider: { type: "string", enum: AI_PROVIDERS.map(entry => entry.id) }, rung: { type: "number" }, requestId: string }),
     args => review.rephrase(args.target, args.provider, args.rung, args.requestId), "read");
   add("selection rephrase read", "Read a rephrase request: status running, ready (with options and the model that served them), failed (with error code UNUSABLE or UNAVAILABLE), or canceled.",
-    obj({ requestId: string }), args => review.readRephrase(args.requestId), "read");
-  add("selection rephrase cancel", "Stop a running rephrase request. The note is unchanged.", obj({ requestId: string }), args => review.cancelRephrase(args.requestId), "read");
+    obj({ requestId: string }), args => review.readJob("rephrase", args.requestId), "read");
+  add("selection rephrase cancel", "Stop a running rephrase request. The note is unchanged.", obj({ requestId: string }), args => review.cancelJob("rephrase", args.requestId), "read");
+  add("selection spelling", "Start checking one captured word for spelling, and its sentence for grammar, with the writer's AI CLI (claude, codex, or opencode, on their subscription). Sends only that sentence, with the word marked. Returns at once; poll selection spelling read. Rungs climb as for selection rephrase. Apply a suggestion with selection replace on the word; apply a grammar fix with selection set on its range (in the returned revision), then selection replace.",
+    obj({ target: snapshotSchema, provider: { type: "string", enum: AI_PROVIDERS.map(entry => entry.id) }, rung: { type: "number" }, requestId: string }),
+    args => review.spelling(args.target, args.provider, args.rung, args.requestId), "read");
+  add("selection spelling read", "Read a spelling request: status running, ready (with misspelled, suggestions best first, grammar issues each with excerpt, replacement, explanation and range, and the model that served them), failed (UNUSABLE or UNAVAILABLE), or canceled.",
+    obj({ requestId: string }), args => review.readJob("spelling", args.requestId), "read");
+  add("selection spelling cancel", "Stop a running spelling request. The note is unchanged.", obj({ requestId: string }), args => review.cancelJob("spelling", args.requestId), "read");
   add("selection ai", "Open an AI review tab for a captured selection. Does not send text until review generate is invoked.", snapshotSchema, target => review.start(target, "ai"));
   add("review generate", "Send only the captured passage and instruction to the writer's AI CLI (claude, codex, or opencode) on their subscription, using its default model. Returns immediately; inspect review read for progress.",
     obj({ reviewId: string, provider: { type: "string", enum: AI_PROVIDERS.map(entry => entry.id) }, instruction: string }),

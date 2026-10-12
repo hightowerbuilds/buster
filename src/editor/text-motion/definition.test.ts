@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shapeDefinition } from "./definition";
+import { definitionNote, shapeDefinition } from "./definition";
 
 describe("shapeDefinition", () => {
   it("splits headword, pronunciation, and senses and leaves out etymology", () => {
@@ -25,5 +25,12 @@ describe("shapeDefinition", () => {
 
   it("falls back to the selected word and raw text for unfamiliar formats", () => {
     expect(shapeDefinition("A plain gloss with no pipes.", "gloss")).toEqual({ headword: "gloss", pronunciation: "", senses: ["A plain gloss with no pipes."] });
+  });
+});
+
+describe("definitionNote", () => {
+  it("keeps the headword, pronunciation, labels, senses, and source", () => {
+    expect(definitionNote({ headword: "lantern", pronunciation: "| ˈlan(t)ərn |", senses: ["noun", "a lamp with a transparent case.", "the light chamber of a lighthouse."] }, "New Oxford American Dictionary"))
+      .toBe("# lantern\n\n*| ˈlan(t)ərn |*\n\n*noun*\n\n- a lamp with a transparent case.\n\n- the light chamber of a lighthouse.\n\n— New Oxford American Dictionary\n");
   });
 });

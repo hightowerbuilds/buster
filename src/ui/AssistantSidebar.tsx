@@ -1,18 +1,26 @@
 import { For, Match, Show, Switch, createEffect, createSignal, on, onCleanup, onMount, type JSX } from "solid-js";
 import { useBuster } from "../lib/buster-context";
-import { ASSISTANT_MODELS, EFFORTS, formatElapsed, supportsEffort, type AssistantEntry, type Effort } from "../lib/assistant";
+import { assistantModels, cliName, effortsFor, formatElapsed, type AssistantEntry, type Effort } from "../lib/assistant";
+import { AI_PROVIDERS, providerName, type AiProvider } from "../lib/ai-oneshot";
 import { diffWordsWithSpace } from "diff";
 import ShaderPreview from "./ShaderPreview";
 import "../styles/assistant.css";
 
-const CONNECTION = {
-  unknown: { tone: "idle", label: "Checking Claude Code" },
-  checking: { tone: "idle", label: "Checking Claude Code…" },
-  missing: { tone: "bad", label: "Claude Code is not installed. Click to check again." },
-  "logged-out": { tone: "bad", label: "Claude Code is not signed in. Click to check again." },
-  ready: { tone: "good", label: "Connected through Claude Code" },
-  error: { tone: "bad", label: "Could not reach Claude Code. Click to check again." },
-} as const;
+const CONNECTION = (cli: string) => ({
+  unknown: { tone: "idle", label: `Checking ${cli}` },
+  checking: { tone: "idle", label: `Checking ${cli}…` },
+  missing: { tone: "bad", label: `${cli} is not installed. Click to check again.` },
+  "logged-out": { tone: "bad", label: `${cli} is not signed in. Click to check again.` },
+  ready: { tone: "good", label: `Connected through ${cli}` },
+  error: { tone: "bad", label: `Could not reach ${cli}. Click to check again.` },
+}) as const;
+/** How to sign in, per CLI. */
+const SIGN_IN: Record<AiProvider, JSX.Element> = {
+  claude: <>In a terminal, run <code>claude</code> and sign in with your Claude account, then check again.</>,
+  codex: <>In a terminal, run <code>codex login</code> and sign in with your ChatGPT account, then check again.</>,
+  opencode: <>In a terminal, run <code>opencode auth login</code>, then check again.</>,
+};
+const COMPANY: Record<AiProvider, string> = { claude: "Anthropic", codex: "OpenAI", opencode: "your OpenCode provider" };
 
 const TOOL_STATUS = { running: "running", awaiting: "needs approval", done: "done", failed: "failed", denied: "declined", cancelled: "cancelled" } as const;
 const EFFORT_LABEL: Record<Effort, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
@@ -122,7 +130,7 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
 
   const needsSetup = () => state.connection === "missing" || state.connection === "logged-out";
   const canSend = () => state.ready && !state.switching && !state.running && !!draft().trim() && !needsSetup();
-  const connection = () => CONNECTION[state.connection];
+  const connection = () => CONNECTION(cliName(state.provider))[state.connection];
 
   function submit(event?: Event) {
     event?.preventDefault();
@@ -166,7 +174,7 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
           <Show when={e().thinking}>
             <details class="as-thinking"><summary>{e().streaming && !e().text ? "Thinking…" : "Thought"}</summary><p>{e().thinking}</p></details>
           </Show>
-          <Show when={e().text} fallback={<Show when={e().streaming && !e().thinking}><span class="as-pending" aria-label="Waiting for Claude" /></Show>}>
+          <Show when={e().text} fallback={<Show when={e().streaming && !e().thinking}><span class="as-pending" aria-label={`Waiting for ${providerName(state.provider)}`} /></Show>}>
             <p class="as-text">{e().text}</p>
           </Show>
         </div>
@@ -174,7 +182,10 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
       <Match when={entry.kind === "tool" && entry}>{e =>
         <Show when={e().status === "awaiting"} fallback={
           <details class={`as-tool as-tool-${e().status}`}>
-            <summary><span class="as-tool-name">{e().command}</span><span class="as-tool-status">{TOOL_STATUS[e().status]}</span></summary>
+            <summary><span class="as-tool-name">{e().command}</span><span class="as-tool-status">{TOOL_STATUS[e().status]}</span>
+              {/* What a read returned went to the model: say so. */}
+              <Show when={e().effect === "read" && e().status === "done"}><span class="as-tool-shared">sent to {providerName(state.provider)}</span></Show>
+            </summary>
             <Show when={isEdit(e().command)} fallback={<pre>{pretty(e().args)}</pre>}><EditPreview args={e().args} /></Show>
             <Show when={e().result}><pre>{prettyResult(e().result)}</pre></Show>
           </details>
@@ -243,7 +254,7 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
             <For each={visibleChats()} fallback={<li class="as-hint">No matching chats.</li>}>{chat => <li class="as-chat-row" classList={{ "as-chat-active": state.activeId === chat.id }}>
               <button class="as-chat-pick" aria-current={state.activeId === chat.id ? "true" : undefined} disabled={state.switching || !state.ready} onClick={() => void switchChat(chat.id)}>
                 <strong>{chat.title}</strong><span>{chat.preview}</span>
-                <small>{chat.running ? "Replying…" : new Date(chat.updatedAt).toLocaleDateString()} · {chat.model || "Default model"}</small>
+                <small>{chat.running ? "Replying…" : new Date(chat.updatedAt).toLocaleDateString()} · {providerName(chat.provider)} · {chat.model || "Default model"}</small>
               </button>
               <div class="as-chat-actions">
                 <button class="as-button" disabled={state.switching} aria-label={`Rename chat ${chat.title}`} onClick={() => { setRenaming(chat.id); setChatTitle(chat.title); setDeleting(null); }}>Rename</button>
@@ -278,7 +289,7 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
       <Show when={needsSetup() || state.connection === "error"}>
         <div class="as-setup" role="alert">
           <p>{state.connectionDetail || connection().label}</p>
-          <Show when={state.connection === "logged-out"}><p class="as-hint">In a terminal, run <code>claude</code> and sign in with your Claude account, then check again.</p></Show>
+          <Show when={state.connection === "logged-out"}><p class="as-hint">{SIGN_IN[state.provider]}</p></Show>
           <button class="as-button" onClick={() => void assistant.refreshStatus()}>Check again</button>
         </div>
       </Show>
@@ -314,20 +325,29 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
         </div>
         <div class="as-composer-bar">
           <span class="as-picker">
+            <select class="as-select" aria-label="Provider" title="Which AI answers, through its command-line tool and your subscription" value={state.provider}
+              disabled={state.running || !state.ready || state.switching}
+              onChange={e => assistant.setProvider(e.currentTarget.value as AiProvider)}>
+              <For each={AI_PROVIDERS}>{p => <option value={p.id}>{p.name}</option>}</For>
+            </select>
+          </span>
+          <span class="as-picker">
             <select class="as-select" aria-label="Model" title="Model" value={state.model} disabled={state.running || !state.ready || state.switching}
               onFocus={() => { if (!state.running) void assistant.refreshStatus(); }}
               onChange={e => assistant.setModel(e.currentTarget.value)}>
-              <For each={ASSISTANT_MODELS}>{m => <option value={m.id}>{m.label}</option>}</For>
-              <Show when={!ASSISTANT_MODELS.some(m => m.id === state.model)}>
+              <For each={assistantModels(state.provider)}>{m => <option value={m.id}>{m.label}</option>}</For>
+              <Show when={!assistantModels(state.provider).some(m => m.id === state.model)}>
                 <option value={state.model}>{state.model}</option>
               </Show>
             </select>
           </span>
           <span class="as-picker">
-            <select class="as-select" aria-label="Effort" title={supportsEffort(state.model) ? "Effort: how much Claude thinks before answering" : "This model has no effort control"}
-              value={state.effort} disabled={state.running || !state.ready || state.switching || !supportsEffort(state.model)}
+            <select class="as-select" aria-label="Effort"
+              title={effortsFor(state.provider, state.model).length ? "Effort: how much the model thinks before answering" : "This model has no effort control"}
+              value={effortsFor(state.provider, state.model).includes(state.effort) ? state.effort : effortsFor(state.provider, state.model).slice(-1)[0] ?? state.effort}
+              disabled={state.running || !state.ready || state.switching || !effortsFor(state.provider, state.model).length}
               onChange={e => assistant.setEffort(e.currentTarget.value as Effort)}>
-              <For each={EFFORTS}>{effort => <option value={effort}>{EFFORT_LABEL[effort]}</option>}</For>
+              <For each={effortsFor(state.provider, state.model).length ? effortsFor(state.provider, state.model) : [state.effort]}>{effort => <option value={effort}>{EFFORT_LABEL[effort]}</option>}</For>
             </select>
           </span>
           <span class="as-spacer" />
@@ -338,6 +358,8 @@ export default function AssistantSidebar(props: { onClose: () => void }) {
           </Show>
         </div>
       </form>
+      {/* What leaves the Mac, and where to. */}
+      <p class="as-destination">Your messages go to {COMPANY[state.provider]} through {cliName(state.provider)} on your subscription. Notes are shared only through the actions listed in the chat.</p>
       <Show when={state.usage.input || state.usage.output}>
         <div class="as-usage">{state.usage.input.toLocaleString()} in · {state.usage.output.toLocaleString()} out · {state.usage.cacheRead.toLocaleString()} cached tokens</div>
       </Show>

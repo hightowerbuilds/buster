@@ -2,7 +2,7 @@
  * Spread menu — right-click a word or a selected phrase in a note and the text
  * parts around it, holding its actions in the opening. Some actions grow the
  * opening into a panel: Define (the word's own letters fly out to spell the
- * headword), and for phrases Search, Count, and Rephrase. See
+ * headword) and Spelling, and for phrases Search, Count, and Rephrase. See
  * growth/phases/text-motion.md.
  */
 
@@ -10,18 +10,18 @@ import { For, Match, Show, Switch, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { TextSelection } from "prosemirror-state";
 import type { DecorationSet, EditorView } from "prosemirror-view";
+import type { Node as PMNode } from "prosemirror-model";
 import { layout, prepare } from "@chenglou/pretext";
-import type { EditorEngine } from "./engine";
+import type { EditorEngine, Selection } from "./engine";
 import type { FeatureCommands } from "../lib/feature-commands";
 import { captureSelection, type SelectionTarget } from "../lib/selection-commands";
-import { showError } from "../lib/notify";
+import { showError, showSuccess } from "../lib/notify";
 import { wordSelectionBounds } from "./word-selection";
-import { REPHRASE_LADDERS, type RephraseRung } from "../lib/rephrase";
-import { providerName, type AiProvider } from "../lib/ai-oneshot";
+import { AI_LADDERS, providerName, type AiProvider, type AiRung } from "../lib/ai-oneshot";
 import { canvasMeasure } from "./text-motion/flow";
-import { shapeDefinition, type ShapedDefinition } from "./text-motion/definition";
+import { definitionNote, shapeDefinition, type ShapedDefinition } from "./text-motion/definition";
 import { formatDuration, passageStats, wordUses, type PassageStats, type WordUse } from "./text-motion/stats";
-import { openSpread, type SpreadHandle } from "./text-motion/spread";
+import { openSpread, type MotionIntensity, type SpreadHandle } from "./text-motion/spread";
 import "./TextMotion.css";
 
 export interface SpreadMenuDeps {
@@ -30,9 +30,10 @@ export interface SpreadMenuDeps {
   commands: FeatureCommands;
   view: () => EditorView | undefined;
   scroller: () => HTMLElement;
-  reducedMotion: () => boolean;
-  setDecorations(decorations: DecorationSet): void;
-  /** The writer's AI provider (Settings › AI), used by Rephrase. */
+  /** Off when the OS or the note's appearance asks for reduced motion; otherwise Settings › Spread Motion. */
+  motion: () => MotionIntensity;
+  setDecorations(decorations: DecorationSet, render?: boolean): void;
+  /** The writer's AI provider (Settings › AI), used by Rephrase and Spelling. */
   aiProvider(): AiProvider;
 }
 
@@ -45,7 +46,8 @@ type Panel =
   | { kind: "definition"; definition: Definition }
   | { kind: "count"; stats: PassageStats; uses: WordUse[] }
   | { kind: "search"; result: SearchResult }
-  | { kind: "rephrase" };
+  | { kind: "rephrase" }
+  | { kind: "spelling" };
 interface SpreadAction { label: string; pending?: string; run?: (target: SelectionTarget) => Promise<Outcome>; panel?: () => Promise<Panel> }
 
 /** The callbacks a panel uses to talk back to the spread. */
@@ -54,19 +56,27 @@ interface PanelHost {
   thisTab: string;
   done(outcome: Outcome): void;
   openMatch(note: SearchNote, query: string): void;
-  rephrase: RephraseHost;
+  /** Keep a definition as a new note in the Notes folder; resolves to its path. */
+  keep(name: string, text: string): Promise<string>;
+  ai: AiHost;
 }
-interface RephraseHost {
+type AiKind = "rephrase" | "spelling";
+interface AiHost {
   provider: AiProvider;
-  ladder: RephraseRung[];
-  /** Ask once per session, per provider, before the first passage leaves the Mac. */
+  ladder: AiRung[];
+  /** Ask once per session, per provider, before the first text leaves the Mac. */
   needsConsent(): boolean;
   /** Ask at `rung` of the provider's ladder; rejects with `code` UNUSABLE when the reply had nothing usable. */
-  request(rung: number): Promise<{ options: string[] }>;
+  request(kind: AiKind, rung: number): Promise<Record<string, unknown>>;
+  /** Replace the spread's word or phrase. */
   apply(text: string): Promise<void>;
+  /** Replace `range`, valid in note revision `revision`, as one undoable edit. */
+  applyAt(revision: number, range: Selection, text: string): Promise<void>;
   /** Grow the opening to fit `height` px of panel content. */
   fit(height: number): void;
 }
+interface GrammarIssue { excerpt: string; replacement: string; explanation: string; range: Selection }
+interface SpellingCheck { word: string; revision: number; misspelled: boolean; suggestions: string[]; grammar: GrammarIssue[] }
 
 const PAD = 14;
 /** Columns of the action grid; keep in step with `.text-motion-menu` in TextMotion.css. */
@@ -79,8 +89,8 @@ const MAX_DEFINE_ROWS = 11;
 const PANEL_WIDTH = 460;
 const MAX_PANEL_ROWS = 12;
 const COUNT_HEIGHT = 112;
-const REPHRASE_POLL_MS = 250;
-/** Providers the writer has agreed to send rephrasings to this session. */
+const AI_POLL_MS = 250;
+/** Providers the writer has agreed to send text to this session (Rephrase, Spelling). */
 const consented = new Set<AiProvider>();
 const STREAM_START_MS = 380;
 const STREAM_STEP_MS = 14;
@@ -116,7 +126,7 @@ function textHeight(text: string, width: number): number {
 /** Height of the definition body at `width`. */
 function definitionBodyHeight(shaped: ShapedDefinition, width: number): number {
   const block = (text: string, gap: number) => text ? textHeight(text, width) + gap : 0;
-  return block(shaped.pronunciation, 6) + shaped.senses.reduce((sum, sense) => sum + block(sense, 4), 0) + 24;
+  return block(shaped.pronunciation, 6) + shaped.senses.reduce((sum, sense) => sum + block(sense, 4), 0) + 34;
 }
 
 /** Height of the search results at `width`: a summary line, then each note's name and first matches. */
@@ -165,7 +175,7 @@ export function createSpreadMenu(deps: SpreadMenuDeps) {
       { label: "Paste", run: async target => { await dispatch("selection paste", { ...target }); return "changed"; } },
       { label: "Define", panel: () => define(target, current()), pending: dictionary() ? undefined : "Offline dictionaries are unavailable here" },
       bold, italic,
-      { label: "Spelling", pending: "Spelling & grammar arrive after Define" },
+      { label: "Spelling", panel: async () => ({ kind: "spelling" }) },
     ];
   }
 
@@ -205,38 +215,42 @@ export function createSpreadMenu(deps: SpreadMenuDeps) {
     } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
   }
 
-  /** Rephrase through the writer's AI CLI: start a request, poll it, and stop it if the spread closes first. */
-  function rephraseHost(target: SelectionTarget, current: () => SpreadHandle): RephraseHost & { cancel(): void } {
+  /** Rephrase and Spelling through the writer's AI CLI: start a request, poll it, and stop it if the spread closes first. */
+  function aiHost(target: SelectionTarget, current: () => SpreadHandle): AiHost & { cancel(): void } {
     const provider = deps.aiProvider();
-    let running: string | null = null;
+    let running: { kind: AiKind; id: string } | null = null;
     const cancel = () => {
-      if (running) void dispatch("selection rephrase cancel", { requestId: running }).catch(() => {});
+      if (running) void dispatch(`selection ${running.kind} cancel`, { requestId: running.id }).catch(() => {});
       running = null;
     };
     return {
-      provider, ladder: REPHRASE_LADDERS[provider],
+      provider, ladder: AI_LADDERS[provider],
       needsConsent: () => !consented.has(provider),
       cancel,
-      async request(rung) {
+      async request(kind, rung) {
         consented.add(provider);
         cancel();
-        const requestId = crypto.randomUUID();
-        running = requestId;
-        await dispatch("selection rephrase", { target, provider, rung, requestId });
+        const mine = { kind, id: crypto.randomUUID() };
+        running = mine;
+        await dispatch(`selection ${kind}`, { target, provider, rung, requestId: mine.id });
         for (;;) {
-          await new Promise(resolve => setTimeout(resolve, REPHRASE_POLL_MS));
-          if (running !== requestId || current().closing) throw new Error("closed");
-          const read = await dispatch("selection rephrase read", { requestId }) as
-            { status: string; options?: string[]; error?: { code: string; message: string } };
+          await new Promise(resolve => setTimeout(resolve, AI_POLL_MS));
+          if (running !== mine || current().closing) throw new Error("closed");
+          const read = await dispatch(`selection ${kind} read`, { requestId: mine.id }) as
+            { status: string; error?: { code: string; message: string } } & Record<string, unknown>;
           if (read.status === "running") continue;
           running = null;
-          if (read.status === "ready") return { options: read.options ?? [] };
+          if (read.status === "ready") return read;
           if (read.status === "canceled") throw new Error("closed");
-          throw Object.assign(new Error(read.error?.message ?? "The rephrase failed."), { code: read.error?.code });
+          throw Object.assign(new Error(read.error?.message ?? "The request failed."), { code: read.error?.code });
         }
       },
       async apply(text) {
         await dispatch("selection replace", { target, text });
+      },
+      async applyAt(revision, range, text) {
+        const selected = await dispatch("selection set", { tabId: target.tabId, revision, range });
+        await dispatch("selection replace", { target: selected, text });
       },
       fit: height => { if (!current().closing) fit(current(), height); },
     };
@@ -281,17 +295,23 @@ export function createSpreadMenu(deps: SpreadMenuDeps) {
 
     let opened: SpreadHandle;
     const current = () => opened;
-    const rephrase = rephraseHost(target, current);
-    stopPanel = rephrase.cancel;
+    const ai = aiHost(target, current);
+    stopPanel = ai.cancel;
     const panelHost: PanelHost = {
       target, thisTab: deps.tabId,
       done: outcome => close({ changed: outcome === "changed", refocus: true }),
       openMatch: (note, query) => void openMatch(note, query),
-      rephrase,
+      keep: async (name, text) => {
+        // A note with that name already exists: fall back to the next free element name.
+        const created = await dispatch("note create", { name, text }).catch(error =>
+          (error as { code?: string }).code === "NAME_TAKEN" ? dispatch("note create", { text }) : Promise.reject(error)) as { path: string };
+        return created.path;
+      },
+      ai,
     };
     try {
       opened = openSpread({
-        view, scroller: deps.scroller(), from: range.from, to: range.to, reducedMotion: deps.reducedMotion(),
+        view, scroller: deps.scroller(), from: range.from, to: range.to, motion: deps.motion(),
         setDecorations: deps.setDecorations,
         renderOpening: host => render(() => <SpreadOpening actions={actionsFor(target, current)} focus={viaKeyboard} host={panelHost} />, host),
         onClosed: () => { if (handle === opened) handle = null; },
@@ -309,14 +329,20 @@ export function createSpreadMenu(deps: SpreadMenuDeps) {
       // Typing into the note closes the opening first; the keystroke still reaches the editor.
       if (!opening()?.contains(event.target as Node) && !event.metaKey && !event.ctrlKey && event.key.length === 1) close();
     };
-    const resize = () => close({ changed: true });
+    // A resized column re-measures and the words carry on to their new places.
+    const resize = () => handle?.relayout();
+    const observer = new ResizeObserver(resize);
+    observer.observe(deps.scroller());
+    // The motion layer never prints; the note prints as written.
+    const print = () => { if (handle) { stopPanel?.(); stopPanel = null; detach?.(); detach = null; handle.dispose(); handle = null; } };
     window.addEventListener("pointerdown", pointer, true);
     window.addEventListener("keydown", key, true);
-    window.addEventListener("resize", resize);
+    window.addEventListener("beforeprint", print);
     detach = () => {
+      observer.disconnect();
       window.removeEventListener("pointerdown", pointer, true);
       window.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("beforeprint", print);
     };
   }
 
@@ -342,8 +368,17 @@ export function createSpreadMenu(deps: SpreadMenuDeps) {
       open(range, true);
       return true;
     },
-    /** The document changed underneath an open spread (an edit, an undo, the assistant). */
-    documentChanged() { close({ changed: true }); },
+    /**
+     * The document is about to change underneath an open spread (an action's
+     * edit, an undo, the assistant); `doc` is the edited document. The words
+     * land on their new places.
+     */
+    documentChanged(doc: PMNode) {
+      if (!handle) return;
+      stopPanel?.(); stopPanel = null;
+      detach?.(); detach = null;
+      handle.close({ changed: true, doc });
+    },
     close,
     /** End at once, without animating (the editor is unmounting). */
     dispose() { stopPanel?.(); stopPanel = null; detach?.(); detach = null; handle?.dispose(); handle = null; },
@@ -374,6 +409,7 @@ function SpreadOpening(props: { actions: SpreadAction[]; focus: boolean; host: P
   const label = (current: Panel) => ({
     definition: `Definition of ${target.text}`, count: `Count for “${target.text}”`,
     search: `Notes containing “${target.text}”`, rephrase: `Rephrasings of “${target.text}”`,
+    spelling: `Spelling and grammar for “${target.text}”`,
   })[current.kind];
 
   return <Show when={panel()} fallback={
@@ -404,10 +440,11 @@ function SpreadOpening(props: { actions: SpreadAction[]; focus: boolean; host: P
         if ((event.target as HTMLElement).closest("button")) event.preventDefault();
       }}>
       <Switch>
-        <Match when={current().kind === "definition"}>{DefinitionPanel((current() as { definition: Definition }).definition, target)}</Match>
+        <Match when={current().kind === "definition"}>{DefinitionPanel((current() as { definition: Definition }).definition, target, props.host)}</Match>
         <Match when={current().kind === "count"}>{CountPanel(current() as { stats: PassageStats; uses: WordUse[] })}</Match>
         <Match when={current().kind === "search"}>{SearchPanel((current() as { result: SearchResult }).result, props.host)}</Match>
         <Match when={current().kind === "rephrase"}><RephrasePanel host={props.host} /></Match>
+        <Match when={current().kind === "spelling"}><SpellingPanel host={props.host} /></Match>
       </Switch>
     </div>}
   </Show>;
@@ -423,7 +460,7 @@ function streamer(start = STREAM_START_MS) {
   });
 }
 
-function DefinitionPanel(definition: Definition, target: SelectionTarget) {
+function DefinitionPanel(definition: Definition, target: SelectionTarget, host: PanelHost) {
   if (definition.kind === "missing") {
     return <p class="empty">No definition for “{target.text.trim()}” in your active dictionaries. Enable one in the macOS Dictionary app.</p>;
   }
@@ -439,8 +476,25 @@ function DefinitionPanel(definition: Definition, target: SelectionTarget) {
     <For each={found.shaped.senses}>{sense =>
       <p class={`sense text-motion-stream${/\s/.test(sense) ? "" : " label"}`}>{stream(sense)}</p>}
     </For>
-    <p class="source">{found.source}</p>
+    <div class="definition-footer">
+      <p class="source">{found.source}</p>
+      <KeepButton keep={() => host.keep(`${found.shaped.headword} (definition)`, definitionNote(found.shaped, found.source))} />
+    </div>
   </>;
+}
+
+/** "Keep as note": saves the definition as a new note, then says where. */
+function KeepButton(props: { keep: () => Promise<string> }) {
+  const [state, setState] = createSignal<"ready" | "saving" | "kept">("ready");
+  async function keep() {
+    if (state() !== "ready") return;
+    setState("saving");
+    try { const path = await props.keep(); setState("kept"); showSuccess(`Kept as ${path}`); }
+    catch (error) { setState("ready"); showError(error instanceof Error ? error.message : String(error)); }
+  }
+  return <button type="button" class="text-motion-button keep-note" disabled={state() !== "ready"} onClick={() => void keep()}>
+    {state() === "kept" ? "Kept" : state() === "saving" ? "Keeping…" : "Keep as note"}
+  </button>;
 }
 
 function CountPanel({ stats, uses }: { stats: PassageStats; uses: WordUse[] }) {
@@ -504,79 +558,147 @@ function SearchPanel(result: SearchResult, host: PanelHost) {
   </Show>;
 }
 
-function RephrasePanel(props: { host: PanelHost }) {
-  const host = props.host.rephrase;
-  const words = props.host.target.text.trim().split(/\s+/).length;
-  const last = host.ladder.length - 1;
-  const company = providerName(host.provider);
-  const [state, setState] = createSignal<"consent" | "working" | "ready" | "failed">(host.needsConsent() ? "consent" : "working");
+/**
+ * The shared life of a model-backed panel: ask consent once per provider, work
+ * at a rung of the ladder (climbing on its own when a reply is unusable), then
+ * show what came back or why it failed.
+ */
+function aiRequest<T>(host: PanelHost, kind: AiKind, layout: (found: T) => void) {
+  const ai = host.ai;
+  const last = ai.ladder.length - 1;
+  const [state, setState] = createSignal<"consent" | "working" | "ready" | "failed">(ai.needsConsent() ? "consent" : "working");
   const [rung, setRung] = createSignal(0);
-  const [options, setOptions] = createSignal<string[]>([]);
+  const [found, setFound] = createSignal<T | null>(null);
   const [note, setNote] = createSignal("");
   const [error, setError] = createSignal("");
   const [applying, setApplying] = createSignal(false);
-  let region!: HTMLDivElement;
-  const step = (index: number) => host.ladder[index];
-
-  host.fit(BODY_LINE * 4 + 40);
-  /** Ask at `index`; an unusable reply moves up the ladder on its own. */
-  async function request(index: number) {
+  const step = (index: number) => ai.ladder[index];
+  async function request(index: number): Promise<void> {
     setRung(index); setState("working"); setError("");
     try {
-      const found = await host.request(index);
-      const width = region?.clientWidth ? region.clientWidth - 22 : PANEL_WIDTH - PAD * 2 - 22;
-      host.fit(BODY_LINE + 10 + found.options.reduce((sum, option) => sum + textHeight(option, width) + 20, 0) + BODY_LINE * 2 + 16);
-      setOptions(found.options); setState("ready");
-      queueMicrotask(() => region?.querySelector<HTMLButtonElement>(".rephrase-option")?.focus({ preventScroll: true }));
+      const reply = await ai.request(kind, index) as T;
+      layout(reply);
+      setFound(() => reply); setState("ready");
     } catch (failure) {
       if (failure instanceof Error && failure.message === "closed") return;
       if ((failure as { code?: string }).code === "UNUSABLE" && index < last) {
-        setNote(`${step(index).label} didn't return usable options, so ${step(index + 1).label} is trying.`);
+        setNote(`${step(index).label} didn't return a usable answer, so ${step(index + 1).label} is trying.`);
         return request(index + 1);
       }
       setError(failure instanceof Error ? failure.message : String(failure)); setState("failed");
     }
   }
-  async function apply(text: string) {
+  /** Run an edit, then close the spread on the changed note. */
+  async function edit(change: () => Promise<void>) {
     if (applying()) return;
     setApplying(true);
-    try { await host.apply(text); props.host.done("changed"); }
+    try { await change(); host.done("changed"); }
     catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); setState("failed"); }
     finally { setApplying(false); }
   }
   if (state() === "working") void request(0);
+  return { ai, last, state, rung, found, note, error, applying, step, request, edit, company: providerName(ai.provider) };
+}
 
-  return <div ref={region} class="rephrase">
+/** Consent, working, and failure states shared by Rephrase and Spelling; `ready` is the panel's own. */
+function AiStates(props: { flow: ReturnType<typeof aiRequest<any>>; host: PanelHost; consent: JSX.Element; working: string; children: JSX.Element }) {
+  const flow = props.flow;
+  return <>
     <Switch>
-      <Match when={state() === "consent"}>
-        <p>Rephrase sends the {words} selected {words === 1 ? "word" : "words"}, and nothing else from your note, to <strong>{company}</strong> through your subscription. It starts with {step(0).label}.</p>
-        <div class="rephrase-actions">
-          <button type="button" class="text-motion-button" onClick={() => void request(0)}>Send</button>
+      <Match when={flow.state() === "consent"}>
+        <p>{props.consent} to <strong>{flow.company}</strong> through your subscription. It starts with {flow.step(0).label}.</p>
+        <div class="ai-actions">
+          <button type="button" class="text-motion-button" onClick={() => void flow.request(0)}>Send</button>
           <button type="button" class="text-motion-button" onClick={() => props.host.done("kept")}>Cancel</button>
         </div>
       </Match>
-      <Match when={state() === "working"}>
-        <Show when={note()}><p class="rephrase-note">{note()}</p></Show>
-        <p class="rephrase-working" aria-live="polite">Rephrasing with {step(rung()).label}<span class="dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
+      <Match when={flow.state() === "working"}>
+        <Show when={flow.note()}><p class="ai-note">{flow.note()}</p></Show>
+        <p class="ai-working" aria-live="polite">{props.working} with {flow.step(flow.rung()).label}<span class="dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span></p>
       </Match>
-      <Match when={state() === "ready"}>
-        <p class="rephrase-heading">Choose a rephrasing to replace your selection</p>
-        <For each={options()}>{(option, index) =>
-          <button type="button" class="rephrase-option text-motion-stream" disabled={applying()} onClick={() => void apply(option)}>
-            <span style={{ "animation-delay": `${index() * 120}ms` }}>{option}</span>
-          </button>}
-        </For>
-        <Show when={rung() < last}>
-          <div class="rephrase-actions">
-            <button type="button" class="text-motion-button" disabled={applying()} onClick={() => void request(rung() + 1)}>Try {step(rung() + 1).short}</button>
-          </div>
-        </Show>
-      </Match>
-      <Match when={state() === "failed"}>
-        <p class="empty" role="alert">{error()}</p>
-        <div class="rephrase-actions"><button type="button" class="text-motion-button" onClick={() => void request(rung())}>Try again</button></div>
+      <Match when={flow.state() === "ready"}>{props.children}</Match>
+      <Match when={flow.state() === "failed"}>
+        <p class="empty" role="alert">{flow.error()}</p>
+        <div class="ai-actions"><button type="button" class="text-motion-button" onClick={() => void flow.request(flow.rung())}>Try again</button></div>
       </Match>
     </Switch>
-    <p class="source">{step(rung()).label} · your {company} subscription</p>
+    <p class="source">{flow.step(flow.rung()).label} · your {flow.company} subscription</p>
+  </>;
+}
+
+/** "Try Sonnet 5.5": the next rung, while there is one. */
+function Escalate(props: { flow: ReturnType<typeof aiRequest<any>> }) {
+  const flow = props.flow;
+  return <Show when={flow.rung() < flow.last}>
+    <div class="ai-actions">
+      <button type="button" class="text-motion-button" disabled={flow.applying()} onClick={() => void flow.request(flow.rung() + 1)}>Try {flow.step(flow.rung() + 1).short}</button>
+    </div>
+  </Show>;
+}
+
+function RephrasePanel(props: { host: PanelHost }) {
+  const words = props.host.target.text.trim().split(/\s+/).length;
+  let region!: HTMLDivElement;
+  props.host.ai.fit(BODY_LINE * 4 + 40);
+  const flow = aiRequest<{ options: string[] }>(props.host, "rephrase", found => {
+    const width = region?.clientWidth ? region.clientWidth - 22 : PANEL_WIDTH - PAD * 2 - 22;
+    props.host.ai.fit(BODY_LINE + 10 + found.options.reduce((sum, option) => sum + textHeight(option, width) + 20, 0) + BODY_LINE * 2 + 16);
+    queueMicrotask(() => region?.querySelector<HTMLButtonElement>(".ai-option")?.focus({ preventScroll: true }));
+  });
+
+  return <div ref={region} class="ai-panel">
+    <AiStates flow={flow} host={props.host} working="Rephrasing"
+      consent={<>Rephrase sends the {words} selected {words === 1 ? "word" : "words"}, and nothing else from your note,</>}>
+      <p class="ai-heading">Choose a rephrasing to replace your selection</p>
+      <For each={flow.found()?.options ?? []}>{(option, index) =>
+        <button type="button" class="ai-option rephrase-option text-motion-stream" disabled={flow.applying()} onClick={() => void flow.edit(() => props.host.ai.apply(option))}>
+          <span style={{ "animation-delay": `${index() * 120}ms` }}>{option}</span>
+        </button>}
+      </For>
+      <Escalate flow={flow} />
+    </AiStates>
+  </div>;
+}
+
+function SpellingPanel(props: { host: PanelHost }) {
+  const word = props.host.target.text.trim();
+  let region!: HTMLDivElement;
+  props.host.ai.fit(BODY_LINE * 4 + 40);
+  const flow = aiRequest<SpellingCheck>(props.host, "spelling", found => {
+    const width = region?.clientWidth ? region.clientWidth - 90 : PANEL_WIDTH - PAD * 2 - 90;
+    const grammar = found.grammar.reduce((sum, issue) =>
+      sum + textHeight(`${issue.excerpt} → ${issue.replacement}`, width) + textHeight(issue.explanation, width) * 12 / 13 + 16, 0);
+    props.host.ai.fit(30 + BODY_LINE + (found.suggestions.length ? 40 : 0) + (grammar || BODY_LINE) + BODY_LINE * 2 + 30);
+    queueMicrotask(() => region?.querySelector<HTMLButtonElement>(".spelling-suggestions button, .grammar button")?.focus({ preventScroll: true }));
+  });
+  const check = () => flow.found()!;
+
+  return <div ref={region} class="ai-panel">
+    <AiStates flow={flow} host={props.host} working="Checking"
+      consent={<>Spelling sends the sentence around “{word}”, and nothing else from your note,</>}>
+      <p class={`flagged text-motion-stream${check().misspelled ? "" : " is-correct"}`}><span>{word}</span></p>
+      <p class="ai-heading">{check().misspelled
+        ? check().suggestions.length ? "Looks misspelled. Choose a correction:" : "Looks misspelled, but no correction came back."
+        : "Spelled correctly here."}</p>
+      <Show when={check().suggestions.length}>
+        <div class="ai-actions spelling-suggestions">
+          <For each={check().suggestions}>{(suggestion, index) =>
+            <button type="button" class="text-motion-button text-motion-arrive" style={{ "animation-delay": `${index() * 80}ms` }}
+              disabled={flow.applying()} onClick={() => void flow.edit(() => props.host.ai.apply(suggestion))}>{suggestion}</button>}
+          </For>
+        </div>
+      </Show>
+      <Show when={check().grammar.length} fallback={<p class="ai-note">No grammar problems in this sentence.</p>}>
+        <For each={check().grammar}>{(issue, index) =>
+          <div class="grammar text-motion-arrive" style={{ "animation-delay": `${200 + index() * 100}ms` }}>
+            <span><del>{issue.excerpt}</del> → <ins>{issue.replacement}</ins></span>
+            <button type="button" class="text-motion-button" disabled={flow.applying()} aria-label={`Fix: ${issue.excerpt} to ${issue.replacement}`}
+              onClick={() => void flow.edit(() => props.host.ai.applyAt(check().revision, issue.range, issue.replacement))}>Fix</button>
+            <span class="why">{issue.explanation}</span>
+          </div>}
+        </For>
+      </Show>
+      <Escalate flow={flow} />
+    </AiStates>
   </div>;
 }

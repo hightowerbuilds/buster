@@ -71,6 +71,15 @@ it loses focus, clipboard writes fail and animation frames pause, so steps fail
 at random. Run it before an important commit while away from the Mac. For a
 quick check of the Courier writing style (drop caps and ASCII headings), stage
 with `--only courier`, which runs just that section in about twenty seconds.
+`--only polish` runs keyboard entry, neighbouring paragraphs, Keep as note,
+landing after Bold, resizing, printing, Spread Motion, and Spelling (one live
+Claude Haiku request) in about forty seconds.
+
+`python3 scripts/prepare-native-macos-smoke.py assistant` stages the live
+Assistant check: Claude Code, Codex, and OpenCode each read the open notes and
+edit one after approval, then Claude shows Deny, Stop, and switching provider. It
+sends small requests on the writer's real subscriptions and takes about two
+minutes. Its report is `Notes/native-macos-assistant-smoke-result.json`.
 
 For printing, prepare a disposable bundle with fixture routing using:
 
