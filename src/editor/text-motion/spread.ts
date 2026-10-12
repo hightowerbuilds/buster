@@ -25,6 +25,7 @@
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import { canvasMeasure, flowAroundOpening, wordPieces, type FlowRun } from "./flow";
 import { graphemes, matchLetters } from "./letters";
+import { dropCapBox } from "../ascii-cap";
 import { LIVELY, SETTLE, isSettled, spring, stepSpring, type Spring, type SpringConfig } from "./spring";
 
 export interface SpreadOptions {
@@ -103,6 +104,10 @@ function lineHeightOf(style: CSSStyleDeclaration): number {
   return value > 0 ? value : px(style.fontSize) * 1.2;
 }
 
+/** Widgets drawn into the paragraph (a Courier drop cap's canvas) are not its text. */
+const skipDecorations = (node: Node) =>
+  (node as Element).classList?.contains("ascii-cap") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+
 /**
  * Only plain prose in left-aligned, normally spaced paragraphs can be reflowed
  * faithfully. Returns why not, or null when it can.
@@ -112,7 +117,7 @@ function reflowBlocker(block: HTMLElement, style: CSSStyleDeclaration): string |
   if (!["start", "left"].includes(style.textAlign)) return `text-align ${style.textAlign}`;
   if (style.letterSpacing !== "normal" && px(style.letterSpacing) !== 0) return `letter-spacing ${style.letterSpacing}`;
   if (style.wordSpacing !== "normal" && px(style.wordSpacing) !== 0) return `word-spacing ${style.wordSpacing}`;
-  const walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT);
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT, { acceptNode: skipDecorations });
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const element = node as Element;
     if (!INLINE_TAGS.has(element.tagName)) return `inline <${element.tagName.toLowerCase()}${element.className ? `.${element.className}` : ""}>`;
@@ -178,12 +183,30 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
     const fonts = new Map<Text, string>();
     const measured: Measured[] = [];
     const range = document.createRange();
-    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+    // A floated first letter (the Courier drop cap) stays where it is: its
+    // characters are left out of the moving words, and the rows beside it start
+    // after it in the new layout too.
+    const capStyle = getComputedStyle(block, "::first-letter");
+    let cap: { end: number; rect: DOMRect } | null = null;
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, { acceptNode: skipDecorations });
+    for (let next = walker.nextNode(); next; next = walker.nextNode()) {
+      if (next.nodeType !== Node.TEXT_NODE) continue;
+      const node = next as Text;
       const style = getComputedStyle(node.parentElement!);
       nodes.push(node);
       fonts.set(node, canvasFont(style));
-      for (const piece of wordPieces(node.data, fonts.get(node)!)) {
+      let skip = 0;
+      if (nodes.length === 1 && capStyle.float !== "none") {
+        const letter = node.data.match(/^\s*\p{P}*[\p{L}\p{N}]/u);
+        const rect = letter && dropCapBox(block, letter[0].trim());
+        if (letter && rect) {
+          cap = { end: letter[0].length, rect };
+          skip = cap.end;
+        }
+      }
+      for (const whole of wordPieces(node.data, fonts.get(node)!)) {
+        if (whole.start + whole.text.length <= skip) continue;
+        const piece = whole.start >= skip ? whole : { start: skip, text: whole.text.slice(skip - whole.start) };
         range.setStart(node, piece.start); range.setEnd(node, piece.start + piece.text.length);
         const rect = Array.from(range.getClientRects()).find(r => r.width > 0);
         if (rect) measured.push({ node, start: piece.start, text: piece.text, x: toContentX(rect.left),
@@ -243,9 +266,14 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
     // Pretext never has to break a word that doesn't fit.
     const widest = runWords.flat().reduce((max, word) => Math.max(max, canvasMeasure(word.text, fonts.get(word.node)!)), 0);
     const minSpan = Math.max(px(blockStyle.fontSize) * 4, Math.ceil(widest) + 1);
+    // Rows of the new layout that lie beside the drop cap start after it.
+    const capBottom = cap ? toContentY(cap.rect.bottom) + px(capStyle.marginBottom) : 0;
+    const float = cap && capBottom > flowTop
+      ? { rows: Math.ceil((capBottom - flowTop) / lineHeight), right: toContentX(cap.rect.right) + px(capStyle.marginRight) - columnLeft }
+      : null;
     const partAround = (width: number, count: number) => {
       const openingX = Math.max(0, Math.min(columnWidth - width, targetCenterX - columnLeft - width / 2));
-      const flow = flowAroundOpening(runs, columnWidth, { left: openingX, right: openingX + width, top: 0, rows: count }, minSpan);
+      const flow = flowAroundOpening(runs, columnWidth, { left: openingX, right: openingX + width, top: 0, rows: count }, minSpan, canvasMeasure, float);
       // Pair each measured piece with the laid word that contains it, by offset
       // in the run's text. A laid word may hold several pieces ("Saxe-" and
       // "Altenburg," when Pretext keeps them on one line); a piece must never

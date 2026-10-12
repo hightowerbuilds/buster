@@ -58,6 +58,15 @@ describe("flowAroundOpening", () => {
   });
 });
 
+describe("flowAroundOpening with a drop cap", () => {
+  it("starts the rows beside the float after it, then returns to the full width", () => {
+    const { words } = flowAroundOpening(runs("aa bb cc dd ee ff gg"), 100, null, 20, measure, { rows: 2, right: 40 });
+    expect(rowsOf(words)).toEqual([["aa", "bb"], ["cc", "dd"], ["ee", "ff", "gg"]]);
+    expect(words.filter(word => word.row < 2).every(word => word.x >= 40)).toBe(true);
+    expect(words.find(word => word.text === "ee")!.x).toBe(0);
+  });
+});
+
 describe("wordPieces", () => {
   const texts = (text: string) => wordPieces(text, "16px Lato").map(piece => piece.text);
   it("splits words exactly where Pretext may break a line inside them", () => {

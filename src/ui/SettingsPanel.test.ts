@@ -51,12 +51,10 @@ describe("writing settings", () => {
   });
   it("changes writing preferences without deleting legacy configuration", () => {
     const { root, settings } = mount();
-    [...root.querySelectorAll("button")].find(button => button.textContent === "Newspaper")!.click();
-    expect(settings.blog_theme).toBe("newspaper");
-    for (const [label, id] of [["Technical", "technical"], ["Business", "business"]]) {
-      [...root.querySelectorAll("button")].find(button => button.textContent === label)!.click();
-      expect(settings.blog_theme).toBe(id);
-    }
+    [...root.querySelectorAll("button")].find(button => button.textContent === "Courier")!.click();
+    expect(settings.blog_theme).toBe("courier");
+    [...root.querySelectorAll("button")].find(button => button.textContent === "None")!.click();
+    expect(settings.blog_theme).toBe("none");
     expect(settings.language_settings).toEqual({ rust: { tab_size: 8 } });
     expect(settings.syntax_colors).toEqual({ keyword: "#abcdef" });
     expect(settings.auto_save_delay_ms).toBe(9000);

@@ -4,6 +4,12 @@
 void (async () => {
   const checks = [];
   const metrics = {};
+  // Anything the page reports goes into a failure report.
+  const pageErrors = [];
+  addEventListener('error', e => pageErrors.push(`${e.message} @ ${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack ?? ''}`.slice(0, 1500)));
+  addEventListener('unhandledrejection', e => pageErrors.push(`rejection: ${e.reason?.stack ?? e.reason}`.slice(0, 800)));
+  const originalError = console.error.bind(console);
+  console.error = (...args) => { pageErrors.push('console.error: ' + args.map(a => a?.stack ?? String(a)).join(' ').slice(0, 800)); originalError(...args); };
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const frame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
   const wait = async (fn, label) => {
@@ -400,6 +406,108 @@ void (async () => {
     key(window, 'Escape', 'Escape');
     await closed();
 
+    // ── Courier: an ASCII drop cap on every paragraph ─────────────────
+    const noteTabId = [...document.querySelectorAll('.tab-bar [role="tab"]')].find(tab => tab.getAttribute('aria-selected') === 'true').id;
+    // The tab bar re-renders, so look the note's tab up each time.
+    const noteTab = { click: () => document.getElementById(noteTabId).click() };
+    footer('Settings');
+    const courierButton = await wait(() => [...document.querySelectorAll('.tab-content.is-active button')].find(b => b.textContent === 'Courier'), 'Courier style button');
+    assert([...courierButton.parentElement.querySelectorAll('button')].map(b => b.textContent).join(',') === 'None,Courier', 'Writing styles are None and Courier');
+    courierButton.click();
+    noteTab.click();
+    await wait(() => editor() === note && document.querySelector('.block-editor[data-writing-style="courier"]'), 'Courier style applied');
+    const paragraphs = [...note.querySelectorAll(':scope > p')].filter(p => /\S/.test(p.textContent));
+    await wait(() => paragraphs.every(p => p.querySelector('.ascii-cap')?.dataset.state === 'settled'), 'drop caps settled', 120);
+    assert(paragraphs.length === 4, `Every paragraph has an ASCII drop cap (${paragraphs.length})`);
+    // WebKit's range rects don't show the floated first letter, so check the cap
+    // against things that are measured reliably: the text after the float starts
+    // at the cap's right edge plus its margin, the cap sits at the paragraph's
+    // content corner, and it is as tall as the letter's line height.
+    const textNode = p => [...p.childNodes].find(n => n.nodeType === 3);
+    const charRect = (p, i) => { const r = document.createRange(); r.setStart(textNode(p), i); r.setEnd(textNode(p), i + 1); return r.getBoundingClientRect(); };
+    const capOffsets = paragraphs.map(p => {
+      const host = p.querySelector('.ascii-cap').getBoundingClientRect(), outer = p.getBoundingClientRect();
+      const letter = getComputedStyle(p, '::first-letter'), block = getComputedStyle(p);
+      const after = charRect(p, 1);
+      return Math.max(
+        Math.abs(host.right + parseFloat(letter.marginRight) - after.left),
+        Math.abs(host.left - (outer.left + parseFloat(block.paddingLeft))),
+        Math.abs(host.height - parseFloat(letter.lineHeight)));
+    });
+    metrics.courierCapOffsetPx = Math.max(...capOffsets);
+    assert(metrics.courierCapOffsetPx <= 1.5, `Each ASCII cap covers its floated first letter (worst ${metrics.courierCapOffsetPx.toFixed(2)}px)`);
+    const capLines = parseFloat(getComputedStyle(first, '::first-letter').lineHeight) / parseFloat(getComputedStyle(first).lineHeight);
+    metrics.courierCapLines = capLines;
+    assert(capLines >= 2.5, `The drop cap is about three lines tall (${capLines.toFixed(2)})`);
+    const capBoxOf = p => p.querySelector('.ascii-cap').getBoundingClientRect();
+    const firstCap = first.querySelector('.ascii-cap canvas');
+    metrics.courierCapSize = [firstCap.width, firstCap.height];
+    const inked = canvas => { const d = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 40) n++; return n; };
+    assert(inked(firstCap) > 50, `The cap is drawn in ASCII (${inked(firstCap)} inked pixels)`);
+    assert(getComputedStyle(first, '::first-letter').color === 'rgba(0, 0, 0, 0)', 'The real first letter is transparent under the drawing');
+    assert(first.textContent === prose, 'The drop cap adds nothing to the note text');
+    try { await ipc('create_file', { path: `${notes.root}/courier-cap.txt` }); } catch { /* exists */ }
+    await ipc('write_file', { path: `${notes.root}/courier-cap.txt`, content: firstCap.toDataURL('image/png') });
+
+    // A new paragraph's cap assembles; the others keep theirs.
+    const before4 = paragraphs.map(p => p.querySelector('.ascii-cap'));
+    const fourthEnd = document.createRange(); fourthEnd.selectNodeContents(paragraphs[3]); fourthEnd.collapse(false);
+    note.focus(); getSelection().removeAllRanges(); getSelection().addRange(fourthEnd);
+    document.dispatchEvent(new Event('selectionchange')); await delay(80);
+    key(note, 'Enter', 'Enter');
+    document.execCommand('insertText', false, 'Typewriter keys struck the page.');
+    const fifth = await wait(() => note.querySelectorAll(':scope > p')[4]?.querySelector('.ascii-cap'), 'new paragraph cap');
+    assert(fifth.dataset.state === 'assembling' || !fifth.dataset.state, `A new paragraph's cap assembles (${fifth.dataset.state})`);
+    await wait(() => fifth.dataset.state === 'settled', 'new cap settled');
+    assert(paragraphs.every((p, i) => p.querySelector('.ascii-cap') === before4[i]), 'Earlier caps are kept, not redrawn from scratch');
+    key(note, 'z', 'KeyZ', { metaKey: true });
+    await wait(() => note.querySelectorAll(':scope > p').length === 4 || note.querySelectorAll(':scope > p')[4]?.textContent === '', 'undo new paragraph');
+    await frame(); await frame();
+    const afterUndo = [...note.querySelectorAll(':scope > p')].filter(p => /\S/.test(p.textContent)).map(p => p.querySelector('.ascii-cap')?.dataset.state);
+    metrics.courierCapsAfterUndo = afterUndo;
+    assert(afterUndo.length === 4 && afterUndo.every(state => state !== 'assembling'), `Undo doesn't replay the drop caps (${afterUndo.join(',')})`);
+
+    // The spread parts the text around the cap.
+    const courierFirst = note.querySelector(':scope > p');
+    courierFirst.scrollIntoView({ block: 'center' }); await delay(150);
+    const courierBefore = words(courierFirst);
+    const courierLines = lines(courierBefore);
+    const capRect = capBoxOf(courierFirst);
+    for (const lineIndex of [0, 1, 2]) {
+      const target = courierBefore.filter(w => Math.abs(w.top - courierLines[lineIndex]) < 4 && /^[a-z]{4,}$/i.test(w.text))[1];
+      if (!target) continue;
+      window.__textMotion = undefined;
+      assert(rightClick(target.left + target.width / 2, target.top + 4).defaultPrevented, `Courier: right-clicking “${target.text}” on line ${lineIndex + 1} opens the spread`);
+      await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'courier spread settled');
+      assert(window.__textMotion.reflowed, `Courier line ${lineIndex + 1}: the paragraph reflows (${window.__textMotion.fallback ?? 'ok'})`);
+      const hole = opening().getBoundingClientRect();
+      const clash = [...document.querySelectorAll('.text-motion-word')].filter(span => {
+        const r = span.getBoundingClientRect();
+        const hits = box => r.right > box.left + 1 && r.left < box.right - 1 && r.bottom > box.top + 1 && r.top < box.bottom - 1;
+        return hits(hole) || hits(capRect);
+      }).map(span => span.textContent);
+      assert(!clash.length, `Courier line ${lineIndex + 1}: no word overlaps the opening or the drop cap (${clash.join(' ')})`);
+      key(window, 'Escape', 'Escape');
+      await closed();
+    }
+    await frame();
+    let courierDrift = 0;
+    words(courierFirst).forEach((w, i) => { courierDrift = Math.max(courierDrift, Math.abs(w.left - courierBefore[i].left), Math.abs(w.top - courierBefore[i].top)); });
+    assert(courierDrift < 0.01, `Courier: Escape returns every word exactly (drift ${courierDrift}px)`);
+
+    // Back to None: the drop caps go away and the letters return to the line.
+    footer('Settings');
+    // Other settings (backgrounds) have a "None" too; use the writing-style group.
+    const noneButton = await wait(() => [...document.querySelectorAll('.tab-content.is-active .settings-theme-btns')]
+      .find(group => [...group.querySelectorAll('button')].some(b => b.textContent === 'Courier'))
+      ?.querySelector('button'), 'None style button');
+    assert(noneButton.textContent === 'None', 'The writing-style group starts with None');
+    noneButton.click();
+    noteTab.click();
+    await wait(() => editor() === note && document.querySelector('.block-editor[data-writing-style="none"]'), 'None style applied');
+    await frame(); await frame();
+    assert(!note.querySelector('.ascii-cap') && getComputedStyle(note.querySelector('p'), '::first-letter').float === 'none', 'Switching to None removes the drop caps');
+
     // ── Off a word the native menu is untouched ───────────────────────
     const rect = third.getBoundingClientRect();
     const blank = rightClick(rect.right - 2, rect.top + 4);
@@ -411,7 +519,8 @@ void (async () => {
     key(window, 'q', 'KeyQ', { metaKey: true });
   } catch (error) {
     const result = { ok: false, checks, metrics, error: String(error), stack: error.stack,
-      motion: window.__textMotion, layer: layer()?.outerHTML?.slice(0, 4000), activeElement: document.activeElement?.outerHTML?.slice(0, 500) };
+      motion: window.__textMotion, layer: layer()?.outerHTML?.slice(0, 4000), activeElement: document.activeElement?.outerHTML?.slice(0, 500),
+      pageErrors, alerts: [...document.querySelectorAll('[role="alert"], .notification, .toast')].map(n => n.textContent.trim()).filter(Boolean) };
     try { await ipc('create_file', { path: reportPath }); } catch { /* Existing report. */ }
     await ipc('write_file', { path: reportPath, content: JSON.stringify(result, null, 2) });
   }

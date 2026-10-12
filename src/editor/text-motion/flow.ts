@@ -19,6 +19,8 @@ import { prepareWithSegments } from "@chenglou/pretext";
 export interface FlowRun { text: string; font: string }
 /** Opening in flow coordinates: horizontal extent in px, vertical extent in rows. */
 export interface Opening { left: number; right: number; top: number; rows: number }
+/** A float at the start of the column (a drop cap): the first `rows` rows start at `right`. */
+export interface Float { rows: number; right: number }
 /** A laid-out word: `start` is its offset in its run's text (-1 if it could not be found there). */
 export interface PlacedWord { run: number; text: string; start: number; x: number; row: number }
 export interface FlowResult { words: PlacedWord[]; rows: number }
@@ -59,17 +61,16 @@ export const canvasMeasure: MeasureText = (text, font) => {
   return measureContext.measureText(text).width;
 };
 
-function rowSpans(row: number, width: number, opening: Opening | null, minSpan: number): Array<[number, number]> {
-  if (!opening || row < opening.top || row >= opening.top + opening.rows) return [[0, width]];
-  const spans: Array<[number, number]> = [];
-  if (opening.left >= minSpan) spans.push([0, opening.left]);
-  if (width - opening.right >= minSpan) spans.push([opening.right, width]);
-  return spans;
+function rowSpans(row: number, width: number, opening: Opening | null, minSpan: number, float: Float | null): Array<[number, number]> {
+  const spans: Array<[number, number]> = !opening || row < opening.top || row >= opening.top + opening.rows ? [[0, width]]
+    : [[0, opening.left], [opening.right, width]];
+  const indent = float && row < float.rows ? float.right : 0;
+  return spans.map(([start, end]): [number, number] => [Math.max(start, indent), end]).filter(([start, end]) => end - start >= minSpan);
 }
 
 /** Lay `runs` out in a column of `width`, parting around `opening`. Words keep their run order. */
 export function flowAroundOpening(
-  runs: FlowRun[], width: number, opening: Opening | null, minSpan: number, measure: MeasureText = canvasMeasure,
+  runs: FlowRun[], width: number, opening: Opening | null, minSpan: number, measure: MeasureText = canvasMeasure, float: Float | null = null,
 ): FlowResult {
   const words: PlacedWord[] = [];
   const openingEnd = opening ? opening.top + opening.rows : 0;
@@ -83,7 +84,7 @@ export function flowAroundOpening(
   let lastRow = -1;
   for (; row < MAX_ROWS; row++) {
     let exhausted = false;
-    for (const [start, end] of rowSpans(row, width, opening, minSpan)) {
+    for (const [start, end] of rowSpans(row, width, opening, minSpan, float)) {
       const range = layoutNextRichInlineLineRange(prepared, end - start, cursor);
       if (!range) { exhausted = true; break; }
       const line = materializeRichInlineLineRange(prepared, range);

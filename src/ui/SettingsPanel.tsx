@@ -6,7 +6,7 @@ import { DEFAULT_KEYBINDINGS } from "../lib/app-commands";
 import { findKeybindingConflicts, normalizeHotkey } from "../lib/keybinding-conflicts";
 import { importVSCodeTheme, type ThemeEffects } from "../lib/theme";
 import { showError, showSuccess } from "../lib/notify";
-import { BLOG_THEMES } from "../lib/blog-themes";
+import { BLOG_THEMES, writingStyle } from "../lib/blog-themes";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -192,7 +192,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </div>
         );
       case "blog_theme": {
-        const current = () => props.settings.blog_theme || "normal";
+        const current = () => writingStyle(props.settings.blog_theme);
         return (
           <div class="settings-row-content">
             <div class="settings-info">

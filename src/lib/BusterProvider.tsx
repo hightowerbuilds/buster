@@ -77,7 +77,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   auto_save: false,
   auto_save_delay_ms: 1500,
   language_settings: {},
-  blog_theme: "normal",
+  blog_theme: "none",
   show_indent_guides: true,
   show_whitespace: false,
   ai_provider: "claude",

@@ -79,7 +79,8 @@ pub struct AppSettings {
     pub auto_save_delay_ms: u32,
     #[serde(default)]
     pub language_settings: HashMap<String, EditorLanguageSettings>,
-    #[serde(default = "default_blog_theme")]
+    /// The writing style: "none" or "courier".
+    #[serde(default = "default_blog_theme", deserialize_with = "blog_theme_from")]
     pub blog_theme: String,
     #[serde(default = "default_true")]
     pub show_indent_guides: bool,
@@ -123,7 +124,13 @@ fn default_agent_timeout() -> u32 {
     300
 }
 fn default_blog_theme() -> String {
-    "normal".to_string()
+    "none".to_string()
+}
+
+/// Earlier writing styles (Normal, Newspaper, Technical, Business) fall back to None.
+fn blog_theme_from<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    Ok(if value == "courier" { value } else { "none".to_string() })
 }
 
 impl Default for AppSettings {
@@ -153,7 +160,7 @@ impl Default for AppSettings {
             auto_save: false,
             auto_save_delay_ms: 1500,
             language_settings: HashMap::new(),
-            blog_theme: "normal".to_string(),
+            blog_theme: "none".to_string(),
             show_indent_guides: true,
             show_whitespace: false,
             ai_provider: "claude".to_string(),
@@ -335,6 +342,14 @@ mod tests {
         assert_eq!(settings.ai_provider, "claude");
         let saved = serde_json::to_string(&settings).unwrap();
         assert!(!saved.contains("ollama") && !saved.contains("ai_model") && !saved.contains("ai_completion"));
+    }
+
+    #[test]
+    fn settings_writing_style_keeps_courier_and_retires_earlier_styles() {
+        let style = |value: &str| saved_with(serde_json::json!({"blog_theme": value})).blog_theme;
+        assert_eq!(style("courier"), "courier");
+        for retired in ["normal", "newspaper", "technical", "business", "none"] { assert_eq!(style(retired), "none"); }
+        assert_eq!(AppSettings::default().blog_theme, "none");
     }
 
     #[test]

@@ -1,9 +1,11 @@
-import { createEffect, createMemo, onCleanup, onMount, untrack } from "solid-js";
+import { createEffect, createMemo, on, onCleanup, onMount, untrack } from "solid-js";
 import { DecorationSet, EditorView } from "prosemirror-view";
+import type { EditorState } from "prosemirror-state";
 import { createEditorEngine, type EditorEngine, type Pos, type Selection } from "./engine";
 import { createBlockEditor } from "./block-editor";
 import { useBuster } from "../lib/buster-context";
-import { resolveBlogTokens } from "../lib/blog-themes";
+import { resolveBlogTokens, writingStyle } from "../lib/blog-themes";
+import { asciiCapDecorations, refreshAsciiCaps, setAsciiCapMotion } from "./ascii-cap";
 import { writingPalette } from "./writing-effects";
 import { focusTabPanel } from "../lib/focus-service";
 import { createSpreadMenu } from "./SpreadMenu";
@@ -31,13 +33,26 @@ export default function BlockEditor(props: {
   let view: EditorView | undefined;
   let motionDecorations = DecorationSet.empty;
   const values = createMemo(() => appearance.forTab(props.tabId));
+  const writing = createMemo(() => writingStyle(store.settings.blog_theme));
+  const reducedMotion = () => !values().motion || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  setAsciiCapMotion(reducedMotion);
+  /** Paragraph texts whose Courier drop cap has already been shown, so recreated caps don't assemble again. */
+  const seenCaps = new Set<string>();
+  /** Courier drop caps plus an open spread's decorations. */
+  const decorations = (state: EditorState) => {
+    if (untrack(writing) !== "courier") return motionDecorations;
+    // DecorationSet.create consumes its array (it nulls entries as it files
+    // them), and the caps are cached per document, so always pass a copy.
+    const caps = asciiCapDecorations(state.doc, seenCaps);
+    return DecorationSet.create(state.doc, motionDecorations === DecorationSet.empty ? [...caps] : [...motionDecorations.find(), ...caps]);
+  };
   const spread = createSpreadMenu({
     tabId: props.tabId, engine, commands, view: () => view, scroller: () => scroller,
     aiProvider: () => isAiProvider(store.settings.ai_provider) ? store.settings.ai_provider : "claude",
-    reducedMotion: () => !values().motion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    setDecorations: decorations => {
-      motionDecorations = decorations;
-      if (view && !view.isDestroyed) view.setProps({ decorations: () => motionDecorations });
+    reducedMotion,
+    setDecorations: next => {
+      motionDecorations = next;
+      if (view && !view.isDestroyed) view.setProps({ decorations });
     },
   });
   const controller = createBlockEditor(engine, state => {
@@ -48,7 +63,7 @@ export default function BlockEditor(props: {
   const style = createMemo(() => {
     const settings = values(), palette = writingPalette(store.palette, settings);
     return {
-      ...resolveBlogTokens(store.settings.blog_theme || "normal", store.settings.theme_mode || "dark", palette),
+      ...resolveBlogTokens(writing(), palette),
       "--blog-bg": palette.editorBg, "--blog-text": palette.text,
       "--blog-container-padding": "0px", "font-size": `${settings.fontSize || store.settings.font_size}px`,
       "--blog-line-height": String(settings.lineHeight || 1.65),
@@ -61,7 +76,7 @@ export default function BlockEditor(props: {
     view = new EditorView(mount, {
       state: controller.state,
       dispatchTransaction: tr => controller.dispatch(tr),
-      decorations: () => motionDecorations,
+      decorations,
       attributes: { class: "blog-preview block-prose", role: "textbox", "aria-label": "Note editor", "aria-multiline": "true", "data-tab-focus-target": "true", spellcheck: "true" },
       handleDOMEvents: {
         beforeinput: (_view, event) => {
@@ -97,8 +112,11 @@ export default function BlockEditor(props: {
   createEffect(() => props.onDirtyChange(engine.dirty()));
   createEffect(() => { const pos = engine.cursor(); props.onCursorChange(pos.line, pos.col); });
   createEffect(() => { if (!props.active) spread.close(); });
+  // Switching style adds or removes the drop caps; size and color changes redraw them.
+  createEffect(on(writing, () => { if (view && !view.isDestroyed) view.setProps({ decorations }); }, { defer: true }));
+  createEffect(on(style, () => queueMicrotask(refreshAsciiCaps), { defer: true }));
   onCleanup(() => { spread.dispose(); controller.destroy(); view?.destroy(); });
-  return <div class="block-editor" ref={scroller} style={style()} onScroll={() => props.onScrollChange(scroller.scrollTop)}>
+  return <div class="block-editor" ref={scroller} style={style()} data-writing-style={writing()} onScroll={() => props.onScrollChange(scroller.scrollTop)}>
     <div class="block-editor-column" ref={mount} />
   </div>;
 }
