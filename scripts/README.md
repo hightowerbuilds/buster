@@ -66,6 +66,12 @@ native menu. It records frame timing. Its report is
 Each launch also creates a `bustermark-workspace-N` Desktop link to its test
 Notes folder; remove it with the test's Application Support folder.
 
+The full spread run takes about two minutes and needs its window in front: when
+it loses focus, clipboard writes fail and animation frames pause, so steps fail
+at random. Run it before an important commit while away from the Mac. For a
+quick check of the Courier writing style (drop caps and ASCII headings), stage
+with `--only courier`, which runs just that section in about twenty seconds.
+
 For printing, prepare a disposable bundle with fixture routing using:
 
 ```sh

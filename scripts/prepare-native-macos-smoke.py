@@ -8,6 +8,7 @@ import uuid
 
 parser = argparse.ArgumentParser()
 parser.add_argument("kind", choices=["print", "split", "spread"])
+parser.add_argument("--only", choices=["courier"], help="run a single section of the spread smoke test")
 args = parser.parse_args()
 root = Path(__file__).resolve().parent.parent
 dist = Path(tempfile.mkdtemp(prefix=f"buster-mac-{args.kind}-smoke-", dir="/private/tmp"))
@@ -15,7 +16,8 @@ shutil.copytree(root / "dist", dist, dirs_exist_ok=True)
 harness = f"native-macos-{args.kind}-smoke.js"
 shutil.copy2(root / "scripts" / harness, dist / harness)
 index = dist / "index.html"
-index.write_text(index.read_text().replace("</body>", f'<script src="/{harness}"></script></body>'))
+only = f'<script>window.__SMOKE_ONLY__ = "{args.only}";</script>' if args.only else ""
+index.write_text(index.read_text().replace("</body>", f'{only}<script src="/{harness}"></script></body>'))
 if args.kind == "print":
     # Tauri internals are read-only. Route only this disposable bundle through
     # the harness fixture; the normal app never includes the hook or harness.

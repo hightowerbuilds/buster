@@ -25,7 +25,7 @@
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import { canvasMeasure, flowAroundOpening, wordPieces, type FlowRun } from "./flow";
 import { graphemes, matchLetters } from "./letters";
-import { dropCapBox } from "../ascii-cap";
+import { dropCapBox } from "../ascii-art";
 import { LIVELY, SETTLE, isSettled, spring, stepSpring, type Spring, type SpringConfig } from "./spring";
 
 export interface SpreadOptions {
@@ -104,9 +104,9 @@ function lineHeightOf(style: CSSStyleDeclaration): number {
   return value > 0 ? value : px(style.fontSize) * 1.2;
 }
 
-/** Widgets drawn into the paragraph (a Courier drop cap's canvas) are not its text. */
+/** Widgets drawn into the paragraph (Courier's ASCII art canvas) are not its text. */
 const skipDecorations = (node: Node) =>
-  (node as Element).classList?.contains("ascii-cap") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+  (node as Element).classList?.contains("ascii-art") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
 
 /**
  * Only plain prose in left-aligned, normally spaced paragraphs can be reflowed

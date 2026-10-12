@@ -105,20 +105,12 @@
   hyphens: var(--blog-p-hyphens);
 }
 
-/* Courier: each paragraph opens on a large first letter. The real letter is
-   transparent and keeps its place for the caret and selection; its ASCII
-   drawing is a widget on top (src/editor/ascii-cap.ts). */
-.block-editor[data-writing-style="courier"] .block-prose > p { position: relative; }
-.ascii-cap {
-  position: absolute; pointer-events: none; user-select: none;
-  color: var(--blog-text);
-}
-.ascii-cap canvas { display: block; width: 100%; height: 100%; }
-@media print {
-  /* Print the real letter; the drawing is for the screen. */
-  .ascii-cap { display: none; }
-  .block-editor[data-writing-style="courier"] .block-prose > p::first-letter { color: inherit; }
-}
+/* Courier: text drawn in ASCII characters (src/editor/ascii-art.ts). Each
+   paragraph opens on a large first letter, and Heading 1 and 2 are drawn over.
+   The real text stays, transparent, for the caret, selection, and Markdown. */
+.block-editor[data-writing-style="courier"] .block-prose > p,
+.block-editor[data-writing-style="courier"] .block-prose > h1,
+.block-editor[data-writing-style="courier"] .block-prose > h2 { position: relative; }
 .block-editor[data-writing-style="courier"] .block-prose > p::first-letter {
   float: left;
   /* About three lines of text tall. */
@@ -127,6 +119,20 @@
   font-weight: 700;
   margin: 0.06em 0.2em 0 0;
   color: transparent;
+}
+.block-editor[data-writing-style="courier"] .block-prose > h1,
+.block-editor[data-writing-style="courier"] .block-prose > h2 { color: transparent; }
+.ascii-art {
+  position: absolute; pointer-events: none; user-select: none;
+  color: var(--blog-text);
+}
+.ascii-art canvas { display: block; width: 100%; height: 100%; }
+@media print {
+  /* Print the real text; the drawing is for the screen. */
+  .ascii-art { display: none; }
+  .block-editor[data-writing-style="courier"] .block-prose > p::first-letter,
+  .block-editor[data-writing-style="courier"] .block-prose > h1,
+  .block-editor[data-writing-style="courier"] .block-prose > h2 { color: inherit; }
 }
 
 /* ── Links ────────────────────────────────────────────────── */

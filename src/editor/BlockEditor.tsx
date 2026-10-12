@@ -5,7 +5,7 @@ import { createEditorEngine, type EditorEngine, type Pos, type Selection } from 
 import { createBlockEditor } from "./block-editor";
 import { useBuster } from "../lib/buster-context";
 import { resolveBlogTokens, writingStyle } from "../lib/blog-themes";
-import { asciiCapDecorations, refreshAsciiCaps, setAsciiCapMotion } from "./ascii-cap";
+import { asciiArtDecorations, refreshAsciiArt, setAsciiArtMotion } from "./ascii-art";
 import { writingPalette } from "./writing-effects";
 import { focusTabPanel } from "../lib/focus-service";
 import { createSpreadMenu } from "./SpreadMenu";
@@ -35,16 +35,16 @@ export default function BlockEditor(props: {
   const values = createMemo(() => appearance.forTab(props.tabId));
   const writing = createMemo(() => writingStyle(store.settings.blog_theme));
   const reducedMotion = () => !values().motion || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  setAsciiCapMotion(reducedMotion);
-  /** Paragraph texts whose Courier drop cap has already been shown, so recreated caps don't assemble again. */
-  const seenCaps = new Set<string>();
-  /** Courier drop caps plus an open spread's decorations. */
+  setAsciiArtMotion(reducedMotion);
+  /** Blocks whose Courier ASCII art has already been shown, so recreated art doesn't assemble again. */
+  const seenArt = new Set<string>();
+  /** Courier ASCII art (drop caps, headings) plus an open spread's decorations. */
   const decorations = (state: EditorState) => {
     if (untrack(writing) !== "courier") return motionDecorations;
     // DecorationSet.create consumes its array (it nulls entries as it files
-    // them), and the caps are cached per document, so always pass a copy.
-    const caps = asciiCapDecorations(state.doc, seenCaps);
-    return DecorationSet.create(state.doc, motionDecorations === DecorationSet.empty ? [...caps] : [...motionDecorations.find(), ...caps]);
+    // them), and the art is cached per document, so always pass a copy.
+    const art = asciiArtDecorations(state.doc, seenArt);
+    return DecorationSet.create(state.doc, motionDecorations === DecorationSet.empty ? [...art] : [...motionDecorations.find(), ...art]);
   };
   const spread = createSpreadMenu({
     tabId: props.tabId, engine, commands, view: () => view, scroller: () => scroller,
@@ -112,9 +112,9 @@ export default function BlockEditor(props: {
   createEffect(() => props.onDirtyChange(engine.dirty()));
   createEffect(() => { const pos = engine.cursor(); props.onCursorChange(pos.line, pos.col); });
   createEffect(() => { if (!props.active) spread.close(); });
-  // Switching style adds or removes the drop caps; size and color changes redraw them.
+  // Switching style adds or removes the ASCII art; size and color changes redraw it.
   createEffect(on(writing, () => { if (view && !view.isDestroyed) view.setProps({ decorations }); }, { defer: true }));
-  createEffect(on(style, () => queueMicrotask(refreshAsciiCaps), { defer: true }));
+  createEffect(on(style, () => queueMicrotask(refreshAsciiArt), { defer: true }));
   onCleanup(() => { spread.dispose(); controller.destroy(); view?.destroy(); });
   return <div class="block-editor" ref={scroller} style={style()} data-writing-style={writing()} onScroll={() => props.onScrollChange(scroller.scrollTop)}>
     <div class="block-editor-column" ref={mount} />

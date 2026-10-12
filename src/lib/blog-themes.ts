@@ -197,9 +197,9 @@ function noneTokens(palette: ThemePalette): BlogTokens {
 }
 
 // ── Courier ──────────────────────────────────────────────────
-// A typewritten page: Courier throughout, headings set in capitals with
-// dashed rules, and each paragraph opening on a large ASCII-drawn letter
-// (src/editor/ascii-cap.ts; the letter itself stays plain in the Markdown).
+// A typewritten page: Courier throughout, dashed rules, Heading 1 and 2 drawn
+// in ASCII characters, and each paragraph opening on a large ASCII-drawn letter
+// (src/editor/ascii-art.ts; the text itself stays plain in the Markdown).
 
 function courierTokens(palette: ThemePalette): BlogTokens {
   return {
@@ -220,12 +220,13 @@ function courierTokens(palette: ThemePalette): BlogTokens {
     border: palette.border,
     codeBg: "transparent",
 
-    h1FontSize: "1.7em",
-    h1LetterSpacing: "0.08em",
+    // ASCII lettering needs size to read: about six character rows per capital.
+    h1FontSize: "3em",
+    h1LetterSpacing: "0.04em",
     h1BorderBottom: `1px dashed ${palette.textDim}`,
     h1PaddingBottom: "0.3em",
     h1Color: palette.text,
-    h2FontSize: "1.3em",
+    h2FontSize: "2.2em",
     h2BorderBottom: `1px dashed ${palette.border}`,
     h2PaddingBottom: "0.2em",
     h2Color: palette.text,
