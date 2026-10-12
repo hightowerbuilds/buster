@@ -1,11 +1,12 @@
 import { createEffect, createMemo, onCleanup, onMount, untrack } from "solid-js";
-import { EditorView } from "prosemirror-view";
+import { DecorationSet, EditorView } from "prosemirror-view";
 import { createEditorEngine, type EditorEngine, type Pos, type Selection } from "./engine";
 import { createBlockEditor } from "./block-editor";
 import { useBuster } from "../lib/buster-context";
 import { resolveBlogTokens } from "../lib/blog-themes";
 import { writingPalette } from "./writing-effects";
 import { focusTabPanel } from "../lib/focus-service";
+import { createSpreadMenu } from "./SpreadMenu";
 import "prosemirror-view/style/prosemirror.css";
 import "./BlockEditor.css";
 
@@ -15,7 +16,7 @@ export default function BlockEditor(props: {
   onEngineReady(engine: EditorEngine): void; onDirtyChange(dirty: boolean): void;
   onCursorChange(line: number, col: number): void; onScrollChange(top: number): void;
 }) {
-  const { store, engines, appearance } = useBuster();
+  const { store, engines, appearance, commands } = useBuster();
   const engine = untrack(() => engines.get(props.tabId) ?? createEditorEngine(props.initialText, props.filePath ?? undefined));
   untrack(() => {
     if (props.initialSelection) engine.setSelection(props.initialSelection.anchor, props.initialSelection.head);
@@ -27,8 +28,21 @@ export default function BlockEditor(props: {
   let mount!: HTMLDivElement;
   let scroller!: HTMLDivElement;
   let view: EditorView | undefined;
-  const controller = createBlockEditor(engine, state => view?.updateState(state));
+  let motionDecorations = DecorationSet.empty;
   const values = createMemo(() => appearance.forTab(props.tabId));
+  const spread = createSpreadMenu({
+    tabId: props.tabId, engine, commands, view: () => view, scroller: () => scroller,
+    reducedMotion: () => !values().motion || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    setDecorations: decorations => {
+      motionDecorations = decorations;
+      if (view && !view.isDestroyed) view.setProps({ decorations: () => motionDecorations });
+    },
+  });
+  const controller = createBlockEditor(engine, state => {
+    // An open spread's decorations describe the old document; close it before the view moves on.
+    if (view && motionDecorations !== DecorationSet.empty && !state.doc.eq(view.state.doc)) spread.documentChanged();
+    view?.updateState(state);
+  });
   const style = createMemo(() => {
     const settings = values(), palette = writingPalette(store.palette, settings);
     return {
@@ -45,6 +59,7 @@ export default function BlockEditor(props: {
     view = new EditorView(mount, {
       state: controller.state,
       dispatchTransaction: tr => controller.dispatch(tr),
+      decorations: () => motionDecorations,
       attributes: { class: "blog-preview block-prose", role: "textbox", "aria-label": "Note editor", "aria-multiline": "true", "data-tab-focus-target": "true", spellcheck: "true" },
       handleDOMEvents: {
         beforeinput: (_view, event) => {
@@ -59,7 +74,17 @@ export default function BlockEditor(props: {
         click: (_view, event) => { if ((event.target as Element).closest("a")) event.preventDefault(); return false; },
         keydown: (_view, event) => {
           if ((event.ctrlKey || event.metaKey) && ["b", "i", "z", "y"].includes(event.key.toLowerCase())) event.stopPropagation();
+          if ((event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) && spread.openAtSelection()) {
+            event.preventDefault();
+            return true;
+          }
           return false;
+        },
+        // Right-clicking a word parts the text around it instead of opening a native menu.
+        contextmenu: (_view, event) => {
+          if (!spread.openAtPointer(event as MouseEvent)) return false;
+          event.preventDefault();
+          return true;
         },
       },
     });
@@ -69,7 +94,8 @@ export default function BlockEditor(props: {
   createEffect(() => { engine.editSeq(); engine.cursor(); engine.sel(); controller.sync(); });
   createEffect(() => props.onDirtyChange(engine.dirty()));
   createEffect(() => { const pos = engine.cursor(); props.onCursorChange(pos.line, pos.col); });
-  onCleanup(() => { controller.destroy(); view?.destroy(); });
+  createEffect(() => { if (!props.active) spread.close(); });
+  onCleanup(() => { spread.dispose(); controller.destroy(); view?.destroy(); });
   return <div class="block-editor" ref={scroller} style={style()} onScroll={() => props.onScrollChange(scroller.scrollTop)}>
     <div class="block-editor-column" ref={mount} />
   </div>;

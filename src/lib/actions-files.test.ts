@@ -10,7 +10,7 @@ beforeEach(() => vi.clearAllMocks());
 function fixture() {
   const [store, setStore] = createStore({ tabs: [], fileTexts: {}, fileTabCounter: 0, workspaceRoot: null } as unknown as BusterStoreState);
   const focus = vi.fn();
-  const actions = createFileActions(store, setStore, focus, vi.fn(), vi.fn(async () => {}), vi.fn());
+  const actions = createFileActions(store, setStore, focus, vi.fn());
   return { store, actions, focus };
 }
 describe("opening writing files", () => {

@@ -5,11 +5,7 @@ import type { CommandResult } from "../lib/feature-commands";
 interface CommandLineSwitchboardProps {
   visible: boolean;
   onClose: () => void;
-  onOpenExtensions: () => void;
   onOpenSettings: () => void;
-  onOpenGit: () => void;
-  onOpenBrowser: () => void;
-  onOpenConsole: () => void;
   onOpenAi: () => void;
 }
 
@@ -21,10 +17,6 @@ const CommandLineSwitchboard: Component<CommandLineSwitchboardProps> = (props) =
   let inputRef: HTMLInputElement | undefined;
   const shortcuts = [
     { label: "AI", run: props.onOpenAi },
-    { label: "Extensions", run: props.onOpenExtensions },
-    { label: "Git", run: props.onOpenGit },
-    { label: "Browser", run: props.onOpenBrowser },
-    { label: "Console", run: props.onOpenConsole },
     { label: "Settings", run: props.onOpenSettings },
   ];
 

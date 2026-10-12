@@ -310,7 +310,7 @@ The **Assistant** is a chat sidebar on the right of the workspace. Ctrl+Shift+A
 (or "Toggle Assistant" in the command palette) opens it and focuses the message
 box; pressed again from inside the sidebar, it closes it. F6 includes it in
 region cycling. The composer footer selects the model and effort (low, medium,
-high, extra high, max; Haiku 4.5 has no effort control). Enter sends, Shift+Enter
+high, extra high, max; Haiku 4.5 has no effort control, Haiku 5.5 does). Enter sends, Shift+Enter
 adds a line, and Stop or Esc interrupts a response. The sidebar's visibility,
 width, model, and effort are remembered per machine.
 

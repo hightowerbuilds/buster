@@ -514,6 +514,7 @@ mod tests {
         let mut r = request(); r.resume = Some("../x".into()); assert!(validate(&r).is_err());
         let mut r = request(); r.resume = Some("cd801306-20df-4307-b2e7-ca37c34dd0a3".into()); assert!(validate(&r).is_ok());
         let mut r = request(); r.model = None; r.effort = None; assert!(validate(&r).is_ok());
+        let mut r = request(); r.model = Some("claude-haiku-5-5".into()); r.effort = Some("low".into()); assert!(validate(&r).is_ok());
     }
 
     #[test]

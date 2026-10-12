@@ -7,25 +7,14 @@ import type { EngineMap } from "./buster-context";
 import type { Tab } from "./tab-types";
 import type { DirtyCloseResult } from "../ui/DirtyCloseDialog";
 import type { ExternalChangeResult } from "../ui/ExternalChangeDialog";
-import { basename, extname } from "buster-path";
-import { unwatchFile, lspStop, lspStatus, extUnload, browserModuleClose } from "./ipc";
+import { basename } from "buster-path";
+import { createFile, unwatchFile, watchFile } from "./ipc";
 import { showInfo, showError } from "./notify";
-import { createFile, watchFile } from "./ipc";
 import { setRefreshDir } from "../ui/SidebarTree";
 import { isNotesPath } from "./notes-storage";
 import { elementNoteNames } from "./element-note-names";
 import { clampSplitRatio, splitSide } from "./split-view";
 import type { SplitSide } from "./split-view";
-
-const EXT_TO_LANG: Record<string, string> = {
-  rs: "rust", ts: "typescript", tsx: "typescriptreact",
-  js: "javascript", jsx: "javascriptreact", py: "python", go: "go",
-};
-
-function getExtFromPath(path: string): string | null {
-  const ext = extname(path);
-  return ext ? ext.slice(1).toLowerCase() : null;
-}
 
 export function createTabActions(
   store: BusterStoreState,
@@ -148,20 +137,9 @@ export function createTabActions(
     switchToTab(id);
   }
 
-  function createGitTab() { openSingletonTab("git", "git_tab", "Git"); }
   function createSettingsTab() { openSingletonTab("settings", "settings_tab", "Settings"); }
   function createKeybindingsTab() { openSingletonTab("keybindings", "keybindings_tab", "Keyboard Shortcuts"); }
-  function createExtensionsTab() { openSingletonTab("extensions", "extensions_tab", "Extensions"); }
-  function createProblemsTab() { openSingletonTab("problems", "problems_tab", "Problems"); }
-  function createConsoleTab() { openSingletonTab("console", "console_tab", "Console"); }
   function createAiTab() { openSingletonTab("ai", "ai_tab", "AI"); }
-
-  function createBrowserTab(url?: string) {
-    const tabId = `browser_tab_${Date.now()}`;
-    const newTab: Tab = { id: tabId, name: "Browser", path: url || "", dirty: false, type: "browser" };
-    setStore("tabs", [...store.tabs, newTab]);
-    switchToTab(tabId);
-  }
 
   function handleTabClose(tabId: string) {
     const tab = store.tabs.find(t => t.id === tabId);
@@ -244,30 +222,11 @@ export function createTabActions(
     if (!tab) return;
     const closingEngine = engines.get(tabId);
 
-    if (tab.type === "browser") browserModuleClose().catch(() => {});
-    if (tab.type === "surface") {
-      try {
-        const meta = JSON.parse(tab.path || "{}");
-        if (meta.extension_id) extUnload(meta.extension_id).catch(() => {});
-      } catch { console.warn("Failed to parse surface tab metadata"); }
-    }
-
     if (tab.type === "file") {
       setStore("fileTexts", produce(ft => { delete ft[tabId]; }));
       engines.delete(tabId);
       if (tab.path && !store.tabs.some(t => t.id !== tabId && t.path === tab.path)) unwatchFile(tab.path).catch(() => {});
-      setStore("diffHunksMap", produce(dm => { delete dm[tabId]; }));
 
-      const ext = getExtFromPath(tab.path);
-      const lang = ext ? EXT_TO_LANG[ext] : null;
-      if (lang) {
-        const remaining = store.tabs.filter(t => t.id !== tabId && t.type === "file" && getExtFromPath(t.path) === ext);
-        if (remaining.length === 0) {
-          lspStop(lang).catch(e => console.warn("LSP stop failed:", e));
-          lspStatus().then(langs => setStore("lspLanguages", langs)).catch(() => {});
-          if (store.lspLanguages.length <= 1) setStore("lspState", "inactive");
-        }
-      }
     }
 
     const index = store.tabs.findIndex(t => t.id === tabId);
@@ -296,9 +255,7 @@ export function createTabActions(
 
   return {
     switchToTab, openTabAlongside, closeSplitView, setSplitRatio, reorderTabs, createNewFile,
-    createGitTab, createSettingsTab, createKeybindingsTab, createExtensionsTab,
-    createProblemsTab, createConsoleTab, createAiTab,
-    createBrowserTab,
+    createSettingsTab, createKeybindingsTab, createAiTab,
     handleTabClose, handleExternalChangeResult, handleDirtyCloseResult,
     doTabClose,
   };

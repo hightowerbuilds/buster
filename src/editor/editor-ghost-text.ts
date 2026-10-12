@@ -285,7 +285,7 @@ export function createGhostText(deps: GhostTextDeps) {
     const col = ghostCol();
     if ((!text && !loading()) || line === null || col === null) return [];
     if (!text && loading()) {
-      return [{ line, col, text: ".", style: "ghost" as const }];
+      return [{ line, col, text: "." }];
     }
 
     // Split multiline ghost text into per-line phantoms
@@ -294,7 +294,6 @@ export function createGhostText(deps: GhostTextDeps) {
       line: line + i,
       col: i === 0 ? col : 0,
       text: part,
-      style: "ghost" as const,
     }));
   }
 

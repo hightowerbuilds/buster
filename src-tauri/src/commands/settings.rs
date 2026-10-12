@@ -26,8 +26,6 @@ pub struct EditorLanguageSettings {
     #[serde(default)]
     pub word_wrap: Option<bool>,
     #[serde(default)]
-    pub format_on_save: Option<bool>,
-    #[serde(default)]
     pub auto_save: Option<bool>,
     #[serde(default)]
     pub auto_save_delay_ms: Option<u32>,
@@ -42,11 +40,8 @@ pub struct AppSettings {
     pub tab_size: u32,
     #[serde(default = "default_true")]
     pub use_spaces: bool,
-    pub minimap: bool,
     pub line_numbers: bool,
     pub cursor_blink: bool,
-    #[serde(default = "default_true")]
-    pub autocomplete: bool,
     #[serde(default = "default_zoom")]
     pub ui_zoom: u32,
     #[serde(default)]
@@ -78,8 +73,6 @@ pub struct AppSettings {
     pub keybindings: HashMap<String, String>,
     #[serde(default)]
     pub syntax_colors: HashMap<String, String>,
-    #[serde(default)]
-    pub format_on_save: bool,
     #[serde(default)]
     pub auto_save: bool,
     #[serde(default = "default_auto_save_delay_ms")]
@@ -130,7 +123,7 @@ fn default_ai_provider() -> String {
     "ollama".to_string()
 }
 fn default_ai_model() -> String {
-    "claude-haiku-4-5-20250514".to_string()
+    "claude-haiku-5-5".to_string()
 }
 fn default_ollama_model() -> String {
     "gemma3:4b".to_string()
@@ -184,10 +177,8 @@ impl Default for AppSettings {
             font_family: default_font_family(),
             tab_size: 4,
             use_spaces: true,
-            minimap: false,
             line_numbers: true,
             cursor_blink: true,
-            autocomplete: true,
             ui_zoom: 100,
             recent_folders: Vec::new(),
             theme_mode: "dark".to_string(),
@@ -202,7 +193,6 @@ impl Default for AppSettings {
             agent_timeout_secs: 300,
             keybindings: HashMap::new(),
             syntax_colors: HashMap::new(),
-            format_on_save: false,
             auto_save: false,
             auto_save_delay_ms: 1500,
             language_settings: HashMap::new(),
@@ -213,7 +203,7 @@ impl Default for AppSettings {
             ai_provider: "ollama".to_string(),
             ai_api_key: String::new(),
             ai_credential_error: None,
-            ai_model: "claude-haiku-4-5-20250514".to_string(),
+            ai_model: "claude-haiku-5-5".to_string(),
             ai_local_model: "gemma3:4b".to_string(),
             ai_ollama_url: "http://localhost:11434".to_string(),
             ai_stop_on_newline: true,
@@ -378,7 +368,6 @@ mod tests {
     #[test]
     fn settings_language_overrides_round_trip() {
         let mut settings = AppSettings {
-            format_on_save: true,
             auto_save: true,
             auto_save_delay_ms: 2000,
             ..AppSettings::default()
@@ -389,7 +378,6 @@ mod tests {
                 tab_size: Some(2),
                 use_spaces: Some(false),
                 word_wrap: None,
-                format_on_save: Some(false),
                 auto_save: None,
                 auto_save_delay_ms: Some(1000),
             },
@@ -399,12 +387,10 @@ mod tests {
         let decoded: AppSettings = serde_json::from_str(&json).unwrap();
         let rust = decoded.language_settings.get("rust").unwrap();
 
-        assert!(decoded.format_on_save);
         assert!(decoded.auto_save);
         assert_eq!(decoded.auto_save_delay_ms, 2000);
         assert_eq!(rust.tab_size, Some(2));
         assert_eq!(rust.use_spaces, Some(false));
-        assert_eq!(rust.format_on_save, Some(false));
         assert_eq!(rust.auto_save_delay_ms, Some(1000));
     }
 
@@ -429,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_missing_format_and_auto_save_defaults() {
+    fn settings_missing_auto_save_defaults_and_legacy_keys_ignored() {
         let json = r#"{
             "word_wrap": true,
             "font_size": 14,
@@ -441,7 +427,6 @@ mod tests {
 
         let decoded: AppSettings = serde_json::from_str(json).unwrap();
 
-        assert!(!decoded.format_on_save);
         assert!(!decoded.auto_save);
         assert_eq!(decoded.auto_save_delay_ms, 1500);
         assert!(decoded.language_settings.is_empty());
@@ -511,7 +496,7 @@ mod tests {
 
         assert!(!decoded.ai_completion_enabled);
         assert_eq!(decoded.ai_provider, "ollama");
-        assert_eq!(decoded.ai_model, "claude-haiku-4-5-20250514");
+        assert_eq!(decoded.ai_model, "claude-haiku-5-5");
         assert_eq!(decoded.ai_local_model, "gemma3:4b");
         assert_eq!(decoded.ai_ollama_url, "http://localhost:11434");
         assert!(decoded.ai_stop_on_newline);

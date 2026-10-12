@@ -24,20 +24,6 @@ export interface DisplayRow {
   text: string;
 }
 
-/** A single edit range describing what text was replaced and with what. */
-export interface EditDelta {
-  /** Start line of the replaced range (zero-based, before the edit). */
-  startLine: number;
-  /** Start column of the replaced range (zero-based, before the edit). */
-  startCol: number;
-  /** End line of the replaced range (zero-based, before the edit). */
-  endLine: number;
-  /** End column of the replaced range (zero-based, before the edit). */
-  endCol: number;
-  /** The new text that replaced the range. Empty string means deletion. */
-  newText: string;
-}
-
 // ─── Constants ──────────────────────────────────────────────────────
 
 export const PADDING_LEFT = 8;

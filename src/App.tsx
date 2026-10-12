@@ -12,7 +12,6 @@ import CanvasToasts from "./ui/CanvasToasts";
 import DirtyCloseDialog from "./ui/DirtyCloseDialog";
 import ExternalChangeDialog from "./ui/ExternalChangeDialog";
 import PrintDialog from "./ui/PrintDialog";
-import BranchPicker from "./ui/BranchPicker";
 import { createAppCommands, registerAppCommands, unregisterAppCommands, buildHotkeyDefinitions, resolveHotkey, type CommandDeps } from "./lib/app-commands";
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { normalizeHotkey } from "./lib/keybinding-conflicts";
@@ -66,26 +65,6 @@ const App: Component = () => {
     restorePrimaryWorkspaceFocus(store.activeTabId, ideRootRef);
   }
 
-  function handleCommandLineExtensions() {
-    actions.createExtensionsTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineGit() {
-    actions.createGitTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineBrowser() {
-    actions.createBrowserTab();
-    closeCommandLine();
-  }
-
-  function handleCommandLineConsole() {
-    actions.createConsoleTab();
-    closeCommandLine();
-  }
-
   function handleCommandLineSettings() {
     actions.createSettingsTab();
     closeCommandLine();
@@ -135,12 +114,9 @@ const App: Component = () => {
       setStore("paletteInitialQuery", typeof v === "function" ? v(store.paletteInitialQuery) : v),
     createSettingsTab: actions.createSettingsTab,
     createKeybindingsTab: actions.createKeybindingsTab,
-    createGitTab: actions.createGitTab,
-    createBrowserTab: actions.createBrowserTab,
     toggleAssistant,
     setSidebarVisible: (v: boolean | ((prev: boolean) => boolean)) =>
       updateSidebarVisible(v),
-    jumpToDiagnostic: actions.jumpToDiagnostic,
     findVisible: () => store.findVisible,
     paletteVisible: () => store.paletteVisible,
     settings: () => store.settings,
@@ -151,8 +127,6 @@ const App: Component = () => {
       const id = store.activeTabId;
       if (id) actions.handleTabClose(id);
     },
-    navigateBack: () => actions.navigateBack(),
-    navigateForward: () => actions.navigateForward(),
   };
 
   const appCommands = createAppCommands(commandDeps);
@@ -258,13 +232,6 @@ const App: Component = () => {
     activateTab: id => actions.switchToTab(id, { focus: false }),
     searchMatches: () => store.searchMatches,
     currentSearchIdx: () => store.currentSearchIdx,
-    diagnosticsMap: () => {
-      // Convert Record to Map for PanelRenderer compatibility
-      const m = new Map<string, any[]>();
-      for (const [k, v] of Object.entries(store.diagnosticsMap)) m.set(k, v);
-      return m;
-    },
-    diffHunksMap: () => store.diffHunksMap,
     handleFileSelect: actions.handleFileSelect,
     handleTabClose: actions.handleTabClose,
     openWorkspace: actions.openWorkspace,
@@ -419,11 +386,6 @@ const App: Component = () => {
               col={store.cursorCol}
               totalLines={actions.activeEngine()?.lineCount() ?? 0}
               fileName={actions.activeTab()?.name ?? null}
-              gitBranch={store.gitBranchName}
-              onBranchClick={() => { if (store.workspaceRoot) setStore("branchPickerVisible", true); }}
-              errorCount={actions.diagnosticCounts().errors}
-              warningCount={actions.diagnosticCounts().warnings}
-              onDiagnosticsClick={() => actions.jumpToDiagnostic(1)}
               fileLoading={store.fileLoading}
               lineEnding={actions.activeEngine()?.lineEnding() ?? null}
               wordCount={wordCount()}
@@ -445,10 +407,6 @@ const App: Component = () => {
       <CommandLineSwitchboard
         visible={commandLineVisible()}
         onClose={closeCommandLine}
-        onOpenExtensions={handleCommandLineExtensions}
-        onOpenGit={handleCommandLineGit}
-        onOpenBrowser={handleCommandLineBrowser}
-        onOpenConsole={handleCommandLineConsole}
         onOpenSettings={handleCommandLineSettings}
         onOpenAi={handleCommandLineAi}
       />
@@ -459,9 +417,7 @@ const App: Component = () => {
         onFileSelect={actions.handleFileSelect}
         onGoToLine={handleGoToLine}
         initialQuery={store.paletteInitialQuery}
-        activeFilePath={store.activeFilePath}
         recentFiles={store.recentFiles}
-        activeEngine={actions.activeEngine()}
       />
       <CanvasToasts />
       <PrintDialog printing={printing} />
@@ -475,13 +431,6 @@ const App: Component = () => {
         fileName={store.extChangeFileName}
         onResult={actions.handleExternalChangeResult}
       />
-      <Show when={store.branchPickerVisible && store.workspaceRoot}>
-        <BranchPicker
-          workspaceRoot={store.workspaceRoot!}
-          onClose={() => setStore("branchPickerVisible", false)}
-          onBranchChanged={() => actions.refreshGitBranch(store.workspaceRoot!)}
-        />
-      </Show>
     </div>
   );
 };

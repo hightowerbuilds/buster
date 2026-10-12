@@ -8,15 +8,8 @@
 @import "./welcome.css";
 @import "./statusbar.css";
 @import "./settings.css";
-@import "./git-panel.css";
-@import "./git-graph.css";
-@import "./extensions.css";
 @import "./dirty-close.css";
-@import "./conflict.css";
 @import "./blog-preview.css";
-@import "./diff-view.css";
-@import "./problems.css";
-@import "./search-results.css";
 @import "./ai-settings.css";
 
 @import "./tab-workspace.css";

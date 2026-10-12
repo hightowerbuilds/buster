@@ -116,16 +116,6 @@ describe("smoke: theme", () => {
   });
 });
 
-// ── Highlighter ──────────────────────────────────────────────────────
-
-describe("smoke: highlighter", () => {
-  it("spansToLineTokens returns correct number of lines", async () => {
-    const { spansToLineTokens } = await import("../editor/ts-highlighter");
-    const result = spansToLineTokens([], ["a", "b", "c"]);
-    expect(result).toHaveLength(3);
-  });
-});
-
 // ── Tab types ────────────────────────────────────────────────────────
 
 describe("smoke: tab types", () => {

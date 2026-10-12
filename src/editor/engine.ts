@@ -28,7 +28,6 @@ export type {
   Pos,
   Selection,
   DisplayRow,
-  EditDelta,
   HistoryEntry,
 } from "./engine-text-ops";
 
@@ -57,7 +56,7 @@ export {
 
 // ─── Internal imports ──────────────────────────────────────────────
 
-import type { Pos, Selection, EditDelta, HistoryEntry } from "./engine-text-ops";
+import type { Pos, Selection, HistoryEntry } from "./engine-text-ops";
 import {
   PADDING_LEFT,
   UNDO_GROUP_MS,
@@ -116,10 +115,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
   // Sticky column: remembered horizontal target for vertical movement
   let desiredCol: number | null = null;
 
-  // Edit delta accumulator for incremental sync
-  let editDeltas: EditDelta[] = [];
-  let fullSyncNeeded = false;
-
   // Code folding state
   const foldStarts = new Set<number>();    // lines that start a fold
   const foldedLineSet = new Set<number>(); // lines that are hidden
@@ -151,7 +146,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       setExtras(entry.extras.map(p => ({ ...p })));
       setSel(entry.sel ? { anchor: { ...entry.sel.anchor }, head: { ...entry.sel.head } } : null);
       setDirty(true);
-      fullSyncNeeded = true;
       setEditSeq(s => s + 1);
     });
     invalidateCache();
@@ -179,14 +173,9 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     lastEditTime = now;
   }
 
-  function afterEdit(deltas?: EditDelta[] | null) {
+  function afterEdit() {
     desiredCol = null;
     setDirty(true);
-    if (deltas === null || deltas === undefined) {
-      fullSyncNeeded = true;
-    } else {
-      editDeltas.push(...deltas);
-    }
     setEditSeq(s => s + 1);
     redoStack.length = 0;
     invalidateCache();
@@ -237,18 +226,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     getLine: (n: number) => lines()[n] ?? "",
     getCursors: () => [cursor(), ...extras()],
     hasMultiCursors: () => extras().length > 0,
-
-    /** Take accumulated edit deltas since last call. Returns null if full-document sync is needed. */
-    takeEditDeltas(): EditDelta[] | null {
-      if (fullSyncNeeded) {
-        editDeltas = [];
-        fullSyncNeeded = false;
-        return null;
-      }
-      const result = editDeltas;
-      editDeltas = [];
-      return result;
-    },
 
     getOrderedSelection(): { from: Pos; to: Pos } | null {
       const s = sel();
@@ -425,7 +402,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
     insert(text: string) {
       recordUndo();
       let ls = lines();
-      const deltas: EditDelta[] = [];
 
       // Delete selection first
       if (sel()) {
@@ -440,12 +416,8 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           const adjusted = extras().map(p => adjustPosAfterDelete(p, from, to));
           const all = [pos, ...adjusted].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
           const newPositions: Pos[] = [];
-          // Back-to-front: first delta replaces selection, rest are pure inserts
-          deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: text });
+          // Back-to-front so earlier positions stay valid
           for (const p of all) {
-            if (p !== pos) {
-              deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col, newText: text });
-            }
             const r2 = insertAtPos(ls, p, text);
             ls = r2.lines;
             newPositions.push(r2.newPos);
@@ -459,7 +431,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
             setSel(null);
           });
         } else {
-          deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: text });
           const r2 = insertAtPos(ls, pos, text);
           batch(() => { setLines(r2.lines); setCursor(r2.newPos); setSel(null); });
         }
@@ -468,7 +439,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         const all = [cursor(), ...extras()].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
         const newPositions: Pos[] = [];
         for (const p of all) {
-          deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col, newText: text });
           const r = insertAtPos(ls, p, text);
           ls = r.lines;
           newPositions.push(r.newPos);
@@ -479,34 +449,23 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       } else {
         // Single cursor insert
         const pos = cursor();
-        deltas.push({ startLine: pos.line, startCol: pos.col, endLine: pos.line, endCol: pos.col, newText: text });
         const r = insertAtPos(ls, pos, text);
         batch(() => { setLines(r.lines); setCursor(r.newPos); });
       }
-      afterEdit(deltas);
+      afterEdit();
     },
 
     backspace() {
       recordUndo();
       let ls = lines();
-      const deltas: EditDelta[] = [];
 
       if (sel()) {
-        const s = sel()!;
-        const [from, to] = orderPositions(s.anchor, s.head);
-        deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: "" });
         const r = deleteCurrentSelection(ls);
         batch(() => { setLines(r.lines); setCursor(r.pos); setSel(null); });
       } else if (extras().length > 0) {
         const all = [cursor(), ...extras()].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
         const newPositions: Pos[] = [];
         for (const p of all) {
-          if (p.col > 0) {
-            deltas.push({ startLine: p.line, startCol: p.col - 1, endLine: p.line, endCol: p.col, newText: "" });
-          } else if (p.line > 0) {
-            const prevLen = ls[p.line - 1].length;
-            deltas.push({ startLine: p.line - 1, startCol: prevLen, endLine: p.line, endCol: 0, newText: "" });
-          }
           const r = backspaceAtPos(ls, p);
           ls = r.lines;
           newPositions.push(r.newPos);
@@ -515,40 +474,23 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         const deduped = deduplicateCursors(newPositions[0], newPositions.slice(1));
         batch(() => { setLines(ls); setCursor(deduped.primary); setExtras(deduped.extras); });
       } else {
-        const p = cursor();
-        if (p.col > 0) {
-          deltas.push({ startLine: p.line, startCol: p.col - 1, endLine: p.line, endCol: p.col, newText: "" });
-        } else if (p.line > 0) {
-          const prevLen = ls[p.line - 1].length;
-          deltas.push({ startLine: p.line - 1, startCol: prevLen, endLine: p.line, endCol: 0, newText: "" });
-        }
-        const r = backspaceAtPos(ls, p);
+        const r = backspaceAtPos(ls, cursor());
         batch(() => { setLines(r.lines); setCursor(r.newPos); });
       }
-      afterEdit(deltas);
+      afterEdit();
     },
 
     deleteForward() {
       recordUndo();
       let ls = lines();
-      const deltas: EditDelta[] = [];
 
       if (sel()) {
-        const s = sel()!;
-        const [from, to] = orderPositions(s.anchor, s.head);
-        deltas.push({ startLine: from.line, startCol: from.col, endLine: to.line, endCol: to.col, newText: "" });
         const r = deleteCurrentSelection(ls);
         batch(() => { setLines(r.lines); setCursor(r.pos); setSel(null); });
       } else if (extras().length > 0) {
         const all = [cursor(), ...extras()].sort((a, b) => b.line !== a.line ? b.line - a.line : b.col - a.col);
         const newPositions: Pos[] = [];
         for (const p of all) {
-          const line = ls[p.line] ?? "";
-          if (p.col < line.length) {
-            deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col + 1, newText: "" });
-          } else if (p.line < ls.length - 1) {
-            deltas.push({ startLine: p.line, startCol: line.length, endLine: p.line + 1, endCol: 0, newText: "" });
-          }
           ls = deleteForwardAtPos(ls, p);
           newPositions.push(p);
         }
@@ -557,16 +499,10 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         batch(() => { setLines(ls); setCursor(deduped.primary); setExtras(deduped.extras); });
       } else {
         const p = cursor();
-        const line = ls[p.line] ?? "";
-        if (p.col < line.length) {
-          deltas.push({ startLine: p.line, startCol: p.col, endLine: p.line, endCol: p.col + 1, newText: "" });
-        } else if (p.line < ls.length - 1) {
-          deltas.push({ startLine: p.line, startCol: line.length, endLine: p.line + 1, endCol: 0, newText: "" });
-        }
         ls = deleteForwardAtPos(ls, p);
         batch(() => { setLines(ls); setCursor(p); });
       }
-      afterEdit(deltas);
+      afterEdit();
     },
 
     deleteRange(from: Pos, to: Pos) {
@@ -574,7 +510,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       const [s, e] = orderPositions(from, to);
       const ls = deleteRangeFromLines(lines(), s, e);
       batch(() => { setLines(ls); setCursor(s); setSel(null); });
-      afterEdit([{ startLine: s.line, startCol: s.col, endLine: e.line, endCol: e.col, newText: "" }]);
+      afterEdit();
     },
 
     /** The \w-run touching the cursor; empty when the cursor is not on a word. */
@@ -601,7 +537,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       result[p.line] = joined;
       result.splice(p.line + 1, 1);
       batch(() => { setLines(result); setCursor({ line: p.line, col: currentLen }); });
-      afterEdit([{ startLine: p.line, startCol: currentLen, endLine: p.line + 1, endCol: ls[p.line + 1].length, newText: nextTrimmed ? " " + nextTrimmed : "" }]);
+      afterEdit();
     },
 
     /** Find all matches in the document. Returns SearchMatch[] for use by the find panel. */
@@ -724,7 +660,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         newLines[c.line] = unit + newLines[c.line];
         batch(() => { setLines(newLines); setCursor({ line: c.line, col: c.col + len }); });
       }
-      afterEdit(null);
+      afterEdit();
     },
 
     /** Outdent: remove one indent level from each line in selection or current line. */
@@ -770,7 +706,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           });
         }
       });
-      afterEdit(null);
+      afterEdit();
     },
 
     /** Duplicate the current line (or all lines in selection) below. */
@@ -795,7 +731,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           });
         }
       });
-      afterEdit(null);
+      afterEdit();
     },
 
     /** Move line(s) up or down. */
@@ -826,7 +762,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           if (s) setSel({ anchor: { line: s.anchor.line + 1, col: s.anchor.col }, head: { line: s.head.line + 1, col: s.head.col } });
         });
       }
-      afterEdit(null);
+      afterEdit();
     },
 
     /** @deprecated Duplicate — use joinLines above. */
@@ -840,7 +776,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       newLines[c.line] = newLines[c.line] + " " + newLines[c.line + 1].trimStart();
       newLines.splice(c.line + 1, 1);
       batch(() => { setLines(newLines); setCursor({ line: c.line, col: currentEnd }); });
-      afterEdit(null);
+      afterEdit();
     },
 
     /** Toggle line comment for current line or selection. */
@@ -900,7 +836,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
           });
         }
       });
-      afterEdit(null);
+      afterEdit();
     },
 
     // ── Code folding ─────────────────────────────────────────
@@ -1083,7 +1019,7 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
         setSel(selection.anchor.line === selection.head.line && selection.anchor.col === selection.head.col
           ? null : { anchor: clamp(selection.anchor, lines()), head: clamp(selection.head, lines()) });
         setExtras([]);
-        afterEdit(null);
+        afterEdit();
       });
     },
 
@@ -1125,8 +1061,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       undoTotalBytes = 0;
       pendingSnapshot = null;
       desiredCol = null;
-      editDeltas = [];
-      fullSyncNeeded = true;
       invalidateCache();
     },
 
@@ -1142,8 +1076,6 @@ export function createEditorEngine(initialText: string = "", filePath?: string) 
       redoStack.length = 0;
       undoTotalBytes = 0;
       pendingSnapshot = null;
-      editDeltas = [];
-      fullSyncNeeded = false;
       invalidateCache();
     },
   };

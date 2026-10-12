@@ -9,8 +9,8 @@ describe("native composition ownership", () => {
     engine.setSelection({ line: 0, col: 0 }, { line: 0, col: 2 });
     const input = { value: "x" } as HTMLTextAreaElement;
     handleEditorInput({ engine, hiddenInput: () => input, isComposing: () => false,
-      languagePath: () => "Note.md", indentUnit: () => "  ", clearHighlightCache: vi.fn(),
-      ac: { trigger: vi.fn() }, sigHelp: { onChar: vi.fn() }, ghost: { scheduleRequest: vi.fn() } } as unknown as InputDeps);
+      languagePath: () => "Note.md", indentUnit: () => "  ",
+      ghost: { scheduleRequest: vi.fn() } } as unknown as InputDeps);
     expect(engine.getText()).toBe("xA");
     engine.insert("!"); engine.undo(); expect(engine.getText()).toBe("xA");
     engine.undo(); expect(engine.getText()).toBe("abA");
@@ -21,10 +21,9 @@ describe("native composition ownership", () => {
     try {
       const engine = createEditorEngine("a draft"); engine.setSelection({ line: 0, col: 2 }, { line: 0, col: 7 });
       const input = { value: "" } as HTMLTextAreaElement, preventDefault = vi.fn();
-      const deps = { engine, ac: { completionVisible: () => false, trigger: vi.fn() },
-        codeActions: { menuVisible: () => false }, hiddenInput: () => input, isComposing: () => false,
-        languagePath: () => "Note.md", indentUnit: () => "  ", clearHighlightCache: vi.fn(),
-        sigHelp: { onChar: vi.fn() }, ghost: { scheduleRequest: vi.fn() } };
+      const deps = { engine, hiddenInput: () => input, isComposing: () => false,
+        languagePath: () => "Note.md", indentUnit: () => "  ",
+        ghost: { scheduleRequest: vi.fn() } };
       handleEditorKeyDown({ key: "e", preventDefault } as unknown as KeyboardEvent, deps as unknown as KeyboardDeps);
       expect(preventDefault).not.toHaveBeenCalled(); expect(engine.getText()).toBe("a draft");
       expect(engine.sel()).not.toBeNull();
@@ -39,8 +38,8 @@ describe("native composition ownership", () => {
     const engine = createEditorEngine("");
     const input = { value: "é" } as HTMLTextAreaElement;
     const deps = { engine, hiddenInput: () => input, isComposing: () => false,
-      languagePath: () => "Note.md", indentUnit: () => "  ", clearHighlightCache: vi.fn(),
-      ac: { trigger: vi.fn() }, sigHelp: { onChar: vi.fn() }, ghost: { scheduleRequest: vi.fn() } } as unknown as InputDeps;
+      languagePath: () => "Note.md", indentUnit: () => "  ",
+      ghost: { scheduleRequest: vi.fn() } } as unknown as InputDeps;
     handleEditorInput(deps);
     expect(engine.getText()).toBe("é");
     const preventDefault = vi.fn();

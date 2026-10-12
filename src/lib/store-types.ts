@@ -1,27 +1,16 @@
 /**
- * Central store type for the Buster IDE.
+ * Central store type for BusterMark.
  * Used with SolidJS createStore + createContext.
  */
 
 import type { Tab } from "./tab-types";
 import type { SplitView } from "./split-view";
-import type { SearchMatch, DiffHunk, AppSettings } from "./ipc";
+import type { SearchMatch, AppSettings } from "./ipc";
 import type { ThemePalette } from "./theme";
-
-export type LspState = "inactive" | "starting" | "active" | "error" | "crashed";
 
 export interface RecentFile {
   path: string;
   name: string;
-}
-
-export interface Diagnostic {
-  line: number;
-  col: number;
-  endLine: number;
-  endCol: number;
-  severity: number;
-  message: string;
 }
 
 export interface BusterStoreState {
@@ -41,17 +30,12 @@ export interface BusterStoreState {
   findVisible: boolean;
   paletteVisible: boolean;
   paletteInitialQuery: string;
-  branchPickerVisible: boolean;
   syncing: boolean;
   fileLoading: boolean;
 
   // ── Layout ──────────────────────────────────────────────
   sidebarWidth: number;
   sidebarVisible: boolean;
-
-  // ── Git ─────────────────────────────────────────────────
-  gitBranchName: string | null;
-  diffHunksMap: Record<string, DiffHunk[]>;
 
   // ── Dialogs ─────────────────────────────────────────────
   dirtyCloseTabId: string | null;
@@ -62,7 +46,6 @@ export interface BusterStoreState {
   // ── Editor data ────────────────────────────────────────
   searchMatches: SearchMatch[];
   currentSearchIdx: number;
-  diagnosticsMap: Record<string, Diagnostic[]>;
 
   // ── Settings / theme ───────────────────────────────────
   settings: AppSettings;
@@ -74,19 +57,7 @@ export interface BusterStoreState {
   notesStorageWarning: string | null;
   activeFilePath: string | null;
 
-  // ── Navigation history ──────────────────────────────────
-  navHistory: NavHistoryEntry[];
-  navHistoryIdx: number;
-
   // ── Misc ───────────────────────────────────────────────
   recentFiles: RecentFile[];
   tabTrapping: boolean;
-  lspState: LspState;
-  lspLanguages: string[];
-}
-
-export interface NavHistoryEntry {
-  path: string;
-  line: number;
-  col: number;
 }

@@ -9,10 +9,8 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     font_family: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
     tab_size: 4,
     use_spaces: true,
-    minimap: false,
     line_numbers: true,
     cursor_blink: true,
-    autocomplete: true,
     ui_zoom: 100,
     recent_folders: [],
     theme_mode: "dark",
@@ -22,7 +20,6 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     effect_grain: 0,
     keybindings: {},
     syntax_colors: {},
-    format_on_save: false,
     auto_save: false,
     auto_save_delay_ms: 1500,
     language_settings: {},
@@ -32,7 +29,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     ai_completion_enabled: false,
     ai_provider: "ollama",
     ai_api_key: "",
-    ai_model: "claude-haiku-4-5-20250514",
+    ai_model: "claude-haiku-5-5",
     ai_local_model: "gemma3:4b",
     ai_ollama_url: "http://localhost:11434",
     ai_stop_on_newline: true,
@@ -60,19 +57,16 @@ describe("resolveEditorSettings", () => {
     expect(resolveEditorSettings(settings({
       tab_size: 4,
       use_spaces: true,
-      format_on_save: false,
       language_settings: {
         rust: {
           tab_size: 2,
           use_spaces: false,
-          format_on_save: true,
         },
       },
     }), "/tmp/main.rs")).toMatchObject({
       languageId: "rust",
       tab_size: 2,
       use_spaces: false,
-      format_on_save: true,
     });
   });
 

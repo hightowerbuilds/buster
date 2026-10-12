@@ -3,21 +3,17 @@
  *
  * Uses the panel registry for non-file panel types.
  * The file tab is handled separately due to its unique concerns
- * (breadcrumbs, block editing, editor engine lifecycle).
+ * (block editing, editor engine lifecycle).
  */
 
-import { createSignal, createEffect, createMemo, createRoot, onCleanup, Show, type Accessor, type JSX } from "solid-js";
+import { createSignal, createEffect, createRoot, onCleanup, Show, type Accessor, type JSX } from "solid-js";
 import CanvasEditor from "../editor/CanvasEditor";
 import WritingViewport from "./WritingViewport";
 import { isMarkdownPath } from "../editor/writing-viewport";
 import BlockEditor from "../editor/BlockEditor";
-import CanvasBreadcrumbs from "./CanvasBreadcrumbs";
 import type { Tab } from "../lib/tab-types";
 import type { PanelDeps, FileTabDeps } from "../lib/panel-registry";
 import { getPanel } from "../lib/panel-registry";
-import { lspDocumentSymbol, type LspDocumentSymbol } from "../lib/ipc";
-import { symbolBreadcrumbChain } from "../editor/symbol-breadcrumbs";
-import { relativeTo } from "buster-path";
 import { resolveEditorSettings } from "../lib/editor-settings";
 
 // Ensure all panel types are registered
@@ -89,7 +85,7 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
       return wrapPanel(tab.id, def.render(tab, isActive, deps));
     }
 
-    // File tab (default) — has unique breadcrumb/block-editor/engine concerns
+    // File tab (default) — has unique block-editor/engine concerns
     return renderFileTab(tab, isActive);
   }
 
@@ -102,47 +98,8 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
 
     const isMd = () => isMarkdownPath(languagePath());
     const editorSettings = () => resolveEditorSettings(deps.settings(), languagePath());
-    const [symbols, setSymbols] = createSignal<LspDocumentSymbol[]>([]);
-    let symbolRequestSeq = 0;
-
-    createEffect(() => {
-      const active = isActive();
-      const root = deps.workspaceRoot();
-      const fp = currentTab().path;
-      if (!active || !root || !fp) {
-        setSymbols([]);
-        return;
-      }
-
-      const requestSeq = ++symbolRequestSeq;
-      lspDocumentSymbol(fp, root)
-        .then((next) => {
-          if (requestSeq === symbolRequestSeq) setSymbols(next);
-        })
-        .catch(() => {
-          if (requestSeq === symbolRequestSeq) setSymbols([]);
-        });
-    });
-
-    const symbolSegments = createMemo(() => {
-      if (!isActive()) return [];
-      return symbolBreadcrumbChain(symbols(), deps.cursorLine(), deps.cursorCol())
-        .map((symbol) => symbol.name);
-    });
-
-    const breadcrumbs = () => {
-      const root = deps.workspaceRoot();
-      const fp = tab.path;
-      if (!fp) return [];
-      const rel = root ? relativeTo(root, fp) : fp;
-      return rel.split("/");
-    };
-
     return wrapPanel(tab.id, (
       <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", "flex-direction": "column" }}>
-        <Show when={breadcrumbs().length > 1}>
-          <CanvasBreadcrumbs segments={breadcrumbs()} symbolSegments={symbolSegments()} />
-        </Show>
         <div style={{ width: "100%", flex: "1", "min-height": "0", display: "flex" }}>
           <Show when={isMd()} fallback={
           <WritingViewport tabId={tab.id} markdown={isMd()}><CanvasEditor
@@ -175,15 +132,6 @@ export function createPanelRenderer(deps: PanelRendererDeps) {
             wordWrap={editorSettings().word_wrap}
             fontSize={deps.settings().font_size}
             lineNumbers={deps.settings().line_numbers}
-            autocomplete={deps.settings().autocomplete}
-            diagnostics={deps.diagnosticsMap().get(tab.path) ?? []}
-            diffHunks={deps.diffHunksMap()[tab.id] ?? []}
-            minimap={deps.settings().minimap}
-            onGoToFile={async (path, line, col) => {
-              await deps.handleFileSelect(path);
-              deps.setCursorLine(line);
-              deps.setCursorCol(col);
-            }}
           /></WritingViewport>
           }>
             <BlockEditor

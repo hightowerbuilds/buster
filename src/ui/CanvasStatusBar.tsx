@@ -1,8 +1,8 @@
 /**
  * CanvasStatusBar — canvas-rendered status bar.
  *
- * Replaces the DOM StatusBar. Shows: "BusterMark" label, git branch (clickable),
- * sync button, diagnostics (clickable), cursor position, word count, filename.
+ * Shows the "BusterMark" label, loading state, cursor position, word count,
+ * line count, line ending, and filename.
  */
 
 import { Component, createSignal, createEffect, onCleanup } from "solid-js";
@@ -15,11 +15,6 @@ interface CanvasStatusBarProps {
   col: number;
   totalLines: number;
   fileName: string | null;
-  gitBranch?: string | null;
-  onBranchClick?: () => void;
-  errorCount?: number;
-  warningCount?: number;
-  onDiagnosticsClick?: () => void;
   fileLoading?: boolean;
   lineEnding?: string | null;
   /** Already formatted, e.g. "340 words" or "12 of 340 words". */
@@ -54,7 +49,7 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
 
   const dots = () => ".".repeat(dotPhase() || 0);
 
-  const paint: PaintFn = (ctx, w, h, hovered) => {
+  const paint: PaintFn = (ctx, w, h) => {
     // We don't use useBuster here — palette comes via CSS variable mapping
     // Actually, we need the accent color for the background. Let's read from DOM.
     // Status bar bg is the accent color. We can get it from the CSS variable.
@@ -62,8 +57,6 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     const root = document.documentElement;
     const accent = getComputedStyle(root).getPropertyValue("--accent").trim() || "#89b4fa";
     const textOnAccent = getComputedStyle(root).getPropertyValue("--bg-crust").trim() || "#11111b";
-    const errorColor = getComputedStyle(root).getPropertyValue("--red").trim() || "#f38ba8";
-    const warningColor = getComputedStyle(root).getPropertyValue("--yellow").trim() || "#f9e2af";
 
     const regions: HitRegion[] = [];
 
@@ -83,35 +76,6 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     ctx.textAlign = "left";
     ctx.fillText("BusterMark", x, cy);
     x += ctx.measureText("BusterMark").width + ITEM_GAP;
-
-
-    // Git branch
-    if (props.gitBranch) {
-      const branchText = props.gitBranch;
-      const branchW = ctx.measureText(branchText).width;
-      const branchHovered = hovered === "branch";
-
-      if (branchHovered) {
-        ctx.fillStyle = textOnAccent;
-        ctx.globalAlpha = 0.15;
-        ctx.fillRect(x - 3, 2, branchW + 6, h - 4);
-        ctx.globalAlpha = 1;
-      }
-
-      ctx.fillStyle = textOnAccent;
-      ctx.fillText(branchText, x, cy);
-
-      if (props.onBranchClick) {
-        regions.push({
-          id: "branch",
-          x: x - 3, y: 0, w: branchW + 6, h,
-          cursor: "pointer",
-          onClick: () => props.onBranchClick?.(),
-        });
-      }
-
-      x += branchW + ITEM_GAP;
-    }
 
     // File loading indicator
     if (props.fileLoading) {
@@ -155,50 +119,6 @@ const CanvasStatusBar: Component<CanvasStatusBarProps> = (props) => {
     const cursorText = `Ln ${props.line + 1}, Col ${props.col + 1}`;
     ctx.fillText(cursorText, rx, cy);
     rx -= ctx.measureText(cursorText).width + ITEM_GAP;
-
-    // Diagnostics
-    const errors = props.errorCount ?? 0;
-    const warnings = props.warningCount ?? 0;
-    if (errors > 0 || warnings > 0) {
-      let diagText = "";
-      if (errors > 0) diagText += `${errors} error${errors === 1 ? "" : "s"}`;
-      if (errors > 0 && warnings > 0) diagText += "  ";
-      if (warnings > 0) diagText += `${warnings} warning${warnings === 1 ? "" : "s"}`;
-
-      const diagW = ctx.measureText(diagText).width;
-      const diagHovered = hovered === "diagnostics";
-
-      if (diagHovered) {
-        ctx.fillStyle = textOnAccent;
-        ctx.globalAlpha = 0.15;
-        ctx.fillRect(rx - diagW - 3, 2, diagW + 6, h - 4);
-        ctx.globalAlpha = 1;
-      }
-
-      // Draw error count in red, warning count in yellow
-      let dx = rx;
-      if (warnings > 0) {
-        const wText = `${warnings} warning${warnings === 1 ? "" : "s"}`;
-        ctx.fillStyle = warningColor;
-        ctx.fillText(wText, dx, cy);
-        dx -= ctx.measureText(wText).width;
-        if (errors > 0) dx -= ctx.measureText("  ").width;
-      }
-      if (errors > 0) {
-        const eText = `${errors} error${errors === 1 ? "" : "s"}`;
-        ctx.fillStyle = errorColor;
-        ctx.fillText(eText, dx, cy);
-      }
-
-      if (props.onDiagnosticsClick) {
-        regions.push({
-          id: "diagnostics",
-          x: rx - diagW - 3, y: 0, w: diagW + 6, h,
-          cursor: "pointer",
-          onClick: () => props.onDiagnosticsClick?.(),
-        });
-      }
-    }
 
     ctx.textAlign = "left";
     return regions;

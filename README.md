@@ -94,7 +94,6 @@ app, use `bun run tauri build --debug --bundles app`.
 | `src/ui/` | Tab workspace, settings, backgrounds, and Language Model sidebar |
 | `src/lib/` | State, feature commands, persistence, model transports, and IPC |
 | `src-tauri/src/` | Native filesystem, Claude bridge, Ollama, shaders, and Mac services |
-| `src-tauri/crates/` | Supporting Rust libraries |
 | `packages/buster-path/` | Shared path utilities |
 
 See [internal commands](docs/internal-commands.md) for the shared human and AI

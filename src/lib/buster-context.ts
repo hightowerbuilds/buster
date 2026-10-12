@@ -43,20 +43,14 @@ export interface BusterActions {
   setSplitRatio(ratio: number): void;
   reorderTabs(fromIndex: number, toIndex: number): void;
   handleTabClose(tabId: string): void;
-  createGitTab(): void;
   createSettingsTab(): void;
   createKeybindingsTab(): void;
-  createExtensionsTab(): void;
-  createProblemsTab(): void;
-  createBrowserTab(): void;
-  createConsoleTab(): void;
   createAiTab(): void;
 
   // Workspace management
   openWorkspace(path: string): void;
   changeDirectory(): Promise<void>;
   closeDirectory(): void;
-  refreshGitBranch(root: string): Promise<void>;
 
   // Dialog results
   handleDirtyCloseResult(result: DirtyCloseResult): Promise<void>;
@@ -70,21 +64,6 @@ export interface BusterActions {
   // Settings
   updateSettings(s: AppSettings): void;
   addRecentFile(path: string, name: string): void;
-
-  // LSP
-  restartLsp(): void;
-
-  // Diagnostics
-  jumpToDiagnostic(direction: 1 | -1): Promise<void>;
-  diagnosticCounts(): { errors: number; warnings: number };
-
-  // Git
-  fetchDiffHunks(tabId: string, filePath: string): Promise<void>;
-
-  // Navigation history
-  pushNavHistory(path: string, line: number, col: number): void;
-  navigateBack(): void;
-  navigateForward(): void;
 
   // Session
   buildSnapshot(): unknown;

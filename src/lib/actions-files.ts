@@ -11,8 +11,6 @@ export function createFileActions(
   setStore: SetStoreFunction<BusterStoreState>,
   switchToTab: (tabId: string) => void,
   addRecentFile: (path: string, name: string) => void,
-  fetchDiffHunks: (tabId: string, filePath: string) => Promise<void>,
-  attemptLspStart: (filePath: string, workspaceRoot: string) => void,
 ) {
   const pendingReads = new Map<string, Promise<{ content: string; fileName: string; filePath: string }>>();
   let opening = 0;
@@ -61,11 +59,6 @@ export function createFileActions(
       addRecentFile(filePath, fileName);
 
       watchFile(filePath).catch(() => showError("File watcher failed — external changes may be missed"));
-      fetchDiffHunks(tabId, filePath);
-
-      if (store.workspaceRoot) {
-        attemptLspStart(filePath, store.workspaceRoot);
-      }
       return tabId;
     } catch (error) {
       showError(`Could not open ${basename(path)}: ${error instanceof Error ? error.message : String(error)}`);

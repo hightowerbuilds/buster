@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/sandbox", "crates/lsp-manager", "crates/syntax"]
+members = ["."]
 
 [package]
 name = "bustermark"
@@ -22,40 +22,10 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-
-# Syntax highlighting
-tree-sitter = "0.26"
-tree-sitter-highlight = "0.26"
-tree-sitter-javascript = "0.25"
-tree-sitter-typescript = "0.23"
-tree-sitter-rust = "0.24"
-tree-sitter-python = "0.25"
-tree-sitter-json = "0.24"
-tree-sitter-css = "0.25"
-tree-sitter-html = "0.23"
-tree-sitter-go = "0.23"
-tree-sitter-c = "0.23"
-tree-sitter-cpp = "0.23"
-tree-sitter-bash = "0.23"
-tree-sitter-yaml = "0.7"
-tree-sitter-toml-ng = "0.7"
-# tree-sitter-markdown omitted — v0.7 doesn't bundle highlight queries
-tree-sitter-ruby = "0.23"
-tree-sitter-java = "0.23"
-tree-sitter-lua = "0.5"
-tree-sitter-regex = "0.24"
-# tree-sitter-sql omitted — v0.0.2 doesn't bundle highlight queries
-tree-sitter-xml = "0.7"
-tree-sitter-scss = "1.0"
-tree-sitter-php = "0.23"
-
-# Runtime grammar loading
-libloading = "0.8"
 
 # File explorer
 ignore = "0.4"
@@ -63,25 +33,14 @@ ignore = "0.4"
 # File watcher
 notify = "6"
 
-# LSP
-lsp-types = "0.97"
-
 # AI Agent
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 
-# Extension system
-wasmtime = "29"
-wasmtime-wasi = "29"
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
-toml = "0.8"
 dirs = "6"
 
-# Browser webview
+# URL parsing for local model and web search endpoints
 url = "2"
-
-# Large file support
-memmap2 = "0.9"
 
 # Image support
 base64 = "0.22"
@@ -89,14 +48,7 @@ base64 = "0.22"
 # WGSL note backgrounds: validate WGSL and translate it to GLSL ES for WebGL2
 naga = { version = "30", features = ["wgsl-in", "glsl-out"] }
 
-# Shell word parsing (security: replaces custom parser)
-shlex = "1"
 tempfile = "3"
-
-# Buster supporting libraries (used on every desktop platform)
-buster-sandbox = { path = "crates/sandbox" }
-buster-lsp-manager = { path = "crates/lsp-manager" }
-buster-syntax = { path = "crates/syntax" }
 
 # Process group signals for the Claude Code process (Unix only)
 [target.'cfg(unix)'.dependencies]

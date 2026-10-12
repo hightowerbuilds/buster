@@ -205,18 +205,3 @@ button, input, select, textarea {
     transition-duration: 0.01ms !important;
   }
 }
-
-/* ── Breadcrumb bar ──────────────────────────────────────────── */
-
-.breadcrumb-bar {
-  display: flex;
-  align-items: center;
-  padding: 2px 12px;
-  background: var(--bg-mantle);
-  border-bottom: 1px solid var(--bg-surface0);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  min-height: 22px;
-  overflow: hidden;
-  white-space: nowrap;
-}

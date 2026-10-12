@@ -8,10 +8,8 @@
 
 import { registry, type Command } from "./command-registry";
 import { announce } from "./a11y";
-import { showError, showSuccess } from "./notify";
 import type { Accessor, Setter } from "solid-js";
 import type { EditorEngine } from "../editor/engine";
-import { formatJsonEngine } from "../editor/json-format";
 import type { CreateHotkeyDefinition } from "@tanstack/solid-hotkeys";
 import type { RegisterableHotkey } from "@tanstack/hotkeys";
 
@@ -82,11 +80,8 @@ export interface CommandDeps {
   setPaletteInitialQuery: Setter<string>;
   createSettingsTab: () => void;
   createKeybindingsTab: () => void;
-  createGitTab: () => void;
-  createBrowserTab: () => void;
   toggleAssistant: () => void;
   setSidebarVisible: Setter<boolean>;
-  jumpToDiagnostic: (direction: 1 | -1) => void;
   findVisible: Accessor<boolean>;
   paletteVisible: Accessor<boolean>;
   settings: Accessor<import("./ipc").AppSettings>;
@@ -94,8 +89,6 @@ export interface CommandDeps {
   tabTrapping: Accessor<boolean>;
   setTabTrapping: (v: boolean) => void;
   closeActiveTab: () => void;
-  navigateBack: () => void;
-  navigateForward: () => void;
 }
 
 const MAX_TAB_HOTKEYS = 9;
@@ -136,20 +129,12 @@ export const DEFAULT_KEYBINDINGS: Record<string, string> = {
   "view.toggleSidebar": "Mod+b",
   "editor.find": "Mod+f",
   "editor.goToLine": "Ctrl+g",
-  "editor.goToSymbol": "Mod+Shift+o",
-  "editor.workspaceSymbol": "Mod+Shift+t",
   "editor.foldAll": "Mod+Alt+[",
   "editor.unfoldAll": "Mod+Alt+]",
-  "editor.navigateBack": "Ctrl+-",
-  "editor.navigateForward": "Ctrl+Shift+-",
   "editor.zoomIn": "Mod+=",
   "editor.zoomOut": "Mod+-",
   "editor.zoomReset": "Mod+0",
-  "git.open": "Mod+Shift+g",
-  "browser.open": "Mod+Shift+b",
   "assistant.toggle": "Mod+Shift+a",
-  "editor.nextProblem": "F8",
-  "editor.prevProblem": "Shift+F8",
   "view.focusNextRegion": "F6",
   "view.focusPrevRegion": "Shift+F6",
   "file.closeTab": "Mod+w",
@@ -181,21 +166,8 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "file.closeTab", label: "Close Tab", category: "File", execute: () => { const id = deps.activeTabId(); if (id) deps.handleTabClose(id); } },
     { id: "editor.find", label: "Find", category: "Editor", keybinding: "Mod+F", when: () => !!deps.activeEngine(), execute: () => deps.setFindVisible(true) },
     { id: "editor.goToLine", label: "Go to Line...", category: "Editor", keybinding: "Ctrl+G", execute: () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); } },
-    { id: "editor.goToSymbol", label: "Go to Symbol in File...", category: "Editor", keybinding: "Mod+Shift+O", execute: () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); } },
-    { id: "editor.workspaceSymbol", label: "Go to Symbol in Workspace...", category: "Editor", keybinding: "Mod+Shift+T", execute: () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); } },
     { id: "editor.foldAll", label: "Fold All", category: "Editor", keybinding: "Mod+Alt+[", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.foldAll() },
     { id: "editor.unfoldAll", label: "Unfold All", category: "Editor", keybinding: "Mod+Alt+]", when: () => !!deps.activeEngine(), execute: () => deps.activeEngine()?.unfoldAll() },
-    { id: "editor.formatJson", label: "Format JSON", category: "Editor", when: () => !!deps.activeEngine(), execute: () => {
-      const engine = deps.activeEngine();
-      if (!engine) return;
-      try {
-        const indent = deps.settings().use_spaces !== false ? " ".repeat(deps.settings().tab_size || 2) : "\t";
-        formatJsonEngine(engine, indent);
-        showSuccess("JSON formatted");
-      } catch {
-        showError("Invalid JSON");
-      }
-    } },
     { id: "editor.zoomIn", label: "Zoom In", category: "View", keybinding: "Mod+=", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }) },
     { id: "editor.zoomOut", label: "Zoom Out", category: "View", keybinding: "Mod+-", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }) },
     { id: "editor.zoomReset", label: "Reset Zoom", category: "View", keybinding: "Mod+0", execute: () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }) },
@@ -204,9 +176,7 @@ export function createAppCommands(deps: CommandDeps): Command[] {
     { id: "view.settings", label: "Settings", category: "View", keybinding: "Mod+,", execute: () => deps.createSettingsTab() },
     { id: "view.keybindings", label: "Keyboard Shortcuts", category: "View", keybinding: "Mod+K Mod+S", execute: () => deps.createKeybindingsTab() },
     { id: "view.toggleSidebar", label: "Toggle Sidebar", category: "View", keybinding: "Mod+B", execute: () => deps.setSidebarVisible(v => !v) },
-    { id: "git.open", label: "Git", category: "Git", keybinding: "Mod+Shift+G", execute: () => deps.createGitTab() },
     { id: "assistant.toggle", label: "Toggle Language Model", category: "View", keybinding: "Mod+Shift+A", execute: () => deps.toggleAssistant() },
-    { id: "browser.open", label: "Open Browser", category: "Browser", keybinding: "Mod+Shift+B", execute: () => deps.createBrowserTab() },
     { id: "editor.toggleWhitespace", label: "Toggle Render Whitespace", category: "Editor", execute: () => {
       const s = deps.settings();
       deps.updateSettings({ ...s, show_whitespace: !s.show_whitespace });
@@ -215,10 +185,6 @@ export function createAppCommands(deps: CommandDeps): Command[] {
       const s = deps.settings();
       deps.updateSettings({ ...s, show_indent_guides: !s.show_indent_guides });
     } },
-    { id: "editor.navigateBack", label: "Go Back", category: "Editor", keybinding: "Ctrl+-", execute: () => deps.navigateBack() },
-    { id: "editor.navigateForward", label: "Go Forward", category: "Editor", keybinding: "Ctrl+Shift+-", execute: () => deps.navigateForward() },
-    { id: "editor.nextProblem", label: "Go to Next Problem", category: "Editor", keybinding: "F8", execute: () => deps.jumpToDiagnostic(1) },
-    { id: "editor.prevProblem", label: "Go to Previous Problem", category: "Editor", keybinding: "Shift+F8", execute: () => deps.jumpToDiagnostic(-1) },
     { id: "view.focusNextRegion", label: "Focus Next Region", category: "View", keybinding: "F6", execute: () => cycleRegion(1) },
     { id: "view.focusPrevRegion", label: "Focus Previous Region", category: "View", keybinding: "Shift+F6", execute: () => cycleRegion(-1) },
     { id: "editor.toggleTabTrapping", label: "Toggle Tab Key Moves Focus", category: "Editor", keybinding: "Ctrl+M", execute: () => { const next = !deps.tabTrapping(); deps.setTabTrapping(next); announce(next ? "Tab key inserts tab character" : "Tab key moves focus", "assertive"); } },
@@ -285,8 +251,7 @@ export function buildHotkeyDefinitions(
     options: { ignoreInputs: false },
   });
   add("file.closeTab", () => deps.closeActiveTab());
-  // Root hotkeys run before Solid's delegated terminal key handler. Disable the
-  // editor binding outside documents so Cmd+F can reach terminal search.
+  // Only bind Find while a document editor is active.
   const findHotkey = hk("editor.find");
   if (findHotkey && !isChord(findHotkey)) {
     defs.push({ hotkey: findHotkey as RegisterableHotkey,
@@ -295,17 +260,11 @@ export function buildHotkeyDefinitions(
     });
   }
   add("editor.goToLine", () => { deps.setPaletteInitialQuery(":"); deps.setPaletteVisible(true); });
-  add("editor.goToSymbol", () => { deps.setPaletteInitialQuery("@"); deps.setPaletteVisible(true); });
-  add("editor.workspaceSymbol", () => { deps.setPaletteInitialQuery("@@"); deps.setPaletteVisible(true); });
   add("editor.foldAll", () => deps.activeEngine()?.foldAll());
   add("editor.unfoldAll", () => deps.activeEngine()?.unfoldAll());
-  add("editor.navigateBack", () => deps.navigateBack());
-  add("editor.navigateForward", () => deps.navigateForward());
   add("editor.zoomIn", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.min(200, deps.settings().ui_zoom + 10) }));
   add("editor.zoomOut", () => deps.updateSettings({ ...deps.settings(), ui_zoom: Math.max(50, deps.settings().ui_zoom - 10) }));
   add("editor.zoomReset", () => deps.updateSettings({ ...deps.settings(), ui_zoom: 100 }));
-  add("git.open", () => deps.createGitTab());
-  add("browser.open", () => deps.createBrowserTab());
   const assistantHotkey = hk("assistant.toggle");
   // Also works while typing in the composer or a note.
   if (assistantHotkey && !isChord(assistantHotkey)) defs.push({
@@ -313,8 +272,6 @@ export function buildHotkeyDefinitions(
     callback: () => deps.toggleAssistant(),
     options: { ignoreInputs: false },
   });
-  add("editor.nextProblem", () => deps.jumpToDiagnostic(1));
-  add("editor.prevProblem", () => deps.jumpToDiagnostic(-1));
   add("view.focusNextRegion", () => cycleRegion(1));
   add("view.focusPrevRegion", () => cycleRegion(-1));
   add("editor.toggleTabTrapping", () => {

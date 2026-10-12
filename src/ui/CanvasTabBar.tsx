@@ -42,8 +42,6 @@ const NAME_FONT = `13px ${CHROME_FONT}`;
 function tabIcon(type: string): string {
   switch (type) {
     case "settings": return "~";
-    case "git":      return "&";
-    case "surface":  return "^";
     default:         return "#";
   }
 }

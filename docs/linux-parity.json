@@ -5,9 +5,7 @@
   "platform": "macOS",
   "shared_source": [
     "src",
-    "src-tauri/src",
-    "src-tauri/crates",
-    "src-tauri/resources"
+    "src-tauri/src"
   ],
   "macos_adaptations": [
     "Command-W closes a tab; Command-Q saves and quits",
@@ -16,7 +14,8 @@
     "Bundle app and dmg instead of Linux AppImage",
     "Bun v1-compatible lockfile header",
     "Surface Keychain read failures instead of treating them as a missing key",
-    "Canonical temporary paths in native watcher acceptance test"
+    "Canonical temporary paths in native watcher acceptance test",
+    "Remove IDE tooling: Git, LSP, tree-sitter syntax, WASM extensions and sandbox, built-in browser, Console/Problems panels, symbol search, breadcrumbs, and the webview shell plugin"
   ],
   "shared_fixes": [
     "Correct workspace-relative breadcrumb argument order",

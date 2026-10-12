@@ -13,20 +13,20 @@ vi.mock("./focus-service", () => ({ focusTabPanel: vi.fn() }));
 vi.mock("./notify", () => ({ showError: vi.fn(), showInfo: vi.fn(), showSuccess: vi.fn() }));
 vi.mock("../ui/SidebarTree", () => ({ setRefreshDir: vi.fn() }));
 vi.mock("./ipc", () => ({ createFile: vi.fn(), watchFile: vi.fn(async () => {}),
-  writeFile: vi.fn(async () => {}), lspDidChange: vi.fn(async () => {}), lspDidSave: vi.fn(async () => {}) }));
+  writeFile: vi.fn(async () => {}) }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ writeTextFile: vi.fn() }));
 
 function fixture() {
   const [store, setStore] = createStore({ tabs: [], fileTexts: {}, fileTabCounter: 0,
  activeTabId: null, notesRoot: "/app/Notes",
-    workspaceRoot: "/external", settings: { format_on_save: false, language_settings: {} },
+    workspaceRoot: "/external", settings: { language_settings: {} },
   } as unknown as BusterStoreState);
   const map = new Map();
   const engines = { get: (id: string) => map.get(id), map } as EngineMap;
   const pending = new Map<string, Promise<void>>();
   const tabs = createTabActions(store, setStore, engines, { value: "" }, vi.fn(), pending);
   const save = createSaveActions(store, setStore, engines, () => store.tabs.find(t => t.id === store.activeTabId),
-    vi.fn(), vi.fn(async () => {}), vi.fn(), vi.fn(), pending);
+    vi.fn(), vi.fn(), pending);
   return { store, setStore, map, pending, tabs, save };
 }
 beforeEach(() => vi.clearAllMocks());

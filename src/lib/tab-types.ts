@@ -5,13 +5,6 @@ export type TabType =
   | "image"
   | "settings"
   | "keybindings"
-  | "git"
-  | "extensions"
-  | "problems"
-  | "search-results"
-  | "surface"
-  | "browser"
-  | "console"
   | "ai"
   | "search-portal"
   | "writing-review";

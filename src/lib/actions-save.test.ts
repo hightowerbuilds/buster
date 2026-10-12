@@ -4,25 +4,25 @@ import { createEditorEngine } from "../editor/engine";
 import { createSaveActions } from "./actions-save";
 import type { BusterStoreState } from "./store-types";
 import type { EngineMap } from "./buster-context";
-import { lspFormatDocument, watchFile, unwatchFile } from "./ipc";
+import { watchFile, unwatchFile } from "./ipc";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({ writeTextFile: vi.fn(async () => {}) }));
-vi.mock("./ipc", () => ({ writeFile: vi.fn(), watchFile: vi.fn(async () => {}), unwatchFile: vi.fn(async () => {}), lspDidChange: vi.fn(async () => {}), lspDidSave: vi.fn(async () => {}), lspFormatDocument: vi.fn() }));
+vi.mock("./ipc", () => ({ writeFile: vi.fn(), watchFile: vi.fn(async () => {}), unwatchFile: vi.fn(async () => {}) }));
 vi.mock("./notify", () => ({ showError: vi.fn(), showSuccess: vi.fn() }));
 vi.mock("../ui/SidebarTree", () => ({ setRefreshDir: vi.fn() }));
 
-function fixture(formatOnSave = false, canSave: (id: string) => boolean = () => true) {
+function fixture(canSave: (id: string) => boolean = () => true) {
   const engine = createEditorEngine("first line  \nsecond line\n");
   engine.markDirty();
   const [store, setStore] = createStore({ workspaceRoot: null, activeTabId: "file_1", tabs: [
     { id: "file_1", type: "file", name: "Draft.md", path: "/notes/Draft.md", dirty: true },
-  ], settings: { format_on_save: formatOnSave, language_settings: {} } } as BusterStoreState);
+  ], settings: { language_settings: {} } } as BusterStoreState);
   const engines = { get: () => engine } as unknown as EngineMap;
   const actions = createSaveActions(store, setStore, engines, () => store.tabs[0], vi.fn(),
-    vi.fn(async () => {}), vi.fn(), vi.fn(async () => {}), new Map(), canSave);
+    vi.fn(), new Map(), canSave);
   return { engine, store, actions };
 }
 
@@ -30,24 +30,17 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("writing document saves", () => {
   it("blocks saves for unresolved external changes and preserves the dirty buffer", async () => {
-    const { engine, actions } = fixture(false, () => false);
+    const { engine, actions } = fixture(() => false);
     await expect(actions.saveTab("file_1")).rejects.toThrow("external file change");
     expect(writeTextFile).not.toHaveBeenCalled();
     expect(engine.dirty()).toBe(true);
   });
   it("rechecks conflict protection after asynchronous save preparation", async () => {
     let checks = 0;
-    const { engine, actions } = fixture(false, () => ++checks === 1);
+    const { engine, actions } = fixture(() => ++checks === 1);
     await expect(actions.saveTab("file_1")).rejects.toThrow("external file change");
     expect(writeTextFile).not.toHaveBeenCalled();
     expect(engine.dirty()).toBe(true);
-  });
-  it("ignores legacy LSP formatting for Markdown notes", async () => {
-    const { engine, actions } = fixture(true);
-    await actions.saveTab("file_1");
-    expect(lspFormatDocument).not.toHaveBeenCalled();
-    expect(writeTextFile).toHaveBeenCalledWith("/notes/Draft.md", "first line  \nsecond line\n");
-    expect(engine.dirty()).toBe(false);
   });
   it("preserves Markdown hard breaks and the final newline", async () => {
     const { engine, actions } = fixture();

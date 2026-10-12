@@ -1,5 +1,4 @@
-import type { SearchMatch, CompletionItem, CursorPos, LspSignatureHelp, LspCodeAction, DiffHunk, GitBlameLine } from "../lib/ipc";
-import type { LineToken } from "./ts-highlighter";
+import type { SearchMatch, CursorPos } from "../lib/ipc";
 import { type DisplayRow, PADDING_LEFT, computeDisplayRows } from "./engine";
 import { getCharWidth, FONT_FAMILY, colToPixel, stringDisplayWidth } from "./text-measure";
 import { type ThemePalette, drawVignette, drawGrain } from "../lib/theme";
@@ -8,9 +7,8 @@ import { writingTextColor } from "./writing-effects";
 
 // ─── Extracted renderer modules ────────────────────────────────────
 import { setCurrentGpu, monoText } from "./render-shared";
-import { drawDiffGutter, drawDiagnosticGutter, drawDiagnostics, drawFoldMarkers } from "./render-gutter";
-import { drawCursors, drawBlameGutter, drawAutocomplete, drawHoverTooltip, drawSignatureHelp, drawCodeActionLightBulb, drawCodeActionMenu } from "./render-overlays";
-import { drawMinimap } from "./render-minimap";
+import { drawFoldMarkers } from "./render-gutter";
+import { drawCursors } from "./render-overlays";
 
 // ─── Display row memoization ───────────────────────────────────────
 
@@ -53,7 +51,6 @@ export interface PhantomText {
   line: number;
   col: number;
   text: string;
-  style: "ghost" | "inlay";
 }
 
 export interface EditorRenderParams {
@@ -72,25 +69,8 @@ export interface EditorRenderParams {
   selEnd: { line: number; col: number } | null;
   searchMatches: SearchMatch[];
   currentSearchIdx: number;
-  diagnostics: { line: number; col: number; endLine: number; endCol: number; severity: number; message: string }[];
-  lineTokens: LineToken[][];
-  completionVisible: boolean;
-  completionItems: CompletionItem[];
-  completionIdx: number;
-  hoverText: string;
-  hoverPos: { line: number; col: number } | null;
-  hasBuffer: boolean;
-  signatureHelp: LspSignatureHelp | null;
-  codeActionLine: number | null;
-  codeActionMenuVisible: boolean;
-  codeActionItems: LspCodeAction[];
-  codeActionIdx: number;
   palette: ThemePalette;
   phantomTexts: PhantomText[];
-  diffHunks: DiffHunk[];
-  blameData: GitBlameLine[] | null;
-  minimap: boolean;
-  bracketMatch: { open: { line: number; col: number }; close: { line: number; col: number } } | null;
   foldedLines: Set<number>;
   foldStartLines: Set<number>;
   isFoldable: (line: number) => boolean;
@@ -99,8 +79,6 @@ export interface EditorRenderParams {
   tabSize: number;
   showIndentGuides: boolean;
   showWhitespace: boolean;
-  renameState: { active: boolean; line: number; startCol: number; endCol: number; inputText: string } | null;
-  errorPeekLine: number | null;
 }
 
 // ─── Main render orchestrator ──────────────────────────────────────
@@ -135,12 +113,7 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   const fontSize = params.fontSize;
   const lineHeight = params.lineHeight ?? fontSize + 8;
   const showLineNums = params.lineNumbers;
-  const hasDiffHunks = params.diffHunks && params.diffHunks.length > 0;
-  const diffStripW = hasDiffHunks ? 4 : 0;
-  const blameVisible = params.blameData != null && params.blameData.length > 0;
-  const lineNumW = showLineNums ? 50 + diffStripW : 0;
-  const blameW = blameVisible ? 180 : 0;
-  const gutterW = lineNumW + blameW;
+  const gutterW = showLineNums ? 50 : 0;
   const charW = getCharWidth(fontSize);
   const font = `${fontSize}px ${FONT_FAMILY}`;
   const wordWrap = params.wordWrap;
@@ -176,20 +149,12 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
   ctx.font = font;
 
   // Draw gutter
-  if (showLineNums || blameVisible) {
+  if (showLineNums) {
     ctx.fillStyle = p.gutterBg;
     ctx.fillRect(0, 0, gutterW, h);
   }
 
-  if (showLineNums && hasDiffHunks) {
-    drawDiffGutter(ctx, params.diffHunks, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight);
-  }
-
-  if (showLineNums) {
-    drawDiagnosticGutter(ctx, params.diagnostics, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW);
-  }
-
-  drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, params.lineTokens, p, params.phantomTexts, lineNumW, params.writingStyle);
+  drawTextRows(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, primaryCursorLine, showLineNums, p, params.phantomTexts, params.writingStyle);
 
   // Indent guides
   if (params.showIndentGuides) {
@@ -201,9 +166,6 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     drawWhitespace(ctx, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW);
   }
 
-  if (blameVisible && params.blameData) {
-    drawBlameGutter(ctx, params.blameData, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, lineNumW, p);
-  }
   if (params.cursorVisible && params.writingStyle?.pulse) {
     const cursor = params.cursors[0];
     for (let r = firstVisRow; cursor && r < lastVisRow; r++) {
@@ -229,32 +191,8 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     drawFoldMarkers(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, charW);
   }
 
-  // Bracket pair colorization
-  drawBracketPairs(ctx, params.lines, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW);
-
-  // Bracket match highlight (cursor-adjacent pair gets extra emphasis)
-  if (params.bracketMatch) {
-    const bm = params.bracketMatch;
-    for (const pos of [bm.open, bm.close]) {
-      for (let r = firstVisRow; r < lastVisRow; r++) {
-        const dr = displayRows[r];
-        if (dr.bufferLine === pos.line && pos.col >= dr.startCol && pos.col < dr.startCol + dr.text.length) {
-          const x = gutterW + PADDING_LEFT + colToPixel(dr.text, pos.col - dr.startCol, charW);
-          const y = (r - firstVisRow) * lineHeight + offsetY;
-          // Background fill for matched pair
-          ctx.fillStyle = "rgba(137, 180, 250, 0.12)";
-          ctx.fillRect(x, y, charW, lineHeight);
-          ctx.strokeStyle = p.accent;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(x, y, charW, lineHeight);
-          break;
-        }
-      }
-    }
-  }
-
   // Gutter separator
-  if (showLineNums || blameVisible) {
+  if (showLineNums) {
     ctx.strokeStyle = p.border;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -263,23 +201,9 @@ export function renderEditor(canvas: HTMLCanvasElement, params: EditorRenderPara
     ctx.stroke();
   }
 
-  drawCodeActionLightBulb(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW);
-  drawAutocomplete(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, font, w, h);
-  drawDiagnostics(ctx, params.diagnostics, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, gutterW, charW);
-  drawErrorPeek(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, w);
-  drawInlineRename(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, font);
-  drawSignatureHelp(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, font, w);
-  drawCodeActionMenu(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, font, w, h);
-  drawHoverTooltip(ctx, params, displayRows, firstVisRow, lastVisRow, offsetY, lineHeight, fontSize, gutterW, charW, w);
-
-  if (params.minimap && displayRows.length > visCount) {
-    drawMinimap(ctx, params, displayRows, lineHeight, w, h, gutterW, charW);
-  }
-
   if (gpu?.isActive()) {
     gpu.flushFrame(w, h);
   }
-
 
   setCurrentGpu(null);
 }
@@ -433,10 +357,8 @@ function drawTextRows(
   charW: number,
   primaryCursorLine: number,
   showLineNums: boolean,
-  lineTokens: LineToken[][],
   p: ThemePalette,
   phantomTexts: PhantomText[],
-  lineNumW: number,
   writingStyle?: EditorRenderParams["writingStyle"],
 ) {
   const font = `${fontSize}px ${FONT_FAMILY}`;
@@ -455,13 +377,12 @@ function drawTextRows(
     const y = (r - firstVisRow) * lineHeight + offsetY;
     const dim = dr.bufferLine === primaryCursorLine ? 0 : writingStyle?.focusDim ?? 0;
     const adjust = writingStyle?.contrast || dim > 0;
-    const rowPalette = adjust ? { ...p, syntaxDefault: writingTextColor(p.syntaxDefault, p.editorBg, dim) } : p;
-    const tokens = adjust ? lineTokens[dr.bufferLine]?.map(token => ({ ...token, color: writingTextColor(token.color, p.editorBg, dim) })) : lineTokens[dr.bufferLine];
+    const textColor = adjust ? writingTextColor(p.syntaxDefault, p.editorBg, dim) : p.syntaxDefault;
 
     if (showLineNums && dr.bufferLine !== lastDrawnBufferLine) {
       const lineNum = String(dr.bufferLine + 1);
       const numColor = dr.bufferLine === primaryCursorLine ? p.text : p.textMuted;
-      const numX = lineNumW - 8 - lineNum.length * charW;
+      const numX = gutterW - 8 - lineNum.length * charW;
       monoText(ctx, lineNum, numX, y, numColor, font, charW, lineHeight, baselineY);
     }
     lastDrawnBufferLine = dr.bufferLine;
@@ -476,7 +397,7 @@ function drawTextRows(
       .sort((a, b) => a.col - b.col);
 
     if (rowPhantoms.length === 0) {
-      drawLineText(ctx, dr, tokens, gutterW, charW, y, lineHeight, baselineY, font, rowPalette);
+      monoText(ctx, dr.text, gutterW + PADDING_LEFT, y, textColor, font, charW, lineHeight, baselineY);
     } else {
       let xOffset = 0;
       let realCol = 0;
@@ -486,103 +407,20 @@ function drawTextRows(
 
         if (insertCol > realCol) {
           const segment = dr.text.slice(realCol, insertCol);
-          drawSegmentWithTokens(ctx, segment, realCol, dr, tokens, gutterW, charW, y, lineHeight, baselineY, font, xOffset, rowPalette);
+          monoText(ctx, segment, gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset, y, textColor, font, charW, lineHeight, baselineY);
           realCol = insertCol;
         }
 
         const phantomX = gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset;
-        const phantomColor = pt.style === "ghost" ? "rgba(137, 180, 250, 0.35)" : p.textMuted;
-        monoText(ctx, pt.text, phantomX, y, phantomColor, font, charW, lineHeight, baselineY);
+        monoText(ctx, pt.text, phantomX, y, "rgba(137, 180, 250, 0.35)", font, charW, lineHeight, baselineY);
         xOffset += stringDisplayWidth(pt.text) * charW;
       }
 
       if (realCol < dr.text.length) {
         const segment = dr.text.slice(realCol);
-        drawSegmentWithTokens(ctx, segment, realCol, dr, tokens, gutterW, charW, y, lineHeight, baselineY, font, xOffset, rowPalette);
+        monoText(ctx, segment, gutterW + PADDING_LEFT + colToPixel(dr.text, realCol, charW) + xOffset, y, textColor, font, charW, lineHeight, baselineY);
       }
     }
-  }
-}
-
-function drawLineText(
-  ctx: CanvasRenderingContext2D,
-  dr: DisplayRow,
-  tokens: LineToken[] | undefined,
-  gutterW: number,
-  charW: number,
-  rowY: number,
-  lineHeight: number,
-  baselineY: number,
-  font: string,
-  p: ThemePalette
-) {
-  if (tokens && tokens.length > 0) {
-    let lastEnd = 0;
-    for (const token of tokens) {
-      const tStart = token.start - dr.startCol;
-      const tEnd = token.end - dr.startCol;
-      if (tEnd <= 0 || tStart >= dr.text.length) continue;
-
-      const visStart = Math.max(0, tStart);
-      const visEnd = Math.min(dr.text.length, tEnd);
-
-      if (visStart > lastEnd) {
-        monoText(ctx, dr.text.slice(lastEnd, visStart), gutterW + PADDING_LEFT + colToPixel(dr.text, lastEnd, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
-      }
-
-      monoText(ctx, dr.text.slice(visStart, visEnd), gutterW + PADDING_LEFT + colToPixel(dr.text, visStart, charW), rowY, token.color, font, charW, lineHeight, baselineY);
-      lastEnd = visEnd;
-    }
-    if (lastEnd < dr.text.length) {
-      monoText(ctx, dr.text.slice(lastEnd), gutterW + PADDING_LEFT + colToPixel(dr.text, lastEnd, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
-    }
-  } else {
-    monoText(ctx, dr.text, gutterW + PADDING_LEFT, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
-  }
-}
-
-function drawSegmentWithTokens(
-  ctx: CanvasRenderingContext2D,
-  segment: string,
-  startCol: number,
-  dr: DisplayRow,
-  tokens: LineToken[] | undefined,
-  gutterW: number,
-  charW: number,
-  rowY: number,
-  lineHeight: number,
-  baselineY: number,
-  font: string,
-  xOffset: number,
-  p: ThemePalette
-) {
-  const endCol = startCol + segment.length;
-  const baseX = gutterW + PADDING_LEFT + xOffset;
-
-  if (tokens && tokens.length > 0) {
-    let drawn = 0;
-    for (const token of tokens) {
-      const tStart = token.start - dr.startCol;
-      const tEnd = token.end - dr.startCol;
-      const visStart = Math.max(startCol, Math.max(0, tStart));
-      const visEnd = Math.min(endCol, Math.min(dr.text.length, tEnd));
-      if (visEnd <= visStart || visStart >= endCol || visEnd <= startCol) continue;
-
-      const segStart = visStart - startCol;
-      const segEnd = visEnd - startCol;
-
-      if (segStart > drawn) {
-        monoText(ctx, segment.slice(drawn, segStart), baseX + colToPixel(segment, drawn, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
-      }
-
-      monoText(ctx, segment.slice(segStart, segEnd), baseX + colToPixel(segment, segStart, charW), rowY, token.color, font, charW, lineHeight, baselineY);
-      drawn = segEnd;
-    }
-    if (drawn < segment.length) {
-      monoText(ctx, segment.slice(drawn), baseX + colToPixel(segment, drawn, charW), rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
-    }
-  } else {
-    monoText(ctx, segment, baseX, rowY, p.syntaxDefault, font, charW, lineHeight, baselineY);
   }
 }
 
@@ -731,218 +569,5 @@ function drawWhitespace(
         ctx.stroke();
       }
     }
-  }
-}
-
-// ─── Bracket Pair Colorization ──────────────────────────────────────
-
-const BRACKET_COLORS = [
-  "rgba(249, 226, 175, 0.8)",  // yellow
-  "rgba(203, 166, 247, 0.8)",  // mauve
-  "rgba(137, 180, 250, 0.8)",  // blue
-  "rgba(166, 227, 161, 0.8)",  // green
-  "rgba(250, 179, 135, 0.8)",  // peach
-  "rgba(148, 226, 213, 0.8)",  // teal
-];
-
-const OPEN_BRACKETS = new Set(["(", "[", "{"]);
-const CLOSE_BRACKETS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-
-function drawBracketPairs(
-  ctx: CanvasRenderingContext2D,
-  lines: string[],
-  displayRows: DisplayRow[],
-  firstVisRow: number,
-  lastVisRow: number,
-  offsetY: number,
-  lineHeight: number,
-  gutterW: number,
-  charW: number,
-) {
-  // Collect all bracket positions in visible lines with their depth
-  const firstLine = displayRows[firstVisRow]?.bufferLine ?? 0;
-  const lastLine = displayRows[Math.min(lastVisRow, displayRows.length) - 1]?.bufferLine ?? 0;
-
-  // Pre-scan from document start to firstLine to get the initial depth
-  let depth = 0;
-  for (let ln = 0; ln < firstLine; ln++) {
-    const text = lines[ln] ?? "";
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (OPEN_BRACKETS.has(ch)) depth++;
-      else if (ch in CLOSE_BRACKETS) depth--;
-    }
-  }
-
-  // Collect colored positions for visible lines
-  const coloredBrackets: { line: number; col: number; color: string }[] = [];
-
-  for (let ln = firstLine; ln <= lastLine && ln < lines.length; ln++) {
-    const text = lines[ln];
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (OPEN_BRACKETS.has(ch)) {
-        coloredBrackets.push({ line: ln, col: i, color: BRACKET_COLORS[depth % BRACKET_COLORS.length] });
-        depth++;
-      } else if (ch in CLOSE_BRACKETS) {
-        depth--;
-        coloredBrackets.push({ line: ln, col: i, color: BRACKET_COLORS[Math.max(0, depth) % BRACKET_COLORS.length] });
-      }
-    }
-  }
-
-  // Render colored brackets over the text
-  if (coloredBrackets.length === 0) return;
-
-  const font = ctx.font; // preserve
-  for (const bracket of coloredBrackets) {
-    for (let r = firstVisRow; r < lastVisRow; r++) {
-      const dr = displayRows[r];
-      if (dr.bufferLine === bracket.line && bracket.col >= dr.startCol && bracket.col < dr.startCol + dr.text.length) {
-        const localCol = bracket.col - dr.startCol;
-        const x = gutterW + PADDING_LEFT + colToPixel(dr.text, localCol, charW);
-        const y = (r - firstVisRow) * lineHeight + offsetY;
-        const ch = dr.text[localCol];
-        const baselineY = lineHeight - Math.floor(parseInt(font) * 0.35);
-        // Overdraw the bracket character in color
-        ctx.fillStyle = bracket.color;
-        ctx.fillText(ch, x, y + baselineY);
-        break;
-      }
-    }
-  }
-}
-
-// ─── Error Peek (Inline Diagnostics) ────────────────────────────────
-
-function drawErrorPeek(
-  ctx: CanvasRenderingContext2D,
-  params: EditorRenderParams,
-  displayRows: DisplayRow[],
-  firstVisRow: number,
-  lastVisRow: number,
-  offsetY: number,
-  lineHeight: number,
-  fontSize: number,
-  gutterW: number,
-  w: number,
-) {
-  if (params.errorPeekLine == null) return;
-
-  // Find diagnostics on this line
-  const lineDiags = params.diagnostics.filter(d => d.line === params.errorPeekLine);
-  if (lineDiags.length === 0) return;
-
-  // Find the display row for this line
-  let peekY = -1;
-  for (let r = firstVisRow; r < lastVisRow; r++) {
-    const dr = displayRows[r];
-    if (dr.bufferLine === params.errorPeekLine) {
-      peekY = (r - firstVisRow + 1) * lineHeight + offsetY; // below the line
-      break;
-    }
-  }
-  if (peekY < 0) return;
-
-  const pad = 8;
-  const docFont = `${fontSize - 1}px ${FONT_FAMILY}`;
-  const docCharW = getCharWidth(fontSize - 1);
-  const docLineH = fontSize + 4;
-  const peekW = w - gutterW - 16;
-  const maxChars = Math.max(20, Math.floor((peekW - pad * 2) / docCharW));
-
-  // Build lines from diagnostics
-  const peekLines: { text: string; color: string }[] = [];
-  for (const diag of lineDiags) {
-    const sevLabel = diag.severity === 1 ? "error" : diag.severity === 2 ? "warning" : "info";
-    const sevColor = diag.severity === 1 ? "#f38ba8" : diag.severity === 2 ? "#f9e2af" : "#89b4fa";
-    const prefix = `[${sevLabel}] `;
-    // Word-wrap the message
-    const msgLines = (prefix + diag.message).split("\n");
-    for (const ml of msgLines) {
-      if (ml.length <= maxChars) {
-        peekLines.push({ text: ml, color: sevColor });
-      } else {
-        let remaining = ml;
-        while (remaining.length > maxChars) {
-          let breakAt = remaining.lastIndexOf(" ", maxChars);
-          if (breakAt <= 0) breakAt = maxChars;
-          peekLines.push({ text: remaining.slice(0, breakAt), color: sevColor });
-          remaining = remaining.slice(breakAt).trimStart();
-        }
-        if (remaining) peekLines.push({ text: remaining, color: sevColor });
-      }
-    }
-    if (peekLines.length >= 8) break;
-  }
-  if (peekLines.length > 8) peekLines.length = 8;
-
-  const peekH = peekLines.length * docLineH + pad * 2;
-  const peekX = gutterW + 4;
-  const baselineY = docLineH - Math.floor((fontSize - 1) * 0.35);
-
-  // Background with colored left border
-  const borderColor = lineDiags[0].severity === 1 ? "#f38ba8" : lineDiags[0].severity === 2 ? "#f9e2af" : "#89b4fa";
-  ctx.fillStyle = "#1e1e2e";
-  ctx.fillRect(peekX, peekY, peekW, peekH);
-  ctx.fillStyle = borderColor;
-  ctx.fillRect(peekX, peekY, 3, peekH);
-  ctx.strokeStyle = "#45475a";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(peekX, peekY, peekW, peekH);
-
-  for (let i = 0; i < peekLines.length; i++) {
-    const pl = peekLines[i];
-    monoText(ctx, pl.text, peekX + pad + 4, peekY + pad + i * docLineH, pl.color, docFont, docCharW, docLineH, baselineY);
-  }
-}
-
-// ─── Inline Rename Widget ───────────────────────────────────────────
-
-function drawInlineRename(
-  ctx: CanvasRenderingContext2D,
-  params: EditorRenderParams,
-  displayRows: DisplayRow[],
-  firstVisRow: number,
-  lastVisRow: number,
-  offsetY: number,
-  lineHeight: number,
-  fontSize: number,
-  gutterW: number,
-  charW: number,
-  font: string,
-) {
-  const rs = params.renameState;
-  if (!rs || !rs.active) return;
-
-  const baselineY = lineHeight - Math.floor(fontSize * 0.35);
-
-  for (let r = firstVisRow; r < lastVisRow; r++) {
-    const dr = displayRows[r];
-    if (dr.bufferLine !== rs.line) continue;
-    if (rs.startCol < dr.startCol || rs.startCol >= dr.startCol + dr.text.length) continue;
-
-    const localStart = rs.startCol - dr.startCol;
-    const x = gutterW + PADDING_LEFT + colToPixel(dr.text, localStart, charW);
-    const y = (r - firstVisRow) * lineHeight + offsetY;
-    const inputW = Math.max(rs.inputText.length + 1, rs.endCol - rs.startCol) * charW + 8;
-
-    // Input background
-    ctx.fillStyle = "#1e1e2e";
-    ctx.fillRect(x - 2, y, inputW, lineHeight);
-    ctx.strokeStyle = "#89b4fa";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x - 2, y, inputW, lineHeight);
-
-    // Input text
-    ctx.font = font;
-    monoText(ctx, rs.inputText, x, y, "#cdd6f4", font, charW, lineHeight, baselineY);
-
-    // Cursor at end of input
-    const cursorX = x + rs.inputText.length * charW;
-    ctx.fillStyle = "#89b4fa";
-    ctx.fillRect(cursorX, y + 2, 2, lineHeight - 4);
-
-    break;
   }
 }

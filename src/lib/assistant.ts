@@ -12,6 +12,7 @@ export const ASSISTANT_MODELS = [
   { id: "claude-opus-5", label: "Claude Opus 5" },
   { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
   { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
+  { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ] as const;
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -28,7 +29,7 @@ export const formatElapsed = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
 
-/** Haiku 4.5 has no effort control. For local models, Low turns thinking off. */
+/** Haiku 4.5 has no effort control (Haiku 5.5 does). For local models, Low turns thinking off. */
 export const supportsEffort = (model: string) => !model.startsWith("claude-haiku-4-5");
 
 export const ASSISTANT_SYSTEM_PROMPT = `You are the writing assistant inside BusterMark, a desktop app for local Markdown notes with tabs for notes and utility views.

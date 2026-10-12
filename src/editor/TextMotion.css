@@ -1,0 +1,49 @@
+/* Text motion — the Spread menu's moving words and opening (growth/phases/text-motion.md). */
+
+.text-motion-layer {
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  overflow: visible; pointer-events: none; z-index: 2;
+}
+.text-motion-layer.is-leaving { opacity: 0; transition: opacity 140ms ease-out; }
+
+.text-motion-word {
+  position: absolute; white-space: pre;
+  will-change: transform; transform-origin: 50% 60%;
+}
+.text-motion-word.is-target { color: var(--accent) !important; }
+
+/* The paragraph keeps its layout while the motion layer draws its words. */
+.text-motion-ghost, .text-motion-ghost * {
+  color: transparent !important;
+  text-decoration-color: transparent !important;
+  background-color: transparent !important;
+}
+
+.text-motion-spacer { display: block; pointer-events: none; user-select: none; }
+
+.text-motion-opening {
+  position: absolute; pointer-events: auto;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transform: scale(0.9);
+  transition: opacity 220ms ease 110ms, transform 360ms cubic-bezier(0.2, 1.5, 0.4, 1) 110ms;
+}
+.text-motion-opening.is-visible { opacity: 1; transform: none; }
+
+.text-motion-menu { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.text-motion-menu button {
+  font: 600 13px var(--font-ui);
+  padding: 6px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--blog-text) 22%, transparent);
+  background: color-mix(in srgb, var(--blog-bg) 88%, var(--blog-text));
+  color: var(--blog-text);
+}
+.text-motion-menu button:hover:not(:disabled),
+.text-motion-menu button:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.text-motion-menu button:disabled { opacity: 0.45; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .text-motion-opening { transform: none; transition: opacity 120ms ease; }
+}
+@media print {
+  .text-motion-layer, .text-motion-spacer { display: none !important; }
+}

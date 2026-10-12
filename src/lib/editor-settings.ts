@@ -6,7 +6,6 @@ export interface EffectiveEditorSettings {
   tab_size: number;
   use_spaces: boolean;
   word_wrap: boolean;
-  format_on_save: boolean;
   auto_save: boolean;
   auto_save_delay_ms: number;
 }
@@ -44,7 +43,6 @@ export function resolveEditorSettings(
     tab_size: numberOverride(override.tab_size, settings.tab_size || 4),
     use_spaces: boolOverride(override.use_spaces, settings.use_spaces !== false),
     word_wrap: boolOverride(override.word_wrap, settings.word_wrap),
-    format_on_save: boolOverride(override.format_on_save, settings.format_on_save),
     auto_save: boolOverride(override.auto_save, settings.auto_save),
     auto_save_delay_ms: Math.max(MIN_AUTO_SAVE_DELAY_MS, delay),
   };

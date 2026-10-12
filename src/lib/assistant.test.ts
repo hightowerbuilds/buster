@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAssistant, formatElapsed } from "./assistant";
+import { ASSISTANT_MODELS, createAssistant, formatElapsed, supportsEffort } from "./assistant";
 import { buildAssistantTools, isAssistantTool, toolName } from "./assistant-tools";
 import type { AssistantTransport, CliStatus, SendRequest, SessionEvent, ToolCall } from "./assistant-transport";
 import { FeatureCommands, emptyArgs, objectResult } from "./feature-commands";
@@ -254,6 +254,24 @@ describe("assistant through Claude Code", () => {
     await assistant.send("Hello");
     expect(cc.sent[0]).toMatchObject({ model: "claude-haiku-4-5" });
     expect(cc.sent[0].effort).toBeUndefined();
+  });
+
+  it("offers Haiku 5.5 with effort control and keeps Haiku 4.5 without it", async () => {
+    const ids = ASSISTANT_MODELS.map(m => m.id);
+    expect(ids).toContain("claude-haiku-5-5");
+    expect(ids).toContain("claude-haiku-4-5");
+    expect(ASSISTANT_MODELS.find(m => m.id === "claude-haiku-5-5")?.label).toBe("Claude Haiku 5.5");
+    expect(supportsEffort("claude-haiku-5-5")).toBe(true);
+    expect(supportsEffort("claude-haiku-4-5")).toBe(false);
+    expect(supportsEffort("claude-haiku-4-5-20251001")).toBe(false);
+    expect(supportsEffort("claude-opus-5-5")).toBe(true);
+    const { commands } = catalog();
+    const cc = fakeClaudeCode();
+    const assistant = createAssistant({ commands, transport: cc.transport });
+    assistant.setModel("claude-haiku-5-5");
+    assistant.setEffort("low");
+    await assistant.send("Hello");
+    expect(cc.sent[0]).toMatchObject({ model: "claude-haiku-5-5", effort: "low" });
   });
 
   it("maps Claude Code status to a connection state", async () => {

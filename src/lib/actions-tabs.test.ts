@@ -21,7 +21,7 @@ function fixture(tabs: Tab[] = [note("a"), note("b"), note("c")], active = tabs[
   // Deliberately no pane workspace: these actions must work independently.
   const [store, setStore] = createStore({ tabs, activeTabId: active, splitView: null,
     fileTexts: Object.fromEntries(tabs.map(tab => [tab.id, ""])),
-    scrollPositions: {}, diffHunksMap: {}, lspLanguages: [],
+    scrollPositions: {},
     fileTabCounter: 0, notesRoot: null, workspaceRoot: "/notes",
   } as unknown as BusterStoreState);
   const map: EngineMap["map"] = new Map();

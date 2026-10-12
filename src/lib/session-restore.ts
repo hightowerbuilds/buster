@@ -2,8 +2,8 @@ import type { SessionState } from "./ipc";
 import type { Tab } from "./tab-types";
 import { restoreSplitView, splitSide } from "./split-view";
 
-// Unknown, retired (including debug), and transient extension surfaces are skipped.
-const RESTORABLE_TYPES = new Set(["file", "image", "settings", "keybindings", "git", "extensions", "problems", "browser", "console", "ai"]);
+// Unknown and retired tab types (terminal, git, browser, extensions, console, problems) are skipped.
+const RESTORABLE_TYPES = new Set(["file", "image", "settings", "keybindings", "ai"]);
 
 export interface RestoreDeps {
   readFile: (path: string) => Promise<string>;

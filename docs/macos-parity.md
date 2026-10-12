@@ -26,6 +26,13 @@ native layout. The dedicated, script-free WebKit document contains only the
 note, with formatted Markdown or literal plain text. The backend uses AppKit
 and WebKit on macOS 11+; other platform builds report printing unavailable.
 
+The Mac app omits the IDE tooling still present in the Linux source: Git,
+language servers, tree-sitter highlighting, WASM extensions and their sandbox,
+the built-in browser, the Console and Problems panels, symbol search, and
+breadcrumbs. Sessions that contain those tabs skip them on restore. The canvas
+editor remains for plain-text files, without syntax colors or code
+intelligence.
+
 ## Develop and build
 
 Install Rust, Bun, and Xcode Command Line Tools, then run from the repository root:
@@ -88,9 +95,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --workspace --locked
 bun run tauri build --debug --bundles app
 ```
 
-The native sandbox integration tests create a macOS Seatbelt sandbox and need
-to run outside an already restricted agent sandbox. CI checks Rust on macOS and
-Linux. Frontend tests cover last-tab welcome, editor cleanup, chat persistence,
+CI checks Rust on macOS and Linux. Frontend tests cover last-tab welcome, editor cleanup, chat persistence,
 model transport, note edits, background playback, and session migration.
 
 Verified on an Intel Mac running macOS 26.6.2, Rust 1.97.1, and Bun 1.3.10:
