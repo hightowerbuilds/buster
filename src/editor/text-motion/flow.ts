@@ -14,15 +14,38 @@ import {
   prepareRichInline,
   type RichInlineCursor,
 } from "@chenglou/pretext/rich-inline";
+import { prepareWithSegments } from "@chenglou/pretext";
 
 export interface FlowRun { text: string; font: string }
 /** Opening in flow coordinates: horizontal extent in px, vertical extent in rows. */
 export interface Opening { left: number; right: number; top: number; rows: number }
-export interface PlacedWord { run: number; text: string; x: number; row: number }
+/** A laid-out word: `start` is its offset in its run's text (-1 if it could not be found there). */
+export interface PlacedWord { run: number; text: string; start: number; x: number; row: number }
 export interface FlowResult { words: PlacedWord[]; rows: number }
 export type MeasureText = (text: string, font: string) => number;
 
 const MAX_ROWS = 10_000;
+
+/**
+ * Split text into the pieces that move as one: Pretext's own line-break
+ * segments ("Saxe-|Altenburg,", "women|—|misunderstandings", "our[|Pg"), without
+ * their whitespace. A word that wraps in one layout and not in another is the
+ * same pieces in both, because these are exactly the places Pretext may break.
+ * Offsets index into `text`.
+ */
+export function wordPieces(text: string, font: string): Array<{ start: number; text: string }> {
+  const pieces: Array<{ start: number; text: string }> = [];
+  let cursor = 0;
+  for (const segment of prepareWithSegments(text, font).segments) {
+    for (const match of segment.matchAll(/\S+/g)) {
+      const start = text.indexOf(match[0], cursor);
+      if (start < 0) continue;
+      pieces.push({ start, text: match[0] });
+      cursor = start + match[0].length;
+    }
+  }
+  return pieces;
+}
 
 let measureContext: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
 /** Canvas width including spaces — the same source Pretext measures with. */
@@ -53,6 +76,8 @@ export function flowAroundOpening(
   if (!runs.some(run => run.text.trim())) return { words, rows: openingEnd };
 
   const prepared = prepareRichInline(runs.map(run => ({ text: run.text, font: run.font })));
+  // How far into each run's text the laid words have reached, to find each word's offset.
+  const consumed = runs.map(() => 0);
   let cursor: RichInlineCursor | undefined;
   let row = 0;
   let lastRow = -1;
@@ -67,7 +92,10 @@ export function flowAroundOpening(
         x += fragment.gapBefore;
         const font = runs[fragment.itemIndex].font;
         for (const match of fragment.text.matchAll(/\S+/g)) {
-          words.push({ run: fragment.itemIndex, text: match[0], x: x + measure(fragment.text.slice(0, match.index), font), row });
+          const run = fragment.itemIndex;
+          const offset = runs[run].text.indexOf(match[0], consumed[run]);
+          if (offset >= 0) consumed[run] = offset + match[0].length;
+          words.push({ run, text: match[0], start: offset, x: x + measure(fragment.text.slice(0, match.index), font), row });
         }
         x += fragment.occupiedWidth;
       }

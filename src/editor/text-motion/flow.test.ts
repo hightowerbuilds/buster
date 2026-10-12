@@ -4,12 +4,13 @@ import type { FlowRun, MeasureText, Opening } from "./flow";
 // Every character is 10px wide, so line breaks are predictable.
 const measure: MeasureText = text => text.length * 10;
 let flowAroundOpening: typeof import("./flow").flowAroundOpening;
+let wordPieces: typeof import("./flow").wordPieces;
 
 beforeAll(async () => {
   globalThis.OffscreenCanvas = class {
     getContext() { return { font: "", measureText: (text: string) => ({ width: text.length * 10 }) }; }
   } as unknown as typeof OffscreenCanvas;
-  ({ flowAroundOpening } = await import("./flow"));
+  ({ flowAroundOpening, wordPieces } = await import("./flow"));
 });
 
 const runs = (text: string): FlowRun[] => [{ text, font: "16px Lato" }];
@@ -54,5 +55,28 @@ describe("flowAroundOpening", () => {
 
   it("returns no words for whitespace-only input", () => {
     expect(flowAroundOpening(runs("   "), 200, null, 30, measure).words).toEqual([]);
+  });
+});
+
+describe("wordPieces", () => {
+  const texts = (text: string) => wordPieces(text, "16px Lato").map(piece => piece.text);
+  it("splits words exactly where Pretext may break a line inside them", () => {
+    expect(texts("Saxe-Altenburg, great-grandfather")).toEqual(["Saxe-", "Altenburg,", "great-", "grandfather"]);
+    expect(texts("women—misunderstandings year—if")).toEqual(["women", "—", "misunderstandings", "year", "—", "if"]);
+    expect(texts("our[Pg 5] and/or 1890–1900")).toEqual(["our[", "Pg", "5]", "and", "/", "or", "1890–1900"]);
+  });
+  it("keeps offsets into the original text, whitespace and all", () => {
+    expect(wordPieces("a  well-known café", "16px Lato")).toEqual([
+      { start: 0, text: "a" }, { start: 3, text: "well-" }, { start: 8, text: "known" }, { start: 14, text: "café" },
+    ]);
+  });
+});
+
+describe("laid word offsets", () => {
+  it("records where each laid word starts in its run, even when a line breaks inside a word", () => {
+    const text = "aa Saxe-Altenburg bb";
+    const { words } = flowAroundOpening(runs(text), 80, null, 30, measure);
+    expect(words.map(word => [word.text, word.start])).toEqual(words.map(word => [word.text, text.indexOf(word.text)]));
+    expect(words.every(word => word.start >= 0)).toBe(true);
   });
 });

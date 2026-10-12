@@ -23,7 +23,7 @@
  */
 
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
-import { canvasMeasure, flowAroundOpening, type FlowRun } from "./flow";
+import { canvasMeasure, flowAroundOpening, wordPieces, type FlowRun } from "./flow";
 import { graphemes, matchLetters } from "./letters";
 import { LIVELY, SETTLE, isSettled, spring, stepSpring, type Spring, type SpringConfig } from "./spring";
 
@@ -103,17 +103,21 @@ function lineHeightOf(style: CSSStyleDeclaration): number {
   return value > 0 ? value : px(style.fontSize) * 1.2;
 }
 
-/** Only plain prose in left-aligned, normally spaced paragraphs can be reflowed faithfully. */
-function canReflow(block: HTMLElement, style: CSSStyleDeclaration): boolean {
-  if (block.tagName !== "P") return false;
-  if (!["start", "left"].includes(style.textAlign)) return false;
-  if (style.letterSpacing !== "normal" && px(style.letterSpacing) !== 0) return false;
-  if (style.wordSpacing !== "normal" && px(style.wordSpacing) !== 0) return false;
+/**
+ * Only plain prose in left-aligned, normally spaced paragraphs can be reflowed
+ * faithfully. Returns why not, or null when it can.
+ */
+function reflowBlocker(block: HTMLElement, style: CSSStyleDeclaration): string | null {
+  if (block.tagName !== "P") return `block <${block.tagName.toLowerCase()}>`;
+  if (!["start", "left"].includes(style.textAlign)) return `text-align ${style.textAlign}`;
+  if (style.letterSpacing !== "normal" && px(style.letterSpacing) !== 0) return `letter-spacing ${style.letterSpacing}`;
+  if (style.wordSpacing !== "normal" && px(style.wordSpacing) !== 0) return `word-spacing ${style.wordSpacing}`;
   const walker = document.createTreeWalker(block, NodeFilter.SHOW_ELEMENT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!INLINE_TAGS.has((node as Element).tagName)) return false;
+    const element = node as Element;
+    if (!INLINE_TAGS.has(element.tagName)) return `inline <${element.tagName.toLowerCase()}${element.className ? `.${element.className}` : ""}>`;
   }
-  return true;
+  return null;
 }
 
 export function openSpread(options: SpreadOptions): SpreadHandle {
@@ -153,12 +157,16 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
   let rect: OpeningRect = { left: 0, top: 0, width: Math.min(OPENING_MAX_WIDTH, columnWidth), height: rows * lineHeight };
   let extraHeight = 0;
   let reflowed = false;
+  /** Why the paragraph took the rigid fallback, for the stats and the console. */
+  let fallback: string | null = reflowBlocker(block, blockStyle);
   let repart: ((width: number, rows: number) => { dest: Map<Measured, { x: number; y: number }>; rect: OpeningRect; extra: number } | null) | null = null;
   let flyable: { unit: Unit; word: Measured; offset: number; text: string; font: string } | null = null;
   const letters: Letter[] = [];
 
-  if (canReflow(block, blockStyle)) {
+  if (!fallback) {
     // ── Origins: every word where the browser drew it ──────────────
+    // Words are split into Pretext's break segments (wordPieces), so each piece
+    // sits on one line here and in Pretext's layout alike.
     // WebKit snaps text rects to whole pixels, so the rects only find each
     // word's line. Exact positions come from layout arithmetic instead: line
     // boxes stack at the paragraph's line height, and x advances along a line
@@ -175,15 +183,21 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
       const style = getComputedStyle(node.parentElement!);
       nodes.push(node);
       fonts.set(node, canvasFont(style));
-      for (const match of node.data.matchAll(/\S+/g)) {
-        range.setStart(node, match.index); range.setEnd(node, match.index + match[0].length);
+      for (const piece of wordPieces(node.data, fonts.get(node)!)) {
+        range.setStart(node, piece.start); range.setEnd(node, piece.start + piece.text.length);
         const rect = Array.from(range.getClientRects()).find(r => r.width > 0);
-        if (rect) measured.push({ node, start: match.index, text: match[0], x: toContentX(rect.left),
+        if (rect) measured.push({ node, start: piece.start, text: piece.text, x: toContentX(rect.left),
           line: lineAt(toContentY(rect.top), toContentY(rect.bottom)), style });
       }
     }
     const nodeIndex = new Map(nodes.map((node, index) => [node, index]));
     const advance = (a: Measured, b: Measured) => {
+      // Pieces of one word share a text node: measure through `b` and take `b`
+      // back off, so the kerning across the join ("-A" in "Saxe-Altenburg") counts.
+      if (a.node === b.node) {
+        const font = fonts.get(a.node)!;
+        return canvasMeasure(a.node.data.slice(a.start, b.start + b.text.length), font) - canvasMeasure(b.text, font);
+      }
       let width = 0;
       for (let i = nodeIndex.get(a.node)!; i <= nodeIndex.get(b.node)!; i++) {
         const node = nodes[i];
@@ -210,6 +224,8 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
     const flowTop = lineTop(endLine + 1);
     const runs: FlowRun[] = [];
     const runWords: Measured[][] = [];
+    /** Where each run's text starts in its text node (the first run starts at the first moving word). */
+    const runStarts: number[] = [];
     if (firstMoving >= 0) {
       let current: Text | null = null;
       for (const word of measured.slice(firstMoving)) {
@@ -217,24 +233,44 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
           current = word.node;
           const start = runs.length === 0 ? word.start : 0;
           runs.push({ text: word.node.data.slice(start), font: fonts.get(word.node)! });
+          runStarts.push(start);
           runWords.push([]);
         }
         runWords[runWords.length - 1].push(word);
       }
     }
-    const minSpan = px(blockStyle.fontSize) * 4;
+    // A span beside the opening narrower than the widest piece stays empty, so
+    // Pretext never has to break a word that doesn't fit.
+    const widest = runWords.flat().reduce((max, word) => Math.max(max, canvasMeasure(word.text, fonts.get(word.node)!)), 0);
+    const minSpan = Math.max(px(blockStyle.fontSize) * 4, Math.ceil(widest) + 1);
     const partAround = (width: number, count: number) => {
       const openingX = Math.max(0, Math.min(columnWidth - width, targetCenterX - columnLeft - width / 2));
       const flow = flowAroundOpening(runs, columnWidth, { left: openingX, right: openingX + width, top: 0, rows: count }, minSpan);
-      // Pair Pretext's words with the measured ones, run by run, in order.
+      // Pair each measured piece with the laid word that contains it, by offset
+      // in the run's text. A laid word may hold several pieces ("Saxe-" and
+      // "Altenburg," when Pretext keeps them on one line); a piece must never
+      // straddle two laid words.
       const dest = new Map<Measured, { x: number; y: number }>();
       for (let run = 0; run < runWords.length; run++) {
         const laid = flow.words.filter(word => word.run === run);
-        if (laid.length !== runWords[run].length) return null;
-        for (let index = 0; index < laid.length; index++) {
-          const origin = runWords[run][index];
-          if (laid[index].text !== origin.text) return null;
-          dest.set(origin, { x: columnLeft + laid[index].x, y: flowTop + laid[index].row * lineHeight });
+        let j = 0;
+        for (const piece of runWords[run]) {
+          const start = piece.start - runStarts[run], end = start + piece.text.length;
+          while (j < laid.length && laid[j].start >= 0 && laid[j].start + laid[j].text.length <= start) j++;
+          const word = laid[j];
+          if (!word || word.start < 0 || word.start > start || word.start + word.text.length < end
+            || word.text.slice(start - word.start, end - word.start) !== piece.text) {
+            fallback = `flow run ${run}/${runWords.length}: piece ${JSON.stringify(piece.text)} at ${start} vs laid ${JSON.stringify(word?.text ?? null)} at ${word?.start ?? null}`;
+            return null;
+          }
+          // Where the piece starts inside the laid word, kerning across the join included.
+          const font = fonts.get(piece.node)!;
+          const within = start === word.start ? 0
+            : canvasMeasure(word.text.slice(0, end - word.start), font) - canvasMeasure(piece.text, font);
+          dest.set(piece, {
+            x: columnLeft + word.x + within,
+            y: flowTop + word.row * lineHeight,
+          });
         }
       }
       return {
@@ -339,7 +375,7 @@ export function openSpread(options: SpreadOptions): SpreadHandle {
   let last = 0;
   let started = 0;
   let flownScale = 1;
-  const stats = { frames: 0, maxFrameMs: 0, words: units.length, reflowed };
+  const stats = { frames: 0, maxFrameMs: 0, words: units.length, reflowed, ...(fallback ? { fallback } : {}) };
 
   function apply(unit: Unit) {
     const tilt = options.reducedMotion ? 0 : Math.max(-14, Math.min(14, unit.x.velocity * 0.012));

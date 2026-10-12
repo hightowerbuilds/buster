@@ -233,6 +233,20 @@ across a line break (66/66 checks).
 - [x] **COMPLETED** — Closing the opening cancels an in-flight rephrase and
   stops the CLI process.
 
+## Fix — paragraphs that opened below themselves (2026-10-11)
+
+Paragraphs with words Pretext can break inside — hyphens (`Saxe-Altenburg`),
+em dashes (`women—misunderstandings`), brackets (`our[Pg`), or long words in a
+narrow span beside the opening — gave Pretext one more word than the page, the
+pairing failed, and the spread fell back to an opening below the paragraph. The
+motion now moves Pretext's own break segments (`wordPieces`), pairs laid words
+to pieces by offset, keeps side spans at least as wide as the widest piece, and
+measures piece positions through the join so kerning (`-A`) is kept. On the
+writer's own notes every one of 167 paragraph right-clicks now parts the text
+(113 of 175 before). Fallbacks record why in the `[text-motion]` stats. The smoke
+test adds a dashed paragraph: every line parts, 0px return drift, and a
+glyph-by-glyph first frame within 1px (72/72 checks).
+
 ## 5 — Spelling & Grammar
 
 - [ ] Use the Language Model only (decided 2026-10-11). Send the target word and

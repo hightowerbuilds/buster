@@ -57,6 +57,11 @@ void (async () => {
     'and somewhere past the breakwater a bell kept time with the waves as the fog rolled in from the open sea, ' +
     'carrying the smell of salt and diesel and old rope across the wet planks of the pier where the gulls slept in rows. ' +
     'Nobody noticed the small boat drifting without lights until it bumped the pilings below the customs shed.';
+  // Words that Pretext may break inside: hyphens, dashes, brackets, slashes, and long words.
+  const dashed = 'In 1841 the Saxe-Altenburg princesses—Theresa, Elizabeth, and Alexandra—met our great-grandfather, ' +
+    'a well-known, long-lived, self-controlled man [see p. 12]; his daughter-in-law\'s convent-school and/or the ' +
+    'thirty-one paving-stones of the vicarage were, in a word, incomprehensibilities to the grandparents—misunderstandings, ' +
+    'sentimentality, and a lifetime of half-remembered Grand-mamma stories (1890–1900) followed them everywhere.';
   try {
     await wait(() => document.querySelector('.footer-nav'), 'workspace initialization');
     assert(navigator.platform.startsWith('Mac'), 'Running in native macOS WebKit');
@@ -68,6 +73,8 @@ void (async () => {
     document.execCommand('insertText', false, 'A second paragraph that should slide down.');
     key(note, 'Enter', 'Enter');
     document.execCommand('insertText', false, 'A third paragraph, also below the opening.');
+    key(note, 'Enter', 'Enter');
+    document.execCommand('insertText', false, dashed);
     await delay(300);
     const [first, second, third] = note.querySelectorAll('p');
     assert(first && second && third, 'Three paragraphs written');
@@ -322,6 +329,76 @@ void (async () => {
     let phraseDrift = 0;
     words(first).forEach((word, index) => { phraseDrift = Math.max(phraseDrift, Math.abs(word.left - before[index].left), Math.abs(word.top - before[index].top)); });
     assert(phraseDrift < 0.01 && first.textContent === prose, `Escape after the phrase panels returns the text exactly (drift ${phraseDrift}px)`);
+
+    // ── Words that break inside: every line still parts ───────────────
+    const fourth = note.querySelectorAll('p')[3];
+    assert(fourth?.textContent === dashed, 'A paragraph of hyphenated and dashed words was written');
+    fourth.scrollIntoView({ block: 'center' }); await delay(150);
+    const dashedBefore = words(fourth);
+    const dashedLines = lines(dashedBefore);
+    assert(dashedLines.length >= 3, `The dashed paragraph wraps to ${dashedLines.length} lines`);
+    const failures = [];
+    for (const [lineIndex, top] of dashedLines.entries()) {
+      const onLine = words(fourth).filter(word => Math.abs(word.top - top) < 4 && /[a-z]{3,}/i.test(word.text));
+      const target = onLine[Math.floor(onLine.length / 2)];
+      if (!target) continue;
+      window.__textMotion = undefined;
+      const hit = rightClick(target.left + Math.min(8, target.width / 2), target.top + 4);
+      if (!hit.defaultPrevented) { failures.push(`line ${lineIndex}: did not open on “${target.text}”`); continue; }
+      await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'dashed spread settled');
+      if (!window.__textMotion.reflowed) failures.push(`line ${lineIndex}: ${window.__textMotion.fallback}`);
+      const hole = opening().getBoundingClientRect();
+      const crowded = [...document.querySelectorAll('.text-motion-word')].filter(span => {
+        const r = span.getBoundingClientRect();
+        return r.right > hole.left + 1 && r.left < hole.right - 1 && r.bottom > hole.top + 1 && r.top < hole.bottom - 1;
+      }).map(span => span.textContent);
+      if (crowded.length) failures.push(`line ${lineIndex}: overlaps ${crowded.join(' ')}`);
+      key(window, 'Escape', 'Escape');
+      await closed();
+    }
+    metrics.dashedLines = dashedLines.length;
+    assert(!failures.length, `Every line of the dashed paragraph parts the text (${failures.join('; ')})`);
+    await frame();
+    let dashedDrift = 0;
+    words(fourth).forEach((word, index) => { dashedDrift = Math.max(dashedDrift, Math.abs(word.left - dashedBefore[index].left), Math.abs(word.top - dashedBefore[index].top)); });
+    assert(dashedDrift < 0.01 && fourth.textContent === dashed, `Escape returns the dashed paragraph exactly (drift ${dashedDrift}px)`);
+
+    // First frame for pieces: open on the dashed paragraph and compare every glyph box to the page.
+    const firstLine = words(fourth).filter(word => Math.abs(word.top - dashedLines[0]) < 4 && /[a-z]{3,}/i.test(word.text));
+    window.__textMotion = undefined;
+    rightClick(firstLine[1].left + 4, firstLine[1].top + 4);
+    const pageGlyphs = [];
+    const glyphWalker = document.createTreeWalker(fourth, NodeFilter.SHOW_TEXT);
+    const pageRange = document.createRange();
+    for (let node = glyphWalker.nextNode(); node; node = glyphWalker.nextNode()) {
+      for (let i = 0; i < node.data.length; i++) {
+        if (/\s/.test(node.data[i])) continue;
+        pageRange.setStart(node, i); pageRange.setEnd(node, i + 1);
+        const r = [...pageRange.getClientRects()].find(rect => rect.width > 0);
+        if (r) pageGlyphs.push({ ch: node.data[i], left: r.left, top: r.top });
+      }
+    }
+    const layerGlyphs = [];
+    for (const span of document.querySelectorAll('.text-motion-word')) {
+      const node = span.firstChild;
+      if (!node || node.nodeType !== 3) continue;
+      for (let i = 0; i < node.data.length; i++) {
+        pageRange.setStart(node, i); pageRange.setEnd(node, i + 1);
+        const r = [...pageRange.getClientRects()].find(rect => rect.width > 0);
+        if (r) layerGlyphs.push({ ch: node.data[i], left: r.left, top: r.top });
+      }
+    }
+    assert(layerGlyphs.map(g => g.ch).join('') === pageGlyphs.map(g => g.ch).join(''), 'The motion layer holds every character of the dashed paragraph, in order');
+    const glyphErrors = layerGlyphs.map((g, i) => Math.max(Math.abs(g.left - pageGlyphs[i].left), Math.abs(g.top - pageGlyphs[i].top)));
+    const glyphError = Math.max(...glyphErrors);
+    const worstGlyph = glyphErrors.indexOf(glyphError);
+    metrics.dashedFirstFrameGlyphErrorPx = glyphError;
+    metrics.dashedWorstGlyph = { at: worstGlyph, context: pageGlyphs.slice(Math.max(0, worstGlyph - 6), worstGlyph + 4).map(g => g.ch).join(''),
+      page: pageGlyphs[worstGlyph], layer: layerGlyphs[worstGlyph] };
+    assert(glyphError <= 1.5, `The dashed paragraph's first frame matches the page glyph by glyph (worst ${glyphError.toFixed(2)}px)`);
+    await wait(() => opening()?.classList.contains('is-visible') && window.__textMotion, 'dashed spread settled');
+    key(window, 'Escape', 'Escape');
+    await closed();
 
     // ── Off a word the native menu is untouched ───────────────────────
     const rect = third.getBoundingClientRect();
